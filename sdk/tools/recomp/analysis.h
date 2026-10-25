@@ -99,6 +99,7 @@ private:
     void MakeFunction(uint32_t va);
     bool ReadTable(uint32_t jmp_va, const ZydisDecodedOperand& mem, JumpTable& jt);
     bool SledTable(uint32_t jmp_va, const uint32_t* ring, int nring, JumpTable& jt);
+    bool RegisterImmediate(const uint32_t* ring, int nring, int from, ZydisRegister reg, uint32_t& value) const;
 
     ZydisDecoder dec_;
     std::vector<uint8_t> code_;   // 1 = byte belongs to a code section

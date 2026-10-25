@@ -144,6 +144,44 @@ bool Analysis::DecodeFlow(uint32_t va, Insn& out, JumpTable* jt) {
     return true;
 }
 
+// the immediate reg holds after the ring's instructions from the from'th last back: "mov reg, imm", or "pop reg"
+// after a "push imm" with no other stack use between them, as MSVC loads a small constant; false for any other write
+bool Analysis::RegisterImmediate(const uint32_t* ring, int nring, int from, ZydisRegister reg, uint32_t& value) const {
+    reg = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, reg);
+    auto largest = [](const ZydisDecodedOperand& o) {
+        return o.type == ZYDIS_OPERAND_TYPE_REGISTER ? ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, o.reg.value)
+                                                     : ZYDIS_REGISTER_NONE;
+    };
+    bool popped = false;
+    for (int k = from; k < 8 && k < nring; k++) {
+        ZydisDecodedInstruction in;
+        ZydisDecodedOperand ops[ZYDIS_MAX_OPERAND_COUNT];
+        if (!Decode(ring[(nring - 1 - k) & 7], in, ops)) return false;
+        if (popped) {
+            if (in.mnemonic == ZYDIS_MNEMONIC_PUSH && ops[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+                value = uint32_t(ops[0].imm.value.u);
+                return true;
+            }
+            // anything else moving the stack between the push and the pop
+            bool stack = in.mnemonic == ZYDIS_MNEMONIC_PUSH || in.mnemonic == ZYDIS_MNEMONIC_POP ||
+                         in.meta.category == ZYDIS_CATEGORY_CALL;
+            for (uint32_t i = 0; i < in.operand_count; i++)
+                stack |= largest(ops[i]) == ZYDIS_REGISTER_ESP && (ops[i].actions & ZYDIS_OPERAND_ACTION_WRITE);
+            if (stack) return false;
+            continue;
+        }
+        if (in.operand_count_visible == 0 || largest(ops[0]) != reg || !(ops[0].actions & ZYDIS_OPERAND_ACTION_WRITE))
+            continue;
+        if (in.mnemonic == ZYDIS_MNEMONIC_MOV && ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
+            value = uint32_t(ops[1].imm.value.u);
+            return true;
+        }
+        if (in.mnemonic != ZYDIS_MNEMONIC_POP) return false;
+        popped = true;
+    }
+    return false;
+}
+
 // "and r, mask; neg r; add r, end; jmp r": a jump back into a run of one byte instructions ending at end, as the
 // MSVC memcpy tail copies its last dwords with a sled of movsd
 bool Analysis::SledTable(uint32_t jmp_va, const uint32_t* ring, int nring, JumpTable& jt) {
@@ -282,6 +320,16 @@ bool Analysis::Walk(uint32_t entry, bool trusted, std::vector<uint32_t>* calls) 
                             po[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE) {
                             ZydisRegister r = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, po[0].reg.value);
                             if (r == idx || r == byte_idx) bound = uint32_t(po[1].imm.value.u) + 1;
+                            break;
+                        }
+                        // "cmp idx, reg" with reg loaded from an immediate just before ("push 7; pop ecx")
+                        if (pi.mnemonic == ZYDIS_MNEMONIC_CMP && po[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                            po[1].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+                            ZydisRegister r = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LEGACY_32, po[0].reg.value);
+                            if (r == idx || r == byte_idx) {
+                                uint32_t v = 0;
+                                if (RegisterImmediate(ring, nring, k + 1, po[1].reg.value, v)) bound = v + 1;
+                            }
                             break;
                         }
                     }

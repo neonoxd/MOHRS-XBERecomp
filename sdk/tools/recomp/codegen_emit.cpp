@@ -110,7 +110,7 @@ std::string CodeGen::EmitFunction(uint32_t entry) {
     out += "\tX86_LOAD_FLAGS();\n\tuint32_t ca = 0, cb = 0;\n\t(void)ca; (void)cb;\n";
     // code below the entry (a shared tail reached by a jump) is emitted first, so enter by label
     bool entry_first = !body.empty() && body.front() == entry;
-    if (!entry_first) out += F("\tgoto loc_%08X;\n", entry);
+    if (!entry_first && !body.empty()) out += F("\tgoto loc_%08X;\n", entry);  // an empty body only traps
     if (labels_.count(entry) && entry_first) out += F("loc_%08X:;\n", entry);
     out += body_;
     if (seh) out += "\t} catch (const X86Resume& r) {\n\t\tif (r.esp >= x86_frame) throw;\n\t\tx86_resume(ctx, base, r);\n\t}\n";
