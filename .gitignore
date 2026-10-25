@@ -6,6 +6,7 @@
 *.exe
 *.obj
 *.o
+__pycache__/
 
 # recompiled code, derived from the game
 /generated/

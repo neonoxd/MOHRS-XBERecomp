@@ -1,6 +1,7 @@
 // Hooks for moh3rdc.xbe (co-op). A strong definition replaces the recompiled function at that address. The same
 // game functions as in src/game/hooks.cpp, found by their bytes in this build of the game code.
 #include "common/mouse_look.h"
+#include "common/frame_timing.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
 #include "kernel/kernel.h"
@@ -43,3 +44,11 @@ X86_FUNC(sub_000754F0) {
 // ecx at 0x13B1A
 void FrameWaitEax(X86Context& ctx, uint8_t*) { game::FrameWait(ctx.eax); }
 void FrameWaitEcx(X86Context& ctx, uint8_t*) { game::FrameWait(ctx.ecx); }
+
+void FrameDelta(X86Context& ctx, uint8_t*) {
+    game::FrameDelta(ctx);
+    game::TimingFrame(ctx.xmm[0].f[0], 0x265278, 0x23C9D0);
+}
+void MissionTicks(X86Context& ctx, uint8_t*) { game::MissionTicks(ctx); }
+void MenuTicks(X86Context& ctx, uint8_t*) { game::MenuTicks(ctx); }
+void MessageTicks(X86Context& ctx, uint8_t*) { game::MessageTicks(ctx); }

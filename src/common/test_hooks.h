@@ -23,6 +23,7 @@ void SkipMovie(uint32_t key, uint32_t buffer, uint32_t size);
 // runs the game one fixed tick per blank passed. With fps60 a blank passed counts as two at both of its waiting
 // compares, so a frame is shown each blank and the game runs one tick a frame: the same speed, twice the frames, as
 // the PS2 version's 60 fps patch (sltiu v0, v0, 2 -> 1).
+// With unlocked_fps even zero blanks pass the wait; frame_timing.cpp supplies elapsed ticks to every caller.
 void FrameWait(uint32_t& blanks);
 
 }  // namespace game

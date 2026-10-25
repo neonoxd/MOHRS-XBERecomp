@@ -305,3 +305,61 @@ call = "FrameWaitEax"
 [[hook]]
 at = 0x13ACA
 call = "FrameWaitEcx"
+
+# Elapsed ticks after cvtsi2ss xmm0,eax at every frame-end caller (docs/frame-timing.md).
+[[hook]]
+at = 0xA2E53
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA3567
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA360B
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA364B
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA368B
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA3E4C
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA3F2E
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA3FD8
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA4DCF
+after = true
+call = "FrameDelta"
+
+[[hook]]
+at = 0xA4C32
+call = "MissionTicks"
+
+[[hook]]
+at = 0xA4CEC
+call = "MenuTicks"
+
+[[hook]]
+at = 0xFABB4
+call = "MessageTicks"

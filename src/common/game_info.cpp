@@ -155,6 +155,7 @@ const app::GameInfo app::kGame = {
                 {"fps_counter", &game::Opt().fps_counter, nullptr},
                 {"widescreen", &game::Opt().widescreen, nullptr},
                 {"fps60", &game::Opt().fps60, nullptr},
+                {"unlocked_fps", &game::Opt().unlocked_fps, nullptr},
                 {"invert_mouse", &game::Opt().invert_mouse, nullptr},
                 {"invert_mouse_x", &game::Opt().invert_mouse_x, nullptr},
                 {"walk_speed", nullptr, &game::Opt().walk_speed}},

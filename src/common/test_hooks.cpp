@@ -51,7 +51,8 @@ void SkipMovie(uint32_t key, uint32_t buffer, uint32_t size) {
 }
 
 void FrameWait(uint32_t& blanks) {
-    if (Opt().fps60 && blanks == 1) blanks = 2;
+    if (Opt().unlocked_fps && blanks < 2) blanks = 2;
+    else if (Opt().fps60 && blanks == 1) blanks = 2;
 }
 
 }  // namespace game

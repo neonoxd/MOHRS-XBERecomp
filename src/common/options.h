@@ -12,6 +12,7 @@ struct Options {
     bool fps_counter = false;     // frames a second in the picture's top left corner
     bool widescreen = true;       // 16:9 on a 3:2 or wider output, the view widened (src/common/widescreen.cpp)
     bool fps60 = true;            // a frame each vertical blank, as the PS2's 60 fps patch; off: every second one (30)
+    bool unlocked_fps = false;    // experimental elapsed-time updates; fps_cap/vsync set the presentation rate
     // keyboard and mouse (src/common/mouse_keyboard.cpp)
     float mouse_sensitivity = 1.0f;  // horizontal, 0.05 degrees a count at 1
     float mouse_vertical_sensitivity = 1.0f;

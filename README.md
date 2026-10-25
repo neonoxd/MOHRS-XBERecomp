@@ -12,8 +12,9 @@ libraries run as host code, graphics go through Direct3D 12 and audio through XA
 
 ## Status
 
-Early bring-up. The game uses XDK 5455, which this repo's copy of the SDK now supports (signatures, layout); next is
-the first full recompile.
+Single-player and co-op boot and run with graphics, audio, saves, controller and keyboard/mouse support.
+Widescreen and 60 FPS are implemented. An experimental mode above 60 FPS uses elapsed-time updates;
+see [frame timing and settings](docs/frame-timing.md). The game uses XDK 5455, supported by this repo's SDK.
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 
 ## Repository layout

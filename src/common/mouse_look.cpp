@@ -1,4 +1,5 @@
 #include "common/mouse_look.h"
+#include "common/frame_timing.h"
 
 #include "common/mouse_keyboard.h"
 #include "kernel/kernel.h"
@@ -36,6 +37,7 @@ bool Turn(const X86Context& ctx, uint32_t players, float& yaw, float& pitch) {
 }  // namespace
 
 void MouseLook(X86Context& ctx, uint32_t players) {
+    if (ctx.esi == R32(players)) PlayerTick(G<float>(ctx.ebp + 8));
     float yaw;
     float pitch;
     if (!Turn(ctx, players, yaw, pitch)) return;

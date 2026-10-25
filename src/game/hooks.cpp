@@ -1,5 +1,6 @@
 // Hooks for default.xbe. A strong definition replaces the recompiled function at that address.
 #include "common/mouse_look.h"
+#include "common/frame_timing.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
 #include "kernel/kernel.h"
@@ -41,3 +42,11 @@ X86_FUNC(sub_00082BA0) {
 // ecx at 0x13ACA
 void FrameWaitEax(X86Context& ctx, uint8_t*) { game::FrameWait(ctx.eax); }
 void FrameWaitEcx(X86Context& ctx, uint8_t*) { game::FrameWait(ctx.ecx); }
+
+void FrameDelta(X86Context& ctx, uint8_t*) {
+    game::FrameDelta(ctx);
+    game::TimingFrame(ctx.xmm[0].f[0], 0x270108, 0x2447D8);
+}
+void MissionTicks(X86Context& ctx, uint8_t*) { game::MissionTicks(ctx); }
+void MenuTicks(X86Context& ctx, uint8_t*) { game::MenuTicks(ctx); }
+void MessageTicks(X86Context& ctx, uint8_t*) { game::MessageTicks(ctx); }
