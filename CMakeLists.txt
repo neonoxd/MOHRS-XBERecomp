@@ -21,20 +21,29 @@ else()
 endif()
 include(${SDK}/cmake/XbeRecomp.cmake)
 
+# host code shared by both images; src/game and src/coop hold each image's own hooks
 file(GLOB XBE_HOST_SOURCES CONFIGURE_DEPENDS src/*/*.cpp)
-list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/game/")
+list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/(game|coop)/")
 
-# partitions as xbe_symbols wrote them into config/game.toml
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS config/game.toml)
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/game.toml)
-    file(STRINGS config/game.toml GAME_PARTITIONS REGEX "^partitions *=")
-    string(REGEX MATCH "[0-9]+" GAME_PARTITIONS "${GAME_PARTITIONS}")
-endif()
-# no config yet: build.bat writes it with xbe_symbols, the change reconfigures
-if(NOT GAME_PARTITIONS)
-    set(GAME_PARTITIONS 8)
-endif()
+# partitions as xbe_symbols wrote them into config/<config>
+function(config_partitions config out)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/config/${config})
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config/${config})
+        file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/config/${config} parts REGEX "^partitions *=")
+        string(REGEX MATCH "[0-9]+" parts "${parts}")
+    endif()
+    # no config yet: build.bat writes game.toml with xbe_symbols, the change reconfigures
+    if(NOT parts)
+        set(parts 8)
+    endif()
+    set(${out} ${parts} PARENT_SCOPE)
+endfunction()
 
 # target name = GAME_EXE in build.bat, xbe = GAME_XBE. The xbes sit in assets/xbe/, so the game runs from the .iso in
 # assets/: the runtime prefers a loose assets/default.xbe and would then look for the data files beside it
+config_partitions(game.toml GAME_PARTITIONS)
 add_xbe_image(MOHRS xbe/default.xbe game.toml ${GAME_PARTITIONS} game)
+
+# the co-op executable, which default.xbe launches for co-op and which launches default.xbe back
+config_partitions(coop.toml COOP_PARTITIONS)
+add_xbe_image(MOHRSCoop xbe/moh3rdc.xbe coop.toml ${COOP_PARTITIONS} coop)

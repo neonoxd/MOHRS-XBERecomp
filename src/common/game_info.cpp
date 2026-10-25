@@ -15,7 +15,7 @@ const app::GameInfo app::kGame = {
     .settings = "settings.toml",             // settings file beside the exe
     .splash = L"splash",                     // optional splash.png or splash.bmp beside the exe
     .missing = L"Put the game in the assets folder: its disc image (.iso), or default.xbe with its folders beside it.",
-    .images = {{"default.xbe", "MOHRS"}},    // each recompiled xbe and its exe, for title launches; moh3rdc.xbe (co-op) comes in M8
+    .images = {{"default.xbe", "MOHRS"}, {"moh3rdc.xbe", "MOHRSCoop"}},  // each recompiled xbe and its exe, for title launches
     .options = {{"skip_intros", &game::Opt().skip_intros, nullptr},          // game settings kept in the settings file
                 {"skip_cutscenes", &game::Opt().skip_cutscenes, nullptr}},
     .load = nullptr,                      // reads more from the settings file's toml::table
