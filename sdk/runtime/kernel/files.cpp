@@ -2,6 +2,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -234,6 +235,22 @@ struct Target {
     const Disc::Entry* entry = nullptr;  // there: the file or folder, null when missing
 };
 
+// a file under the folder XBE_DISC_OVERRIDE names replaces the disc's file at the same path, to try changed game
+// data without a new disc image; folders and every other file still come from the disc
+fs::path DiscOverride(const std::vector<std::string>& parts) {
+    static const fs::path dir = [] {
+        const char* v = std::getenv("XBE_DISC_OVERRIDE");
+        if (v && *v) LOGI("files: disc files under %s override the disc", v);
+        return v && *v ? fs::path(v) : fs::path();
+    }();
+    if (dir.empty() || parts.empty()) return {};
+    std::error_code ec;
+    fs::path f = MatchCase(dir, parts);
+    if (!fs::is_regular_file(f, ec)) return {};
+    LOG_FIRST(64, "files: %s from the override folder", f.string().c_str());
+    return f;
+}
+
 Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     std::string p = Normalize(xbox_path);
     if (root_handle) {
@@ -271,8 +288,10 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     // no Xbox name holds ':', and fs::path would take "D:" as a host drive
     for (auto& part : parts)
         if (part.find(':') != std::string::npos) return {};
-    if (best->first == kCdRom)
+    if (best->first == kCdRom) {
+        if (fs::path over = DiscOverride(parts); !over.empty()) return {over.string()};
         if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
+    }
     return {MatchCase(best->second, parts).string()};
 }
 

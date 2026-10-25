@@ -117,6 +117,7 @@ Mode Output() {
 }
 
 bool Widescreen() {
+    if (!kGame.widescreen) return false;
     // asked per frame and per HUD quad: the desktop mode lookup only runs when the resolution setting changes
     static std::atomic<uint64_t> key{~0ull};
     static std::atomic<bool> wide{true};

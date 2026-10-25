@@ -98,6 +98,9 @@ struct GameInfo {
     void (*ui)(double fps);        // each frame inside the ImGui frame, UiLock held
     void (*pad)(int port, input::Pad& pad);  // a polled pad before the game gets it
     void (*rumble)(int port, uint16_t& left, uint16_t& right);
+    // the title has a 16:9 mode it picks from the console's widescreen setting; false shows it at 4:3 on any output,
+    // as a console set to 4:3 would, for titles that draw 4:3 whatever the setting says
+    bool widescreen = true;
 };
 extern const GameInfo kGame;
 
