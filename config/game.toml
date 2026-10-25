@@ -286,3 +286,13 @@ XPP_MemoryUnitType          = 0x1D8278  # from xbsdb_default.txt
 # argument locations in API order for functions a link time code generated library compiled with another
 # convention: a register (eax ebx ecx edx esi edi ebp) or "stack" for the next stack slot, which the callee pops
 [abi]
+
+# src/game/hooks.cpp: mouse look, before the stick's turn rates are added to the player's yaw and pitch
+[[hook]]
+at = 0xE0AEE
+call = "MouseLook"
+
+# the same on a mounted gun
+[[hook]]
+at = 0xDC911
+call = "TurretLook"

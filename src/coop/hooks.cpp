@@ -1,5 +1,6 @@
 // Hooks for moh3rdc.xbe (co-op). A strong definition replaces the recompiled function at that address. The same
 // game functions as in src/game/hooks.cpp, found by their bytes in this build of the game code.
+#include "common/mouse_look.h"
 #include "common/test_hooks.h"
 #include "kernel/kernel.h"
 #include "xdk/hle.h"
@@ -21,3 +22,9 @@ X86_FUNC(sub_00107280) {
     __imp__sub_00107280(ctx, base);
     if (ctx.eax & 0xFF) game::SkipMovie(key, buffer, size);
 }
+
+// mouse look (src/common/mouse_look.h); the player list is the game's, by controller (0x52BFF reads it)
+constexpr uint32_t kPlayers = 0x265278;
+// [[hook]] 0xD8A1E in the player's look update 0xD8980: esi the player, before the stick's rates are added. This build
+// has no mounted gun update like default.xbe's 0xDC911.
+void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers); }

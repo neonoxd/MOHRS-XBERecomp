@@ -133,6 +133,9 @@ back (co-op quitting to `default.xbe`) was not in the logs, as the window was cl
 Following BLACK as a reference: output resolution and widescreen/aspect, unlocked frame rate (needs every
 30 FPS-tied system made time-based), field of view, keyboard and mouse, MSAA/SMAA/anisotropic filtering, draw
 distance, skip intros, pause on focus loss, texture dumping/replacement (already in the SDK).
+- Keyboard and mouse: done early (2026-10-25, at the user's request). Raw mouse look added to the player's yaw and
+  pitch in the game's look update (and on mounted guns), keys on port 0's pad with bindings in `settings.toml`
+  `[keys]`, after BLACK. No in-game settings panel yet.
 
 ## Risks
 

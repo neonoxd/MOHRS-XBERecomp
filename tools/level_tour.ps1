@@ -18,10 +18,11 @@ $out = Join-Path $root "re\tour"
 New-Item -ItemType Directory -Force $out | Out-Null
 $settings = Join-Path $dir "settings.toml"
 # one setting per line (an empty array out of an if expression is $null, and $null + "a" joins strings)
+# first: the file ends in tables ([keys]), and a line after a table header belongs to that table
 $lines = New-Object System.Collections.Generic.List[string]
-if (Test-Path $settings) { Get-Content $settings | Where-Object { $_ -notmatch "^skip_(intros|cutscenes)" } | ForEach-Object { $lines.Add($_) } }
 $lines.Add("skip_intros = true")
 $lines.Add("skip_cutscenes = true")
+if (Test-Path $settings) { Get-Content $settings | Where-Object { $_ -notmatch "^skip_(intros|cutscenes)" } | ForEach-Object { $lines.Add($_) } }
 $lines | Set-Content -Encoding ascii $settings
 $summary = @()
 foreach ($lvl in $Levels) {

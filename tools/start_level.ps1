@@ -19,10 +19,11 @@ if ($Config -eq "debug") { Remove-Item -Recurse -Force (Join-Path $dir "hdd") -E
 
 # both movie skips on, every other setting kept (one per line: an empty array out of an if is $null in PowerShell)
 $settings = Join-Path $dir "settings.toml"
+# first: the file ends in tables ([keys]), and a line after a table header belongs to that table
 $lines = New-Object System.Collections.Generic.List[string]
-if (Test-Path $settings) { Get-Content $settings | Where-Object { $_ -notmatch "^skip_(intros|cutscenes)" } | ForEach-Object { $lines.Add($_) } }
 $lines.Add("skip_intros = true")
 $lines.Add("skip_cutscenes = true")
+if (Test-Path $settings) { Get-Content $settings | Where-Object { $_ -notmatch "^skip_(intros|cutscenes)" } | ForEach-Object { $lines.Add($_) } }
 $lines | Set-Content -Encoding ascii $settings
 
 $env:MOHRS_START_LEVEL = $Level
