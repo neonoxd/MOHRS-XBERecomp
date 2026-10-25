@@ -1,6 +1,7 @@
 // Hooks for default.xbe. A strong definition replaces the recompiled function at that address.
 #include "common/mouse_look.h"
 #include "common/test_hooks.h"
+#include "common/widescreen.h"
 #include "kernel/kernel.h"
 #include "xdk/hle.h"
 
@@ -27,3 +28,11 @@ constexpr uint32_t kPlayers = 0x270108;
 void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers); }
 // [[hook]] 0xDC911 in the mounted gun's update: esi the player, before the stick's rates are added
 void TurretLook(X86Context& ctx, uint8_t*) { game::TurretLook(ctx, kPlayers); }
+
+// the camera's SetFov(half width, half height) in radians (thiscall, ret 8), 0x82BA0: the view widened for 16:9
+X86_EXTERN_FUNC(__imp__sub_00082BA0);
+X86_FUNC(sub_00082BA0) {
+    uint32_t camera = ctx.ecx;
+    __imp__sub_00082BA0(ctx, base);
+    game::WidenView(camera);
+}

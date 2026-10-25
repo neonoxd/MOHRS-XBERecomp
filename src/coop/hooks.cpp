@@ -2,6 +2,7 @@
 // game functions as in src/game/hooks.cpp, found by their bytes in this build of the game code.
 #include "common/mouse_look.h"
 #include "common/test_hooks.h"
+#include "common/widescreen.h"
 #include "kernel/kernel.h"
 #include "xdk/hle.h"
 
@@ -28,3 +29,12 @@ constexpr uint32_t kPlayers = 0x265278;
 // [[hook]] 0xD8A1E in the player's look update 0xD8980: esi the player, before the stick's rates are added. This build
 // has no mounted gun update like default.xbe's 0xDC911.
 void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers); }
+
+// the camera's SetFov(half width, half height) in radians (thiscall, ret 8), the bytes of default.xbe's 0x82BA0: the
+// view widened for 16:9
+X86_EXTERN_FUNC(__imp__sub_000754F0);
+X86_FUNC(sub_000754F0) {
+    uint32_t camera = ctx.ecx;
+    __imp__sub_000754F0(ctx, base);
+    game::WidenView(camera);
+}

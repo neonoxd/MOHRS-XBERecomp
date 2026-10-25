@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cstdio>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -14,6 +15,7 @@
 #include "app/app.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "common/widescreen.h"
 
 namespace game {
 
@@ -47,6 +49,23 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
     return false;
 }
 
+// the frames presented a second, over the top left corner of the picture
+void Ui(double fps) {
+    if (!Opt().fps_counter) return;
+    // the picture is shown in the middle of the window, as BlitFrame places it
+    ImVec2 window = ImGui::GetIO().DisplaySize;
+    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float w = std::min(window.x, window.y * aspect);
+    float h = w / aspect;
+    float size = std::max(13.0f, h / 36.0f);
+    ImVec2 at((window.x - w) / 2 + size * 0.5f, (window.y - h) / 2 + size * 0.4f);
+    char text[16];
+    std::snprintf(text, sizeof(text), "%.0f FPS", fps);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->AddText(nullptr, size, ImVec2(at.x + 2, at.y + 2), IM_COL32(0, 0, 0, 200), text);
+    draw->AddText(nullptr, size, at, IM_COL32(255, 255, 255, 230), text);
+}
+
 // ImGui would set its arrow on every WM_SETCURSOR before Message sees it, and the window class has no cursor
 void Window(void* hwnd) {
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
@@ -70,16 +89,17 @@ float ReadFloat(const toml::table& t, const char* key, float fallback) {
     return float(t[key].value_or(double(fallback)));
 }
 
-bool g_keyboard_settings = false;  // the settings file has the keyboard and mouse ones, each action's keys too
+bool g_complete = false;  // the settings file has every game setting, each action's keys too
 
 // what the options list cannot hold
 void Load(const void* table) {
     const toml::table& t = *static_cast<const toml::table*>(table);
     Options& o = Opt();
-    g_keyboard_settings = t.contains("mouse_sensitivity");
+    g_complete = t.contains("mouse_sensitivity");
+    for (const app::Option& option : app::kGame.options) g_complete = g_complete && t.contains(option.key);
     size_t count;
     const input::Action* actions = input::Actions(&count);
-    for (size_t i = 0; i < count; i++) g_keyboard_settings = g_keyboard_settings && t["keys"][actions[i].id];
+    for (size_t i = 0; i < count; i++) g_complete = g_complete && t["keys"][actions[i].id];
     o.mouse_sensitivity = ReadFloat(t, "mouse_sensitivity", o.mouse_sensitivity);
     o.mouse_vertical_sensitivity = ReadFloat(t, "mouse_vertical_sensitivity", o.mouse_vertical_sensitivity);
     if (const toml::table* keys = t["keys"].as_table())
@@ -103,11 +123,12 @@ void Save(void* table) {
     t.insert("keys", keys);
 }
 
-// after the settings load, before boot; a settings file without the keyboard and mouse ones, or missing an action,
-// gets them (keys of actions no longer bound drop out)
+// after the settings load, before boot; a settings file missing a game setting or an action's keys is written out
+// with them (keys of actions no longer bound drop out)
 void Init() {
+    StartWidescreen();
     input::LoadBindings();
-    if (!g_keyboard_settings) app::Save();
+    if (!g_complete) app::Save();
 }
 
 }  // namespace
@@ -131,6 +152,8 @@ const app::GameInfo app::kGame = {
     .images = {{"default.xbe", "MOHRS"}, {"moh3rdc.xbe", "MOHRSCoop"}},  // each recompiled xbe and its exe, for title launches
     .options = {{"skip_intros", &game::Opt().skip_intros, nullptr},          // game settings kept in the settings file
                 {"skip_cutscenes", &game::Opt().skip_cutscenes, nullptr},
+                {"fps_counter", &game::Opt().fps_counter, nullptr},
+                {"widescreen", &game::Opt().widescreen, nullptr},
                 {"invert_mouse", &game::Opt().invert_mouse, nullptr},
                 {"invert_mouse_x", &game::Opt().invert_mouse_x, nullptr},
                 {"walk_speed", nullptr, &game::Opt().walk_speed}},
@@ -140,8 +163,9 @@ const app::GameInfo app::kGame = {
     .loaded = nullptr,                    // image in memory, before its entry point runs
     .window = game::Window,               // the game window is up
     .message = game::Message,             // window messages first; true takes one
-    .ui = nullptr,                        // ImGui drawing each frame
+    .ui = game::Ui,                       // ImGui drawing each frame
     .pad = game::Pad,                     // changes a polled pad
     .rumble = game::Rumble,               // changes a rumble before it is set
-    .widescreen = false,                  // 4:3 only: never reads the video flags, creates its device without the widescreen flag
+    .widescreen = true,                   // MOHRS draws 4:3 only; src/common/widescreen.cpp widens its view for 16:9
+    .widescreen_option = &game::Opt().widescreen,  // off: 4:3 on any output
 };

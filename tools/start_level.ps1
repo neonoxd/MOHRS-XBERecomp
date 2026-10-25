@@ -1,11 +1,13 @@
 # Starts the game straight into a level, with the intro and cutscene movies skipped. For testing a level.
-#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\start_level.ps1 -Level 1_2 [-Config debug|release]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools\start_level.ps1 -Level 1_2 [-Config release] [-Capture re\cap]
+# -Capture: F3 in the game saves a frame capture into that folder (XBE_CAPTURE_DIR)
 # MOHRS_START_LEVEL only acts on a fresh profile, so this uses the debug build (whose saves are throwaway) and
 # empties its hdd folder first. The release build keeps its saves: -Config release starts there without wiping
 # them, and then MOHRS_START_LEVEL is ignored once a profile exists.
 param(
     [Parameter(Mandatory = $true)][string]$Level,
-    [string]$Config = "debug"
+    [string]$Config = "debug",
+    [string]$Capture = ""
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot
@@ -27,5 +29,6 @@ if (Test-Path $settings) { Get-Content $settings | Where-Object { $_ -notmatch "
 $lines | Set-Content -Encoding ascii $settings
 
 $env:MOHRS_START_LEVEL = $Level
+if ($Capture) { $env:XBE_CAPTURE_DIR = [System.IO.Path]::GetFullPath((Join-Path $root $Capture)) }
 Start-Process -FilePath $exe -WorkingDirectory $dir | Out-Null
 "started $Level ($Config)"
