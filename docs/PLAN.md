@@ -63,7 +63,7 @@ Repo, vendored SDK (`sdk/`, upstream recorded in `sdk/UPSTREAM.txt`), game templ
 - Exit: both tools build; `xbe_symbols` runs on `default.xbe` and stops with "no signatures for these library builds".
 
 ### M2 - XDK 5455 support in the SDK (largest unknown; in progress)
-Status: symbols done for both XBEs (steps 1, 2, 5), see [xdk5455.md](xdk5455.md). Next: layout (3), runtime (4).
+Status: symbols (steps 1, 2, 5) and layout (3) done, see [xdk5455.md](xdk5455.md). Next: runtime (4).
 1. Seed `sdk/xdk/5455/signatures.toml` from 5849 (and 4831 for comparison) and run `xbe_symbols`: byte hashes will
    mostly miss, but constant (`k`) matching and `.XTLID` ids should find a good share.
 2. Make a flat PE (`sdk/tools/symbols/xbe2pe.py`) and identify the misses in Ghidra, library by library: D3D8,

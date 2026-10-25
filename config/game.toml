@@ -263,6 +263,7 @@ XOnlineStartup                                       = 0
 D3D_DeferredTextureState    = 0x1CC430  # from xbsdb_default.txt
 D3D_Device                  = 0x1CC8D0
 D3D_DirtyFlags              = 0x1CC428  # D3DDevice_SelectVertexShader 0x1C0528 (insn 11) or [0x1CC428], 0x70
+D3D_FvfShader               = 0x1CEB28  # the device init 0x1C3D57 and D3DDevice_SetVertexShader 0x1C0857 use this FVF shader object
 D3D_IndexData               = 0x1CC424  # D3DDevice_SetIndices 0x1BC809 (insn 8) stores [ib + 4]
 D3D_pDevice                 = 0x1CC8C8  # from xbsdb_default.txt
 D3D_RenderState             = 0x1CC630  # from xbsdb_default.txt
