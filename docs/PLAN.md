@@ -95,7 +95,11 @@ menu work, audio plays. The game relaunches `default.xbe` between front end and 
 - Replace trapping stubs as they are hit; log unimplemented exports.
 - Exit: EA/logo sequence plays (MAD video) and the main menu is navigable with a controller.
 
-### M5 - Rendering correctness
+### M5 - Rendering correctness (done; issues fixed as they come up)
+Status 2026-10-25: MOHRS draws 4:3 only and is now shown pillarboxed at 4:3 instead of stretched. Mission 1 played
+through, levels 1_11, 1_2, 1_3, 1_4 toured: no rendering problems found (the 1_2 river checked by the user against
+other versions). 1_5, 1_7, 1_8, 1_9 not toured; per the user, rendering issues get fixed when they show up.
+Test tools: `tools\start_level.ps1`, `tools\level_tour.ps1`, settings `skip_intros` / `skip_cutscenes`.
 - Vertex programs, pixel combiners and fixed function as MOHRS uses them; texture formats (swizzled, DXT, palettes);
   render targets and post effects; fog; video playback surfaces; immediate mode draws; gamma.
 - Tools: `XBE_CAPTURE_DIR` + F3 frame captures, `XBE_D3D12_DEBUG`, the harness reference renderer.
