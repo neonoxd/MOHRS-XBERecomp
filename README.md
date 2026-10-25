@@ -12,7 +12,8 @@ libraries run as host code, graphics go through Direct3D 12 and audio through XA
 
 ## Status
 
-Early bring-up. The game uses XDK 5455, which the SDK does not support yet; adding it is the first major milestone.
+Early bring-up. The game uses XDK 5455, which this repo's copy of the SDK now supports (signatures, layout); next is
+the first full recompile.
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 
 ## Repository layout
@@ -23,7 +24,7 @@ See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 | `config/game.toml` | Recompiler config for `default.xbe`: symbols, data, hooks |
 | `src/common/` | Host code shared by every image (`game_info.cpp` describes the game to the runtime) |
 | `src/game/` | Hooks for `default.xbe` (`X86_FUNC(sub_XXXXXXXX)` overrides) |
-| `tools/` | `xiso.py` (list/extract XDVDFS images), `xbe_info.py` (XBE header, XDK versions, sections), `dev.bat` (toolchain environment), RE helpers `disasm.py`, `lib_inventory.py`, `symbols_compare.py` (see [docs/xdk5455.md](docs/xdk5455.md)) |
+| `tools/` | `xiso.py` (list/extract XDVDFS images), `xbe_info.py` (XBE header, XDK versions, sections), `dev.bat` (toolchain environment), RE helpers `disasm.py`, `lib_inventory.py`, `symbols_compare.py`, `hle_audit.py`, `dsp_image_check.py` (see [docs/xdk5455.md](docs/xdk5455.md)) |
 | `docs/` | Plan and notes |
 | `assets/` | Your game files (ignored by git) |
 | `generated/`, `out/` | Recompiled code and build output (ignored by git) |
