@@ -54,6 +54,7 @@ const char* kCommonTail = R"(    float4 spread[4];
     float4 amb;
     float4 lt[56];
     float4 rtshift;
+    float4 screen;
 };
 )";
 
@@ -226,6 +227,11 @@ const char* kVsEpilogue = R"(
     // surf.w set: a point, which stays put since pulled out it would leave the target
     if (surf.w == 0 && abs(p.x - (surf.x - 0.5)) < 1e-3) p.x = surf.x;
     if (surf.w == 0 && abs(p.y - (surf.y - 0.5)) < 1e-3) p.y = surf.y;
+    // an extension's squeeze toward the middle; a vertex on a side edge stays, so full width quads stay full width,
+    // and in texture mode its first texture coordinate moves out instead, so a full screen texture keeps its shape
+    bool side = p.x <= 0.5 || p.x >= surf.x - 1.5;
+    if (screen.x != 1 && !side) p.x = screen.y + (p.x - screen.y) * screen.x;
+    if (screen.x != 1 && side && screen.z != 0) oT0.x = 0.5 + (oT0.x - 0.5) / screen.x;
     q.x = p.x * 2 / surf.x - 1;
     q.y = 1 - p.y * 2 / surf.y;
     q.z = p.z * surf.z;

@@ -101,6 +101,8 @@ struct GameInfo {
     // the title has a 16:9 mode it picks from the console's widescreen setting; false shows it at 4:3 on any output,
     // as a console set to 4:3 would, for titles that draw 4:3 whatever the setting says
     bool widescreen = true;
+    // a game setting that turns widescreen off when false (the frame is then 4:3 on any output); null: always on
+    const bool* widescreen_option = nullptr;
 };
 extern const GameInfo kGame;
 

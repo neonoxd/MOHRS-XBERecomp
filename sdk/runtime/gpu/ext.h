@@ -85,6 +85,11 @@ public:
                          uint32_t /*pitch*/, uint8_t& /*flags*/) {}
     // a draw's constants: the vertex registers as uploaded, DrawConstants::ext; src_blend 1 without blending
     virtual void Constants(float (*/*vsc*/)[4], float* /*ext*/, const Target* /*rt*/, uint32_t /*src_blend*/) {}
+    // a draw's screen x, screen = scale, center, texture mode: console pixels drawn at center + (x - center) * scale, a
+    // vertex on the target's left or right edge kept there, and in texture mode (non zero) that vertex's first texture
+    // coordinate scaled out from 0.5 by 1 / scale instead; vsc the vertex registers as uploaded. Untouched (scale 1)
+    // draws as the console does.
+    virtual void ScreenX(const State&, const float (*/*vsc*/)[4], const Target* /*rt*/, float* /*screen*/) {}
     // a target with range other than 1 is read, copied or presented
     virtual void Resolve(Context&, Target&) {}
 };
