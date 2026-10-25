@@ -9,6 +9,10 @@ out = "generated/game"
 partitions = 32
 code_sections = [".text", "D3D", "DSOUND", "XGRPH", "XPP"]
 library = "MOHRS.dll"  # <exe>.dll, which the executable delay loads
+# library data after each section's last function, to its raw end: gap fill decoded these tables as code (all of
+# its unimplemented instructions were here). No call targets past the starts; the last functions end there:
+# D3D 0x1C9E30 (its jump table at 0x1CA388), DSOUND 0x1D6DFE (ret 0x1D6F2D), XGRPH 0x1D7F03 (to 0x1D81CB)
+data_ranges = [[0x1CA388, 0x1CB7E4], [0x1D6F30, 0x1D7994], [0x1D81D0, 0x1D8238]]
 
 # extra entry points
 [functions]

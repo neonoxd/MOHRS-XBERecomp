@@ -77,7 +77,10 @@ was needed for MOHRS.
 - Exit: `xbe_symbols` on a clean checkout writes a complete config for `default.xbe` (and `moh3rdc.xbe`) with only
   symbols that genuinely don't exist in the image left at 0.
 
-### M3 - Recompile and link
+### M3 - Recompile and link (done)
+Status: `MOHRS.exe` and `MOHRS.dll` build (12287 functions, 303 jump tables; about 2 s per partition). Needed an SDK
+fix for switch bounds held in a register and `data_ranges` for the library data tails; see the M3 log entry in
+`HANDOVER.md`.
 - `xbe_recomp` generates C++ for the whole image; fix analysis problems with `[[function]]`, `[[switch]]` and
   `data_ranges`; add any x86/x87/SSE instruction the recompiler lacks (in `sdk/tools/recomp`).
 - Exit: `build.bat` produces `MOHRS.exe` and `MOHRS.dll` with no errors.
