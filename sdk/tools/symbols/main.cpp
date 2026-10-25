@@ -126,6 +126,7 @@ struct Image {
     std::vector<Code> code;
     std::vector<uint32_t> calls;  // rel32 call targets, sorted and unique after Sweep
     std::set<uint32_t> labels;  // targets of conditional and short jumps, inside functions
+    bool any_callees = false;   // Find takes a byte match whatever its callees are (--candidates)
     ZydisDecoder dec;
 
     Image() { ZydisDecoderInit(&dec, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32); }
@@ -479,7 +480,7 @@ struct Image {
             if (it == idx.end()) continue;
             for (size_t i : it->second) {
                 bool in_section = sigs[i]->sec.empty() || sigs[i]->sec == c.name;
-                if (in_section && CallsMatch(va, *sigs[i], false)) r[i].push_back(va);
+                if (in_section && (any_callees || CallsMatch(va, *sigs[i], false))) r[i].push_back(va);
             }
         }
     }
@@ -1223,6 +1224,58 @@ std::string Convention(const Sig& s) {
     return r + (s.ret.empty() ? ", leaves by jump" : "");
 }
 
+constexpr size_t kCandidates = 4;  // constant matches listed per missing symbol
+
+// --candidates: for each symbol still at 0, the starts whose own bytes match whatever their callees are, and the
+// starts in its section with the most constants in common, found or not, to check by hand
+std::string Candidates(Image& img, SigFile& sf, const std::map<std::string, uint32_t>& symbols,
+                       const std::vector<uint32_t>& bounds) {
+    std::vector<const Sig*> v;
+    std::vector<std::string> n;
+    for (auto& [k, s] : sf.symbols)
+        if (s.len && !symbols.at(k)) {
+            v.push_back(&s);
+            n.push_back(k);
+        }
+    img.any_callees = true;
+    auto hits = img.Find(v, false);
+    img.any_callees = false;
+    std::map<std::string, std::vector<uint32_t>> bytes;
+    for (size_t i = 0; i < v.size(); i++) bytes[n[i]] = hits[i];
+
+    std::map<uint32_t, std::string> owner;
+    for (auto& [k, va] : symbols)
+        if (va) owner[va] = k;
+    std::map<std::string, std::vector<std::pair<uint32_t, Sig>>> starts;
+    for (uint32_t va : img.Starts()) starts[img.CodeAt(va)->name].push_back({va, ShapeAt(img, bounds, va)});
+
+    std::string s;
+    for (auto& [k, sig] : sf.symbols) {
+        if (symbols.at(k) || (!sig.len && sig.k.empty())) continue;
+        s += k + "  [" + sig.sec + " len " + Hex(sig.len) + ", " + Convention(sig) + ", " +
+             std::to_string(sig.k.size()) + " constants]\n";
+        if (bytes.count(k) && !bytes[k].empty()) {
+            s += "  bytes:";
+            for (uint32_t va : bytes[k]) s += " " + Hex(va) + (owner.count(va) ? " (" + owner[va] + ")" : "");
+            s += "\n";
+        }
+        if (sig.k.size() < kMinConstants || !starts.count(sig.sec)) continue;
+        std::vector<std::pair<double, size_t>> ranked;
+        auto& c = starts[sig.sec];
+        for (size_t j = 0; j < c.size(); j++)
+            if (double score = Similar(sig.k, c[j].second.k); score > 0) ranked.push_back({score, j});
+        std::sort(ranked.begin(), ranked.end(), [](auto& a, auto& b) { return a.first > b.first; });
+        for (size_t r = 0; r < std::min(kCandidates, ranked.size()); r++) {
+            auto& [va, shape] = c[ranked[r].second];
+            char b[16];
+            std::snprintf(b, sizeof b, "%.2f", ranked[r].first);
+            s += "  k " + std::string(b) + " " + Hex(va) + ", " + Convention(shape) +
+                 (owner.count(va) ? " (found as " + owner[va] + ")" : "") + "\n";
+        }
+    }
+    return s;
+}
+
 constexpr uint32_t kSlotBytes = 4;  // one stack argument
 
 // stack slots plus entry registers of the reference, when it has one ret size
@@ -1332,7 +1385,10 @@ uint32_t Partitions(const Image& img) {
 std::string XbeTable(const fs::path& xbe_path, const xbe::Image& x, uint16_t build, const std::string& name,
                      uint32_t parts, const std::vector<std::string>& sections) {
     std::string s = "# Recompiler input for " + xbe_path.filename().string() + ", written by xbe_symbols\n\n[xbe]\n";
-    s += "path = \"assets/" + xbe_path.filename().string() + "\"\n";
+    // the path as given when relative to the game repo (assets/xbe/default.xbe), else assets/<name>
+    std::string path = xbe_path.is_relative() ? xbe_path.lexically_normal().generic_string()
+                                              : "assets/" + xbe_path.filename().string();
+    s += "path = \"" + path + "\"\n";
     s += "title = " + Hex(x.title_id) + "\nentry = " + Hex(x.entry) + "\nxdk = " + std::to_string(build) + "\n";
     s += "out = \"generated/" + name + "\"\n";
     s += "partitions = " + std::to_string(parts) + "\n";
@@ -1352,7 +1408,7 @@ std::string AbiTable(const std::map<std::string, std::string>& abi) {
 }
 
 int Scan(const fs::path& xbe_path, const fs::path& xdk, const fs::path& out, const std::string& name,
-         const std::string& library) {
+         const std::string& library, const fs::path& candidates) {
     Image img;
     if (!img.Load(xbe_path)) return 1;
     auto& x = img.x;
@@ -1383,6 +1439,7 @@ int Scan(const fs::path& xbe_path, const fs::path& xdk, const fs::path& out, con
 
     std::map<std::string, uint32_t> data = ResolveData(img, sf, found, loose, report);
     PrintScan(x, symbols, data, report);
+    if (!candidates.empty()) std::ofstream(candidates, std::ios::binary) << Candidates(img, sf, symbols, Bounds(img, symbols));
 
     std::string s = XbeTable(xbe_path, x, build, name, Partitions(img), sections);
     s += "library = \"" + library + "\"  # <exe>.dll, which the executable delay loads\n";
@@ -1392,6 +1449,51 @@ int Scan(const fs::path& xbe_path, const fs::path& xdk, const fs::path& out, con
     s += AbiTable(abi);
     if (out.empty()) std::fwrite(s.data(), 1, s.size(), stdout);
     else std::ofstream(out, std::ios::binary) << s;
+    return 0;
+}
+
+// Check mode: each address a config names against the signature of its build, for configs filled in by hand
+
+int Check(const fs::path& cp, const fs::path& xdk) {
+    Config cfg;
+    if (!LoadConfig(cp, cfg)) return 1;
+    Image img;
+    if (!img.Load(cp.parent_path().parent_path() / cfg.xbe)) return 1;
+    uint16_t build = 0;
+    fs::path dir = SignatureDir(img.x, xdk, build);
+    SigFile sf;
+    if (dir.empty() || !LoadSigs(dir / "signatures.toml", sf)) return 1;
+    img.Sweep(cfg.code_sections);
+    std::vector<uint32_t> bounds = Bounds(img, cfg.symbols);
+    size_t same = 0;
+    size_t shaped = 0;
+    std::string differ;
+    std::string unsigned_names;
+    for (auto& [k, va] : cfg.symbols) {
+        if (!va || !sf.symbols.count(k)) continue;
+        auto& s = sf.symbols[k];
+        if (!img.IsInstructionStart(va)) {
+            std::fprintf(stderr, "  %s at %s is not an instruction start of the sweep\n", k.c_str(), Hex(va).c_str());
+            continue;
+        }
+        if (s.len && img.Hash(va, s.len) == s.hash) {
+            same++;
+            continue;
+        }
+        if (!s.shape) {
+            unsigned_names += " " + k;
+            continue;
+        }
+        shaped++;
+        Sig c = ShapeAt(img, bounds, va);
+        bool same_ret = c.ret == s.ret || c.ret.empty() || s.ret.empty();
+        if (c.regs == s.regs && same_ret) continue;
+        differ += "  " + k + " at " + Hex(va) + " " + Convention(c) + "; reference " + Convention(s) + "\n";
+    }
+    std::fprintf(stderr, "%s against %s: %zu with the reference bytes, %zu with other bytes and the same convention\n",
+                 cp.filename().string().c_str(), dir.string().c_str(), same, shaped - std::count(differ.begin(), differ.end(), '\n'));
+    if (!differ.empty()) std::fprintf(stderr, "convention differs, an [abi] entry or a host change is needed:\n%s", differ.c_str());
+    if (!unsigned_names.empty()) std::fprintf(stderr, "no reference shape to compare:%s\n", unsigned_names.c_str());
     return 0;
 }
 
@@ -1412,6 +1514,8 @@ int main(int argc, char** argv) {
     std::string name = opt("--name");
     std::string library = opt("--library");
     std::string skip = opt("--skip");
+    std::string candidates = opt("--candidates");
+    if (a.size() == 3 && a[0] == "--check") return Check(a[1], a[2]);
     if (!a.empty() && a[0] == "--sign" && a.size() >= 2 && !out.empty()) {
         std::set<std::string> sk;
         for (size_t p = 0; !skip.empty() && p != std::string::npos;) {
@@ -1424,8 +1528,10 @@ int main(int argc, char** argv) {
     if (a.size() != 2 || library.empty()) {
         std::fprintf(stderr,
                      "usage: xbe_symbols <game.xbe> <sdk>/xdk --library <exe>.dll [--out config/game.toml] [--name game]\n"
-                     "       xbe_symbols --sign <config.toml>... --out signatures.toml [--skip name,...]\n");
+                     "                   [--candidates misses.txt]   lists likely addresses of the names left at 0\n"
+                     "       xbe_symbols --sign <config.toml>... --out signatures.toml [--skip name,...]\n"
+                     "       xbe_symbols --check <config.toml> <sdk>/xdk   compares hand-filled addresses with the signatures\n");
         return 1;
     }
-    return Scan(a[0], a[1], out, name.empty() ? "game" : name, library);
+    return Scan(a[0], a[1], out, name.empty() ? "game" : name, library, candidates);
 }
