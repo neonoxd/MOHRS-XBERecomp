@@ -85,11 +85,11 @@ fix for switch bounds held in a register and `data_ranges` for the library data 
   `data_ranges`; add any x86/x87/SSE instruction the recompiler lacks (in `sdk/tools/recomp`).
 - Exit: `build.bat` produces `MOHRS.exe` and `MOHRS.dll` with no errors.
 
-### M4 - Boot to the main menu (in progress)
-Status 2026-10-25: boots through the EA legal movie and the long Pearl Harbor intro into mission 1_1 in-game
-(HUD, prompts, scripted NPCs, 60 fps), debug and release, no crash in 3 minutes. Not yet checked by a person:
-audio, controller input, the front-end menu (the game's `game.cfg` goes legal movie > intro > mission 1 on a fresh
-profile).
+### M4 - Boot to the main menu (done)
+Status 2026-10-25: boots through the EA legal movie and the long Pearl Harbor intro into mission 1_1 (the game's
+`game.cfg` flow on a fresh profile). Played by the user with a controller: mission 1 completed, main menu and pause
+menu work, audio plays. The game relaunches `default.xbe` between front end and missions (state in
+`Z:\MohLoader.bin`) and saves to `UDATA`; both work. No errors in the release log, no crash.
 - Kernel/XAPI calls up to the first frame: threads, events, file I/O from the ISO (`.viv` archives), the save
   partition, D3D device creation, the DOLBY/DSP image.
 - Replace trapping stubs as they are hit; log unimplemented exports.
