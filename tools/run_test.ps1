@@ -18,14 +18,24 @@ $started = Get-Date
 
 $p = Start-Process -FilePath $exe -WorkingDirectory $dir -PassThru
 $deadline = $started.AddSeconds($Seconds)
-while (-not $p.HasExited -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 250 }
+# the game relaunches itself into a new process when it loads an xbe (front end <-> missions): follow any MOHRS
+$seen = @{ $p.Id = $true }
+$last = $p
+while ((Get-Date) -lt $deadline) {
+    $live = @(Get-Process -Name MOHRS -ErrorAction SilentlyContinue)
+    foreach ($q in $live) { if (-not $seen.ContainsKey($q.Id)) { $seen[$q.Id] = $true; "relaunched as pid $($q.Id) after {0:N1}s" -f ((Get-Date) - $started).TotalSeconds } }
+    if ($live) { $last = $live[-1] } else { break }
+    Start-Sleep -Milliseconds 250
+}
 
-if ($p.HasExited) {
-    "exited after {0:N1}s with code {1} (0x{2:X8})" -f ((Get-Date) - $started).TotalSeconds, $p.ExitCode, $p.ExitCode
+$live = @(Get-Process -Name MOHRS -ErrorAction SilentlyContinue)
+if (-not $live) {
+    $code = if ($last.HasExited) { $last.ExitCode } else { "?" }
+    "exited after {0:N1}s, last process exit code {1}" -f ((Get-Date) - $started).TotalSeconds, $code
 } else {
-    $info = Get-Process -Id $p.Id
+    $info = $live[-1]
     "running after ${Seconds}s: window '{0}', responding {1}, cpu {2:N1}s, {3:N0} MB" -f $info.MainWindowTitle, $info.Responding, $info.CPU, ($info.WorkingSet64 / 1MB)
-    if (-not $Keep) { Stop-Process -Id $p.Id -Force; "stopped" }
+    if (-not $Keep) { $live | Stop-Process -Force; "stopped" }
 }
 $new = @(Get-ChildItem $dumps -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Name })
 foreach ($d in $new) { "crash dump: $($d.FullName)" }

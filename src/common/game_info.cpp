@@ -20,4 +20,5 @@ const app::GameInfo app::kGame = {
     .ui = nullptr,                        // ImGui drawing each frame
     .pad = nullptr,                       // changes a polled pad
     .rumble = nullptr,                    // changes a rumble before it is set
+    .widescreen = false,                  // 4:3 only: never reads the video flags, creates its device without the widescreen flag
 };
