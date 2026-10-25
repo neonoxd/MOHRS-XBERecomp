@@ -25,6 +25,6 @@ $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.CopyFromScreen($r.L, $r.T, 0, 0, $bmp.Size)
 $sw = [int]($w * $Scale); $sh = [int]($h * $Scale)
 $small = New-Object System.Drawing.Bitmap $bmp, $sw, $sh
-$path = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Out))
+$path = if ([System.IO.Path]::IsPathRooted($Out)) { $Out } else { [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Out)) }
 $small.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
 "saved $path ($w x $h window, ${sw} x ${sh} image)"

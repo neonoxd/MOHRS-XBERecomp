@@ -9,13 +9,20 @@ param(
     [int[]]$Shots = @(12, 25)
 )
 $ErrorActionPreference = "Stop"
+# -File passes "1_11,1_2" as one string
+$Levels = @($Levels | ForEach-Object { $_ -split "," } | Where-Object { $_ })
+$Shots = @($Shots | ForEach-Object { "$_" -split "," } | Where-Object { $_ } | ForEach-Object { [int]$_ })
 $root = Split-Path $PSScriptRoot
 $dir = Join-Path $root "out\build\debug"
 $out = Join-Path $root "re\tour"
 New-Item -ItemType Directory -Force $out | Out-Null
 $settings = Join-Path $dir "settings.toml"
-$keep = if (Test-Path $settings) { @(Get-Content $settings | Where-Object { $_ -notmatch "^skip_(intros|cutscenes)" }) } else { @() }
-($keep + "skip_intros = true" + "skip_cutscenes = true") | Set-Content -Encoding ascii $settings
+# one setting per line (an empty array out of an if expression is $null, and $null + "a" joins strings)
+$lines = New-Object System.Collections.Generic.List[string]
+if (Test-Path $settings) { Get-Content $settings | Where-Object { $_ -notmatch "^skip_(intros|cutscenes)" } | ForEach-Object { $lines.Add($_) } }
+$lines.Add("skip_intros = true")
+$lines.Add("skip_cutscenes = true")
+$lines | Set-Content -Encoding ascii $settings
 $summary = @()
 foreach ($lvl in $Levels) {
     $ld = Join-Path $out $lvl
@@ -27,12 +34,19 @@ foreach ($lvl in $Levels) {
     $started = Get-Date
     Start-Process -FilePath (Join-Path $dir "MOHRS.exe") -WorkingDirectory $dir | Out-Null
     $state = "ran"
-    foreach ($t in $Shots) {
-        while (((Get-Date) - $started).TotalSeconds -lt $t) { Start-Sleep -Milliseconds 500 }
-        if (-not (Get-Process MOHRS -ErrorAction SilentlyContinue)) { $state = "exited before ${t}s"; break }
-        & (Join-Path $PSScriptRoot "screenshot.ps1") -Out (Join-Path $ld "shot_${t}s.png") -Scale 0.4 | Out-Null
+    try {
+        foreach ($t in $Shots) {
+            while (((Get-Date) - $started).TotalSeconds -lt $t) { Start-Sleep -Milliseconds 500 }
+            if (-not (Get-Process MOHRS -ErrorAction SilentlyContinue)) { $state = "exited before ${t}s"; break }
+            try {
+                & (Join-Path $PSScriptRoot "screenshot.ps1") -Out (Join-Path $ld "shot_${t}s.png") -Scale 0.4 | Out-Null
+            } catch {
+                $state += ", screenshot at ${t}s failed: $($_.Exception.Message)"
+            }
+        }
+    } finally {
+        Get-Process MOHRS -ErrorAction SilentlyContinue | Stop-Process -Force
     }
-    Get-Process MOHRS -ErrorAction SilentlyContinue | Stop-Process -Force
     $env:MOHRS_START_LEVEL = $null
     $dumps = @(Get-ChildItem (Join-Path $dir "CrashDumps") -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Name })
     if ($dumps) { $state += ", crash dump $($dumps[0].Name)" }
