@@ -1,17 +1,21 @@
-# Starts each campaign level on a fresh profile (debug build, MOHRS_START_LEVEL), takes screenshots and collects
-# the log's warnings and errors, into re\tour\<level>\. For checking rendering level by level (M5).
-# Wipes out\build\debug\hdd before every level: the debug build's saves are throwaway. The game window comes to the
-# front for each screenshot.
-#   powershell -NoProfile -File tools\level_tour.ps1 [-Levels 1_1,1_2] [-Shots 40,70,100]
+# Starts each campaign level on a fresh profile (debug build, MOHRS_START_LEVEL) with the movies skipped, takes
+# screenshots and collects the log's warnings and errors, into re\tour\<level>\. For checking rendering level by
+# level (M5). A level is in play about 2 s after start.
+# Wipes out\build\debug\hdd before every level: the debug build's saves are throwaway. Turns skip_intros and
+# skip_cutscenes on in out\build\debug\settings.toml. The game window comes to the front for each screenshot.
+#   powershell -NoProfile -File tools\level_tour.ps1 [-Levels 1_1,1_2] [-Shots 12,25]
 param(
     [string[]]$Levels = @("1_1", "1_11", "1_2", "1_3", "1_4", "1_5", "1_7", "1_8", "1_9"),
-    [int[]]$Shots = @(40, 70, 100)
+    [int[]]$Shots = @(12, 25)
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot
 $dir = Join-Path $root "out\build\debug"
 $out = Join-Path $root "re\tour"
 New-Item -ItemType Directory -Force $out | Out-Null
+$settings = Join-Path $dir "settings.toml"
+$keep = if (Test-Path $settings) { @(Get-Content $settings | Where-Object { $_ -notmatch "^skip_(intros|cutscenes)" }) } else { @() }
+($keep + "skip_intros = true" + "skip_cutscenes = true") | Set-Content -Encoding ascii $settings
 $summary = @()
 foreach ($lvl in $Levels) {
     $ld = Join-Path $out $lvl
