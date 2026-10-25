@@ -35,9 +35,13 @@ Settings& Get() {
 void Load() {
     Settings& s = Get();
     toml::table t;
+    std::error_code ec;
+    if (!std::filesystem::exists(File(), ec)) return;  // first start: the defaults
     try {
         t = toml::parse_file(File().string());
-    } catch (...) {
+    } catch (const toml::parse_error& e) {
+        LOGE("settings: %s does not parse, using the defaults: %s (line %u)", File().string().c_str(),
+             std::string(e.description()).c_str(), unsigned(e.source().begin.line));
         return;
     }
     std::string mode = t["display_mode"].value_or(std::string(kModes[uint32_t(s.display_mode)]));
