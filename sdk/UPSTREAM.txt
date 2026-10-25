@@ -1,0 +1,4 @@
+XboxXBE-Recomp (https://github.com/TGP482/XboxXBE-Recomp)
+commit 994fdd1208feddbe2a839f7b53c789874b90dca2
+SDK_VERSION 0.1.0
+vendored 2026-10-25, unmodified at that point; local changes are tracked in this repo's git history

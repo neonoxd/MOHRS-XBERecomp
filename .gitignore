@@ -1,0 +1,40 @@
+# build
+/out/
+/build/
+*.zip
+*.pdb
+*.exe
+*.obj
+*.o
+
+# recompiled code, derived from the game
+/generated/
+
+# user's own game files
+/assets/
+
+# runtime files
+settings.toml
+/logs/
+/hdd/
+/CrashDumps/
+/textures/
+
+# reverse engineering scratch (Ghidra projects, flat PEs from xbe2pe.py, dumps)
+/re/
+*.gpr
+*.rep/
+
+# reference projects, kept beside the repo for reading only
+/.research/
+
+# session handover notes, local only
+/HANDOVER.md
+
+# editors
+.vs/
+.vscode/
+.idea/
+
+# Local temporary folder
+.local
