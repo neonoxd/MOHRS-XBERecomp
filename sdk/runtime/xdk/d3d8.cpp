@@ -639,10 +639,11 @@ HLE_STDCALL(D3DDevice_CopyRects, 5) {
     return 0;
 }
 
+// NULL keeps the viewport and reapplies it, as D3DDevice_SetBackBufferScale does after a scale change
 HLE_STDCALL(D3DDevice_SetViewport, 1) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     uint32_t v = a[0];
-    g_state.viewport = {R32(v), R32(v + 4), R32(v + 8), R32(v + 12), GF(v + 16), GF(v + 20)};
+    if (v) g_state.viewport = {R32(v), R32(v + 4), R32(v + 8), R32(v + 12), GF(v + 16), GF(v + 20)};
     g_state.scissor_count = 0;
     UpdateViewportConstants();
     return 0;
