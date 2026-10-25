@@ -23,7 +23,7 @@ See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 | `config/game.toml` | Recompiler config for `default.xbe`: symbols, data, hooks |
 | `src/common/` | Host code shared by every image (`game_info.cpp` describes the game to the runtime) |
 | `src/game/` | Hooks for `default.xbe` (`X86_FUNC(sub_XXXXXXXX)` overrides) |
-| `tools/` | `xiso.py` (list/extract XDVDFS images), `xbe_info.py` (XBE header, XDK versions, sections) |
+| `tools/` | `xiso.py` (list/extract XDVDFS images), `xbe_info.py` (XBE header, XDK versions, sections), `dev.bat` (toolchain environment), RE helpers `disasm.py`, `lib_inventory.py`, `symbols_compare.py` (see [docs/xdk5455.md](docs/xdk5455.md)) |
 | `docs/` | Plan and notes |
 | `assets/` | Your game files (ignored by git) |
 | `generated/`, `out/` | Recompiled code and build output (ignored by git) |
