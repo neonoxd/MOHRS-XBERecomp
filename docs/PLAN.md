@@ -116,7 +116,10 @@ Test tools: `tools\start_level.ps1`, `tools\level_tour.ps1`, settings `skip_intr
 - Fix crashes, hangs and logic differences found on the way (x87 precision, CRT math, timing).
 - Exit: the campaign is completable start to finish with no crashes; save games survive a restart.
 
-### M8 - Co-op executable (`moh3rdc.xbe`)
+### M8 - Co-op executable (`moh3rdc.xbe`) (done)
+Status 2026-10-25: `MOHRSCoop.exe`/`.dll` build and boot. Tested by the user (debug build): from the main menu
+with a second controller the game relaunched into `MOH3RDC.xbe` and co-op ran with both pads, no errors. The way
+back (co-op quitting to `default.xbe`) was not in the logs, as the window was closed; recheck when convenient.
 - `config/coop.toml` from `xbe_symbols --name coop`, a second `add_xbe_image(MOHRSCoop xbe/moh3rdc.xbe coop.toml ...)`,
   `src/coop` hooks, `kGame.images` entry, and image switching between the two executables in both directions.
 - Exit: co-op mode launches from the menu, plays a mission, and returns to `default.xbe`.
