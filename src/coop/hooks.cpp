@@ -38,3 +38,8 @@ X86_FUNC(sub_000754F0) {
     __imp__sub_000754F0(ctx, base);
     game::WidenView(camera);
 }
+
+// 60 fps (src/common/test_hooks.h): [[hook]]s on the frame's end compares of the blanks passed with 2, eax at 0x13AFF and
+// ecx at 0x13B1A
+void FrameWaitEax(X86Context& ctx, uint8_t*) { game::FrameWait(ctx.eax); }
+void FrameWaitEcx(X86Context& ctx, uint8_t*) { game::FrameWait(ctx.ecx); }

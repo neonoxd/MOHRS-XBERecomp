@@ -19,4 +19,10 @@ void PickStartLevel(X86Context& ctx);
 // movies picked in the menus play.
 void SkipMovie(uint32_t key, uint32_t buffer, uint32_t size);
 
+// 60 fps: the frame's end (default.xbe 0x13A90) waits until two vertical blanks have passed since the last frame, then
+// runs the game one fixed tick per blank passed. With fps60 a blank passed counts as two at both of its waiting
+// compares, so a frame is shown each blank and the game runs one tick a frame: the same speed, twice the frames, as
+// the PS2 version's 60 fps patch (sltiu v0, v0, 2 -> 1).
+void FrameWait(uint32_t& blanks);
+
 }  // namespace game
