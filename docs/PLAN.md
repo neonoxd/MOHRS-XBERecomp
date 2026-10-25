@@ -57,7 +57,7 @@ Repo, vendored SDK (`sdk/`, upstream recorded in `sdk/UPSTREAM.txt`), game templ
 `assets/xbe/default.xbe`), ISO and XBEs in `assets/`, `tools/xiso.py` and `tools/xbe_info.py`, this plan.
 - Exit: `git log` has the initial commit; `python tools/xbe_info.py assets/xbe/default.xbe` prints XDK 5455.
 
-### M1 - Toolchain and SDK build
+### M1 - Toolchain and SDK build (done)
 - Install Clang/LLD into VS 2022 (`build.bat` offers it on first run).
 - Configure with the `release` preset and build the SDK tools: `xbe_recomp`, `xbe_symbols`.
 - Exit: both tools build; `xbe_symbols` runs on `default.xbe` and stops with "no signatures for these library builds".

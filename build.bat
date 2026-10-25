@@ -33,7 +33,7 @@ if not defined TOOLS_OK (
     if errorlevel 2 goto :byhand
     echo       Close Visual Studio if it is open, it will be shut down anyway.
     echo       Installing. Accept the admin prompt, then wait for the installer.
-    powershell -NoProfile -Command "Start-Process -Verb RunAs -Wait -FilePath '%VSINST%\setup.exe' -ArgumentList 'modify','--installPath','%VSDIR%','--add','Microsoft.VisualStudio.Component.VC.Llvm.Clang','--add','Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset','--add','Microsoft.VisualStudio.Component.VC.CMake.Project','--passive','--norestart','--force'"
+    powershell -NoProfile -Command "Start-Process -Verb RunAs -Wait -FilePath '%VSINST%\setup.exe' -ArgumentList 'modify','--installPath',([char]34+'%VSDIR%'+[char]34),'--add','Microsoft.VisualStudio.Component.VC.Llvm.Clang','--add','Microsoft.VisualStudio.Component.VC.Llvm.ClangToolset','--add','Microsoft.VisualStudio.Component.VC.CMake.Project','--passive','--norestart','--force'"
     echo       Press a key once the Visual Studio Installer window has closed.
     pause >nul
     call :setuptools
