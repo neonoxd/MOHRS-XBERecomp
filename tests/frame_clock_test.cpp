@@ -35,5 +35,23 @@ int main() {
     game::TickRemainder timer;
     Check(timer.Advance(0.5f) == 0 && timer.Advance(0.5f) == 1, "two half ticks must produce one whole tick");
     Check(timer.Advance(0) == 0 && timer.Advance(-1) == 0, "paused timers must not advance");
+    for (int fps : {30, 60, 120, 144, 240, 1000}) {
+        game::LoadingAnimationClock animation;
+        Check(animation.Sample(123000000) == 0, "loading animation must start at phase zero");
+        for (int frame = 1; frame <= fps * 5; frame++) {
+            int64_t elapsed = int64_t(frame) * 1000000000 / fps;
+            float phase = animation.Sample(123000000 + elapsed);
+            Check(phase >= 0 && phase < 33, "loading animation phase must stay in its cycle");
+        }
+        Check(std::abs(animation.Sample(123000000 + 5000000000LL) - 18) < 0.00001f,
+              "five seconds must leave phase 18 regardless of how many frames were drawn");
+        Check(std::abs(animation.Sample(123000000 + 5500000000LL)) < 0.00001f,
+              "five loading animation cycles must take 5.5 seconds");
+        for (int duplicate = 0; duplicate < 100; duplicate++)
+            Check(std::abs(animation.Sample(123000000 + 6050000000LL) - 16.5f) < 0.00001f,
+                  "repeated draws at the same time must leave the animation phase unchanged");
+        animation = {};
+        Check(animation.Sample(9000000000LL) == 0, "a new loading screen must reset the phase");
+    }
     std::puts("frame clock checks passed");
 }

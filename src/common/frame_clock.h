@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace game {
@@ -26,6 +27,19 @@ struct TickRemainder {
         uint32_t whole = uint32_t(total);
         fraction = total - whole;
         return whole;
+    }
+};
+
+// Loading-screen stars have a 33-draw cycle on the original 30 FPS renderer (2*pi/33 radians per draw).
+// Sample wall time directly so extra draws do not advance the animation, including while loading stalls.
+struct LoadingAnimationClock {
+    int64_t epoch = 0;
+    bool started = false;
+
+    float Sample(int64_t now_ns) {
+        if (!started) { epoch = now_ns; started = true; }
+        double seconds = std::max(0.0, double(now_ns - epoch) / 1e9);
+        return float(std::fmod(seconds * 30.0, 33.0));
     }
 };
 

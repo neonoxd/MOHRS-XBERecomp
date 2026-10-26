@@ -363,3 +363,23 @@ call = "MenuTicks"
 [[hook]]
 at = 0xFABB4
 call = "MessageTicks"
+
+# Loading medal/stars: reset on texture initialization, replace float phase after the draw-counter conversion.
+[[hook]]
+at = 0xFC9FD
+call = "ResetLoadingAnimation"
+
+[[hook]]
+at = 0xFD3DC
+after = true
+call = "LoadingAnimation"
+
+# The shared profile-check/save popup has its own copy of the same star animation (counter at object+0x14).
+[[hook]]
+at = 0xF6B74
+call = "ResetPopupAnimation"
+
+[[hook]]
+at = 0xF6C5A
+after = true
+call = "PopupAnimation"

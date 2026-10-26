@@ -35,6 +35,10 @@ The handover's earlier inference that interpolation is required was too strong. 
 | Integer mission timer conversion, hook before PUSH EAX | 0xA4C32 | 0x98C88 |
 | Integer UI delta conversion, hook before PUSH EAX | 0xA4CEC | 0x98D94 |
 | Entity delayed-message delta, hook before SUBSS XMM0,XMM3 | 0xFABB4 | 0xF3684 |
+| Loading animation initialization, resets phase | 0xFC9FD | 0xF550D |
+| Loading animation float phase, hook after CVTSI2SS | 0xFD3DC | 0xF5EEC |
+| Profile/save popup animation initialization | 0xF6B74 | 0xEF594 |
+| Profile/save popup float phase, hook after CVTSI2SS | 0xF6C5A | 0xEF67A |
 
 There are nine callers of frame end in each image. Each converts EAX with `cvtsi2ss xmm0,eax`, multiplies it by
 the saved PAL/NTSC scale and stores the global float delta. `FrameDelta` runs **after the conversion**, on all
@@ -57,6 +61,20 @@ manager subdivides deltas above one tick. Three conversions needed explicit trea
 Each remainder is advanced once at its original conversion site, rather than once per entity or player.
 Render frame counters are left alone: some readers use their parity to distribute work across frames.
 
+The loading-screen stars/medal have a separate draw counter at loading-object offset `+0x10`. The loading
+renderer (`0xFD280`, co-op `0xF5D90`) converts it to a float, increments it every draw and wraps at 33. It
+multiplies the float by `2*pi/33` before its sine/cosine calculations. This animation therefore speeds up with
+the render rate even though gameplay receives the correct time delta. In the 60 FPS and unlocked modes,
+`LoadingAnimation` supplies a continuous phase at 30 steps/second, preserving the console's 1.1-second cycle.
+Texture initialization resets the host animation clock, and the first draw starts at phase zero. The original
+integer counter and all draw calls remain intact. The original 30 FPS mode uses its unchanged guest phase.
+
+Profile checking and save-game prompts share another medal/star renderer (`0xF6C30`, co-op `0xEF650`),
+used by the `MemoryCardPopup.fng` hierarchy. It loads the same `data\loading\medal.xsh` texture and uses the
+same 33-frame cycle and angle constant, with its counter at object `+0x14`. `PopupAnimation` supplies the
+same elapsed-time phase with a separate clock; popup initialization resets it. The modal state, input, profile
+checking, save operations and prompt lifetime continue through the original game code.
+
 ## Verification
 
 ```powershell
@@ -66,9 +84,11 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -Isrc tests/frame_clock_test.cpp -o re/
 cmd /c "tools\dev.bat cmake --build out\build\release -- -k 0 -j 12"
 ```
 
-The audit checks all nine frame-end callers and the wait/timer hook instructions against both supplied XBEs.
+The audit checks all nine frame-end callers and the wait/timer/loading-animation hook instructions against both supplied XBEs.
 The standalone clock tests check ten seconds at 30, 60, 120, 144, 240 and 1,000 FPS, conservation of integer
 timer fractions, zero/negative timer deltas, and stall recovery.
+Loading-animation checks compare phase after five seconds at each frame rate, verify the 1.1-second period,
+ensure repeated draws at the same time leave the phase unchanged, and check reset on a new loading screen.
 
 `MOHRS_TIMING=1` logs frame rate, time advanced, player look-update rate, player time advanced, mission elapsed
 ticks and player position once per second. A stable 144 FPS run should report about 60 frame/player ticks per
@@ -90,6 +110,12 @@ movement reached the same final player position as the 60 FPS baseline. No error
 An uncapped level 1_4 run reached roughly 570-725 FPS with about 60 player ticks/s and an advancing mission
 timer. The co-op executable on 1_4 and the front-end level 1_16 both reached 144 FPS without logged errors.
 These checks use windowed 1280x720 output and say nothing about performance at other resolutions.
+
+Baseline commit: `2866645`. The user reports that almost everything looks and feels correct and has visually
+confirmed both cosmetic timing fixes: mission-loading stars and the shared profile-check/save-prompt stars.
+Both release images build, the clock/animation tests and XBE hook audit pass, and isolated 240 FPS level 1_4
+and front-end boots pass. Those input-free boots do not exercise the animated prompts themselves; their visual
+verification came from the user's interactive tests.
 
 These are timing and boot checks. Movement distance, weapon cadence, physics, mounted guns, pause/resume,
 cutscene synchronization and full two-controller co-op still need interactive play-testing. Frame-dependent

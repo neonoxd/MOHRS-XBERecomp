@@ -13,6 +13,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 thread_local FrameClock clock;
 thread_local TickRemainder mission, menu;
+thread_local LoadingAnimationClock loading, popup;
 bool Diagnostics() {
     static bool on = std::getenv("MOHRS_TIMING") != nullptr;
     return on;
@@ -20,6 +21,14 @@ bool Diagnostics() {
 thread_local uint32_t player_calls = 0, frames = 0;
 thread_local double player_ticks = 0, frame_ticks = 0;
 thread_local Clock::time_point report = Clock::now();
+
+void Animate(X86Context& ctx, LoadingAnimationClock& animation, const char* name) {
+    if (!Opt().unlocked_fps && !Opt().fps60) return;
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
+    bool first = !animation.started;
+    ctx.xmm[0].f[0] = animation.Sample(ns);
+    if (first && Diagnostics()) LOGR("timing: %s stars use a 1.1 second cycle (30 phase steps/s)", name);
+}
 }  // namespace
 
 void FrameDelta(X86Context& ctx) {
@@ -43,6 +52,15 @@ void MenuTicks(X86Context& ctx) {
 void MessageTicks(X86Context& ctx) {
     if (Opt().unlocked_fps) ctx.xmm[3].f[0] = ctx.xmm[2].f[0];
 }
+
+void ResetLoadingAnimation() { loading = {}; }
+
+void LoadingAnimation(X86Context& ctx) {
+    Animate(ctx, loading, "loading");
+}
+
+void ResetPopupAnimation() { popup = {}; }
+void PopupAnimation(X86Context& ctx) { Animate(ctx, popup, "profile/save popup"); }
 
 void PlayerTick(float delta) {
     if (!Diagnostics()) return;

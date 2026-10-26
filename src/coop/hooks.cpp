@@ -52,3 +52,7 @@ void FrameDelta(X86Context& ctx, uint8_t*) {
 void MissionTicks(X86Context& ctx, uint8_t*) { game::MissionTicks(ctx); }
 void MenuTicks(X86Context& ctx, uint8_t*) { game::MenuTicks(ctx); }
 void MessageTicks(X86Context& ctx, uint8_t*) { game::MessageTicks(ctx); }
+void ResetLoadingAnimation(X86Context&, uint8_t*) { game::ResetLoadingAnimation(); }
+void LoadingAnimation(X86Context& ctx, uint8_t*) { game::LoadingAnimation(ctx); }
+void ResetPopupAnimation(X86Context&, uint8_t*) { game::ResetPopupAnimation(); }
+void PopupAnimation(X86Context& ctx, uint8_t*) { game::PopupAnimation(ctx); }

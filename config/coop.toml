@@ -357,3 +357,23 @@ call = "MenuTicks"
 [[hook]]
 at = 0xF3684
 call = "MessageTicks"
+
+# Loading medal/stars, corresponding to default.xbe's 0xFC9FD / 0xFD3DC.
+[[hook]]
+at = 0xF550D
+call = "ResetLoadingAnimation"
+
+[[hook]]
+at = 0xF5EEC
+after = true
+call = "LoadingAnimation"
+
+# Profile-check/save popup, corresponding to default.xbe's 0xF6B74 / 0xF6C5A.
+[[hook]]
+at = 0xEF594
+call = "ResetPopupAnimation"
+
+[[hook]]
+at = 0xEF67A
+after = true
+call = "PopupAnimation"
