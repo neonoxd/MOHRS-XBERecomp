@@ -3,6 +3,7 @@
 // own addresses of the same game functions.
 #include <cstdint>
 
+#include "core/input.h"
 #include "cpu/x86_context.h"
 
 namespace game {
@@ -25,5 +26,10 @@ void SkipMovie(uint32_t key, uint32_t buffer, uint32_t size);
 // the PS2 version's 60 fps patch (sltiu v0, v0, 2 -> 1).
 // With unlocked_fps even zero blanks pass the wait; frame_timing.cpp supplies elapsed ticks to every caller.
 void FrameWait(uint32_t& blanks);
+
+// Development: MOHRS_MENU_PROBE="<seconds>:<press>,..." presses controller buttons on port 0 inside the game, timed
+// from its first controller poll, for menu tests without the PC's keyboard: up down left right start back a b, or
+// capture, which saves the next frame under XBE_CAPTURE_DIR. Each press is held a tenth of a second.
+void ProbePad(input::Pad& pad);
 
 }  // namespace game

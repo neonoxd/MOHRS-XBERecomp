@@ -1,12 +1,15 @@
 #include "common/test_hooks.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "common/options.h"
 #include "core/log.h"
+#include "gpu/backend.h"
 #include "kernel/kernel.h"
 
 using kernel::R32;
@@ -53,6 +56,52 @@ void SkipMovie(uint32_t key, uint32_t buffer, uint32_t size) {
 void FrameWait(uint32_t& blanks) {
     if (Opt().unlocked_fps && blanks < 2) blanks = 2;
     else if (Opt().fps60 && blanks == 1) blanks = 2;
+}
+
+void ProbePad(input::Pad& pad) {
+    struct Press {
+        double at;
+        std::string what;
+        bool captured = false;
+    };
+    using Clock = std::chrono::steady_clock;
+    static const std::vector<Press> script = [] {
+        std::vector<Press> out;
+        const char* v = std::getenv("MOHRS_MENU_PROBE");
+        for (const char* p = v; p && *p;) {
+            double at = 0;
+            char what[16] = {};
+            int used = 0;
+            if (std::sscanf(p, " %lf:%15[a-z]%n", &at, what, &used) != 2) break;
+            out.push_back({at, what});
+            p += used;
+            if (*p == ',') p++;
+        }
+        if (!out.empty()) LOGR("MOHRS_MENU_PROBE: %zu presses", out.size());
+        return out;
+    }();
+    static std::vector<Press> left = script;
+    if (left.empty()) return;
+    static const Clock::time_point start = Clock::now();
+    double now = std::chrono::duration<double>(Clock::now() - start).count();
+    constexpr double kHold = 0.1;
+    for (Press& p : left) {
+        if (now < p.at || now > p.at + kHold) continue;
+        const std::string& w = p.what;
+        if (w == "up") pad.buttons |= 0x01;
+        if (w == "down") pad.buttons |= 0x02;
+        if (w == "left") pad.buttons |= 0x04;
+        if (w == "right") pad.buttons |= 0x08;
+        if (w == "start") pad.buttons |= 0x10;
+        if (w == "back") pad.buttons |= 0x20;
+        if (w == "a") pad.analog[0] = 255;
+        if (w == "b") pad.analog[1] = 255;
+        if (w == "capture" && !p.captured) {
+            p.captured = true;
+            gpu::g_capture = true;
+            LOGR("MOHRS_MENU_PROBE: capture at %.1f s", now);
+        }
+    }
 }
 
 }  // namespace game

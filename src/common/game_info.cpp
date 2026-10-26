@@ -15,6 +15,7 @@
 #include "app/app.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "common/test_hooks.h"
 #include "common/widescreen.h"
 
 namespace game {
@@ -78,6 +79,7 @@ void Pad(int port, input::Pad& pad) {
     if (port != 0) return;
     pad.connected = true;
     input::Keyboard(pad);
+    ProbePad(pad);
 }
 
 // no vibration while the keyboard and mouse are in use

@@ -16,6 +16,8 @@ Single-player and co-op boot and run with graphics, audio, saves, controller and
 Widescreen and 60 FPS are implemented. An experimental mode above 60 FPS uses elapsed-time updates;
 see [frame timing and settings](docs/frame-timing.md). The game uses XDK 5455, supported by this repo's SDK.
 Adjustable [field of view](docs/fov.md) is available through `fov` in `settings.toml` (70 is the original view).
+Display, frame rate, field of view and mouse settings can also be changed in the game's own menus under
+[PC Options](docs/pc-options.md), in Options and in the pause screen's Preferences.
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 
 ## Repository layout
@@ -26,7 +28,7 @@ See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 | `config/game.toml` | Recompiler config for `default.xbe`: symbols, data, hooks |
 | `src/common/` | Host code shared by every image (`game_info.cpp` describes the game to the runtime) |
 | `src/game/` | Hooks for `default.xbe` (`X86_FUNC(sub_XXXXXXXX)` overrides) |
-| `tools/` | `xiso.py` (list/extract XDVDFS images), `xbe_info.py` (XBE header, XDK versions, sections), `dev.bat` (toolchain environment), RE helpers `disasm.py`, `lib_inventory.py`, `symbols_compare.py`, `hle_audit.py`, `dsp_image_check.py` (see [docs/xdk5455.md](docs/xdk5455.md)) |
+| `tools/` | `xiso.py` (list/extract XDVDFS images), `xbe_info.py` (XBE header, XDK versions, sections), `viv.py` (list/extract EA .viv archives), `dev.bat` (toolchain environment), RE helpers `disasm.py`, `lib_inventory.py`, `symbols_compare.py`, `hle_audit.py`, `dsp_image_check.py` (see [docs/xdk5455.md](docs/xdk5455.md)) |
 | `docs/` | Plan and notes |
 | `assets/` | Your game files (ignored by git) |
 | `generated/`, `out/` | Recompiled code and build output (ignored by git) |

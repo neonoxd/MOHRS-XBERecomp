@@ -2,6 +2,7 @@
 #include "common/mouse_look.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
+#include "common/options_menu.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
 #include "kernel/kernel.h"
@@ -56,3 +57,16 @@ void ResetLoadingAnimation(X86Context&, uint8_t*) { game::ResetLoadingAnimation(
 void LoadingAnimation(X86Context& ctx, uint8_t*) { game::LoadingAnimation(ctx); }
 void ResetPopupAnimation(X86Context&, uint8_t*) { game::ResetPopupAnimation(); }
 void PopupAnimation(X86Context& ctx, uint8_t*) { game::PopupAnimation(ctx); }
+
+// PC Options in the options menus (src/common/options_menu.h): SetText 0x138A40, RunScript 0x138330, the menu sound
+// 0x123C10
+constexpr game::MenuCalls kMenuCalls = {0x138A40, 0x138330, 0x123C10};
+// the open archive's file lookup, which the shell's package loader (0x122BC0) asks for each .fng
+X86_EXTERN_FUNC(__imp__sub_001132E0);
+X86_FUNC(sub_001132E0) { game::MenuFile(ctx, base, __imp__sub_001132E0); }
+// the screen handler factory, by package name
+X86_EXTERN_FUNC(__imp__sub_00120F00);
+X86_FUNC(sub_00120F00) { game::MenuScreen(ctx, base, __imp__sub_00120F00); }
+// the HUD options screen's event handler (vtable 0x1ED40C)
+X86_EXTERN_FUNC(__imp__sub_0012A620);
+X86_FUNC(sub_0012A620) { game::MenuEvent(ctx, base, __imp__sub_0012A620, kMenuCalls); }
