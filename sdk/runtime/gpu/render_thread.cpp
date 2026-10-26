@@ -92,6 +92,7 @@ bool Same(const uint8_t* a, const uint8_t* b, size_t n) {
 }
 
 using Clock = std::chrono::steady_clock;
+Clock::time_point PerfStart() { return diag::Perf() ? Clock::now() : Clock::time_point{}; }
 uint64_t Ns(Clock::time_point t) { return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now() - t).count()); }
 
 class Threaded final : public Backend {
@@ -115,7 +116,7 @@ public:
     bool Init(uint32_t width, uint32_t height) override { return inner_->Init(width, height); }
 
     void Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) override {
-        auto t = Clock::now();
+        auto t = PerfStart();
         SendState(s);
         Cmd c{Op::Draw};
         c.a = prim;
@@ -133,11 +134,11 @@ public:
         Use(s.zs.header);
         Written(s.rt);
         if (cur_->cmds.size() >= kBatchCommands) Submit();
-        g_perf_capture_ns += Ns(t);
+        if (diag::Perf()) g_perf_capture_ns.fetch_add(Ns(t), std::memory_order_relaxed);
     }
 
     void Clear(const State& s, uint32_t count, const uint8_t* rects, uint32_t flags, uint32_t color, float z, uint32_t stencil) override {
-        auto t = Clock::now();
+        auto t = PerfStart();
         SendState(s);
         Cmd c{Op::Clear};
         c.a = count;
@@ -153,12 +154,12 @@ public:
         Use(s.rt.header);
         Use(s.zs.header);
         if (flags & kClearTarget) Written(s.rt);
-        g_perf_capture_ns += Ns(t);
+        if (diag::Perf()) g_perf_capture_ns.fetch_add(Ns(t), std::memory_order_relaxed);
     }
 
     // rects and points are taken now; the copy itself, CPU or GPU, runs in order like the console's
     void Copy(const Surface& src, const Surface& dst, uint32_t count, uint32_t src_rects, uint32_t dst_points) override {
-        auto t = Clock::now();
+        auto t = PerfStart();
         Cmd c{Op::Copy};
         c.a = count;
         c.b = count && src_rects ? Scratch(kernel::HostPtr(src_rects), count * 16) : 0;
@@ -171,18 +172,18 @@ public:
         Use(src.header);
         Use(dst.header);
         Written(dst);
-        g_perf_capture_ns += Ns(t);
+        if (diag::Perf()) g_perf_capture_ns.fetch_add(Ns(t), std::memory_order_relaxed);
     }
 
     void Present(const Surface& front) override {
-        auto t = Clock::now();
+        auto t = PerfStart();
         Cmd c{Op::Present};
         c.s1 = front;
         c.s1.header = Header(front.header);
         cur_->cmds.push_back(c);
         Use(front.header);
         uint64_t id = Submit();
-        g_perf_capture_ns += Ns(t);
+        if (diag::Perf()) g_perf_capture_ns.fetch_add(Ns(t), std::memory_order_relaxed);
         // the title records one frame while the one before it draws
         Wait(last_present_, WaitFor::Frame, nullptr);
         last_present_ = id;
@@ -257,7 +258,7 @@ private:
     void ReadBack(uint32_t data, bool late) {
         // only surfaces the GPU wrote since the last read-back hold anything newer than guest memory
         if (!written_.erase(data)) return;
-        (late ? g_perf_sync_late : g_perf_sync_block)++;
+        if (diag::Perf()) (late ? g_perf_sync_late : g_perf_sync_block).fetch_add(1, std::memory_order_relaxed);
         if (diag::Perf() && logged_.insert(uint64_t(data) << 1 | (late ? 1 : 0)).second)
             LOGI("render thread: read-back of %08X for %s", data, late ? "a NOOVERWRITE lock without a finished copy" : "a lock / BlockOnResource");
         Cmd c{Op::Sync};
@@ -369,17 +370,19 @@ private:
     void Wait(uint64_t id, WaitFor kind, const char* why) {
         if (!id || done_.load() >= id) return;
         if (id >= cur_->id) id = Submit();
-        auto t = Clock::now();
+        auto t = PerfStart();
         {
             std::unique_lock lock(m_);
             done_cv_.wait(lock, [&] { return done_.load() >= id; });
         }
-        uint64_t ns = Ns(t);
-        g_perf_wait_ns += ns;
-        g_perf_wait_kind_ns[size_t(kind)] += ns;
-        if (why) {
-            g_perf_waits++;
-            if (diag::Perf()) LOG_FIRST(32, "render thread: the title waited %.2f ms for a %s", ns / 1e6, why);
+        if (diag::Perf()) {
+            uint64_t ns = Ns(t);
+            g_perf_wait_ns.fetch_add(ns, std::memory_order_relaxed);
+            g_perf_wait_kind_ns[size_t(kind)].fetch_add(ns, std::memory_order_relaxed);
+            if (why) {
+                g_perf_waits.fetch_add(1, std::memory_order_relaxed);
+                LOG_FIRST(32, "render thread: the title waited %.2f ms for a %s", ns / 1e6, why);
+            }
         }
     }
 

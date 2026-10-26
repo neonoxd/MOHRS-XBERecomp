@@ -5,6 +5,7 @@
 
 #include <dxgiformat.h>
 
+#include "core/diag.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
 
@@ -265,7 +266,7 @@ uint32_t StrideOf(const State& s, const VertexShader& layout, const VertexShader
     return st.stride ? st.stride : layout.stream_stride[size_t(in.stream)];
 }
 
-constexpr uint32_t kStrideAlign = 4;            // the input assembler reads strides in dwords
+constexpr uint32_t kStrideAlign = 4;            // host streams are padded to dwords
 constexpr uint32_t kElementOffsetEnd = 0x10000;  // the element offset is stored as uint16_t
 
 bool RawReadable(const State& s, const Inputs& inputs) {
@@ -273,23 +274,33 @@ bool RawReadable(const State& s, const Inputs& inputs) {
         const auto& in = inputs.layout.inputs[size_t(inputs.regs[k])];
         HostElement he = HostFormat(in.type);
         uint32_t stride = StrideOf(s, inputs.layout, in);
-        bool readable = he.format && stride && stride % kStrideAlign == 0 && in.offset < kElementOffsetEnd &&
+        bool readable = he.format && stride && in.offset < kElementOffsetEnd &&
+                        uint64_t(in.offset) + TypeBytes(in.type) <= stride &&
                         in.offset % std::min<uint32_t>(he.bytes, 4) == 0;
         if (!readable) {
-            LOG_FIRST(32, "vertex: converted on the CPU: v%d type %02X offset %u stride %u", inputs.regs[k], in.type,
-                      in.offset, stride);
+            if (diag::Perf()) {
+                static uint32_t reports = 0;  // Assemble runs on the render thread
+                if (reports++ < 32)
+                    LOGR("vertex: converted on the CPU: v%d type %02X offset %u stride %u", inputs.regs[k], in.type,
+                         in.offset, stride);
+            }
             return false;
         }
     }
     return true;
 }
 
-// sparse indices: the vertices they read, copied in draw order
+// Sparse indices are gathered in draw order. Packed streams (MOHRS SHORT3 positions have a six-byte stride)
+// are padded without converting their attributes: a host SHORT4 fetch needs eight bytes and aligned rows.
 void GatherVertices(const State& s, const DrawRange& d, const uint8_t* data, uint32_t stride,
-                    std::vector<uint8_t>& g) {
-    g.resize(size_t(d.count) * stride);
-    for (uint32_t i = 0; i < d.count; i++) {
-        std::memcpy(&g[size_t(i) * stride], data + size_t(DrawVertex(s, d, i)) * stride, stride);
+                    uint32_t host_stride, bool dense, std::vector<uint8_t>& g) {
+    uint32_t count = dense ? d.span : d.count;
+    g.resize(size_t(count) * host_stride);
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t vertex = dense ? d.first_vertex + i : DrawVertex(s, d, i);
+        uint8_t* dst = &g[size_t(i) * host_stride];
+        std::memcpy(dst, data + size_t(vertex) * stride, stride);
+        if (host_stride > stride) std::memset(dst + stride, 0, host_stride - stride);
     }
 }
 
@@ -299,14 +310,21 @@ int AddRawBuffer(const State& s, const VertexShader& layout, const VertexShader:
     using namespace kernel;
     const auto& st = s.streams[size_t(in.stream)];
     uint32_t stride = StrideOf(s, layout, in);
+    uint32_t host_stride = stride;
+    for (int r = 0; r < 16; r++) {
+        const auto& element = layout.inputs[size_t(r)];
+        if ((out.regs >> r & 1) && element.stream == in.stream)
+            host_stride = std::max(host_stride, element.offset + HostFormat(element.type).bytes);
+    }
+    host_stride = (host_stride + kStrideAlign - 1) & ~(kStrideAlign - 1);
     const uint8_t* data = static_cast<const uint8_t*>(HostPtr(mem::VirtualFromPhysical(R32(st.vb + kResData))));
     int slot = int(out.buffer_count);
-    if (dense) {
+    if (dense && host_stride == stride) {
         out.buffers[out.buffer_count++] = {data + size_t(d.first_vertex) * stride, d.span * stride, stride};
     } else {
         auto& g = out.gathered[out.buffer_count];
-        GatherVertices(s, d, data, stride, g);
-        out.buffers[out.buffer_count++] = {g.data(), d.count * stride, stride};
+        GatherVertices(s, d, data, stride, host_stride, dense, g);
+        out.buffers[out.buffer_count++] = {g.data(), uint32_t(g.size()), host_stride};
     }
     return slot;
 }

@@ -60,6 +60,7 @@ constexpr uint32_t kNoQuery = ~0u;
 
 // perf diagnostic: where a frame's time goes, logged once a second with diag::Perf
 using PerfClock = std::chrono::steady_clock;
+PerfClock::time_point PerfStart() { return diag::Perf() ? PerfClock::now() : PerfClock::time_point{}; }
 double PerfMs(PerfClock::time_point t) {
     return std::chrono::duration<double, std::milli>(PerfClock::now() - t).count();
 }
@@ -99,8 +100,8 @@ struct Perf {
 Perf g_perf;
 struct PerfScope {
     double& acc;
-    PerfClock::time_point t = PerfClock::now();
-    ~PerfScope() { acc += PerfMs(t); }
+    PerfClock::time_point t = PerfStart();
+    ~PerfScope() { if (diag::Perf()) acc += PerfMs(t); }
 };
 
 // F3 captures only with diag::CaptureDir set
@@ -1751,9 +1752,9 @@ ID3D12Resource* D3D12Backend::BindGuestTexture(const State& s, int stage, const 
         tx.frame = presents_ + 1;
         tx.palette = palette.hash;
         const uint8_t* p = static_cast<const uint8_t*>(kernel::HostPtr(d.data));
-        auto perf_t = PerfClock::now();
+        auto perf_t = PerfStart();
         uint64_t sig = MemSig(d.data, total) ^ DirtyEpoch(d.data) ^ palette.hash;
-        g_perf.sig += PerfMs(perf_t);
+        if (diag::Perf()) g_perf.sig += PerfMs(perf_t);
         if (sig != tx.sig || !same) {
             PerfScope perf_up{g_perf.texup};
             g_perf.texups++;
@@ -1972,11 +1973,11 @@ void D3D12Backend::EnsureVertexShader(const State& s, const Assembled& a, DrawSh
 }
 
 bool D3D12Backend::BindStageTexturesAndTargets(const State& s, DrawTextures& stages) {
-    auto perf_t = PerfClock::now();
+    auto perf_t = PerfStart();
     draw_rt_ = bound_rt_;
     draw_ds_ = bound_ds_;
     for (int i = 0; i < 4; i++) stages.res[i] = BindTexture(s, i, stages);
-    g_perf.bind += PerfMs(perf_t);
+    if (diag::Perf()) g_perf.bind += PerfMs(perf_t);
     // textures may have recorded copies that unbound the targets
     return BindTargets(s);
 }
@@ -2468,9 +2469,9 @@ struct DrawEnd {
 // Assemble, timed and counted
 bool D3D12Backend::AssembleDraw(const State& s, uint32_t prim, uint32_t start, uint32_t count,
                                 const uint8_t* indices, Assembled& a) {
-    auto perf_t = PerfClock::now();
+    auto perf_t = PerfStart();
     bool assembled = Assemble(s, prim, start, count, indices, a);
-    g_perf.assemble += PerfMs(perf_t);
+    if (diag::Perf()) g_perf.assemble += PerfMs(perf_t);
     g_perf.verts += a.vertex_count;
     g_perf.raw += a.vertices.empty();
     return assembled;
@@ -2971,9 +2972,9 @@ void D3D12Backend::ReleaseOldTextures() {
 void D3D12Backend::ResetFrame() {
     Frame& f = CurrentFrame();
     if (f.fence && fence_->GetCompletedValue() < f.fence) {
-        auto perf_wait = PerfClock::now();
+        auto perf_wait = PerfStart();
         WaitFence(f.fence);
-        g_perf.wait += PerfMs(perf_wait);
+        if (diag::Perf()) g_perf.wait += PerfMs(perf_wait);
     }
     f.alloc->Reset();
     f.garbage.clear();
@@ -2996,19 +2997,27 @@ void D3D12Backend::CountFps() {
 
 void LogPerf() {
     static PerfClock::time_point perf_start = PerfClock::now();
+    static PerfClock::time_point previous = perf_start;
+    static bool have_previous = false;
+    static std::vector<double> intervals;
     static uint64_t perf_frames = 0;
+    auto now = PerfClock::now();
+    if (have_previous)
+        intervals.push_back(std::chrono::duration<double, std::milli>(now - previous).count());
+    have_previous = true;
+    previous = now;
     perf_frames++;
     double el = PerfMs(perf_start);
     if (el >= 1000.0) {
         Perf& p = g_perf;
         double n = double(perf_frames);
         double host = p.draw + p.clear + p.copy + p.present + p.sync;
-        LOGI("perf: %.1f fps %.2f ms/frame | host %.2f (draw %.2f: assemble %.2f bind %.2f [check %.2f, upload %.2f] "
+        LOGR("perf: %.1f fps %.2f ms/frame | host %.2f (draw %.2f: assemble %.2f bind %.2f [check %.2f, upload %.2f] "
              "compile %.2f; clear %.2f copy %.2f sync %.2f present %.2f [swap %.2f wait %.2f]) other %.2f",
              n * 1000.0 / el, el / n, host / n, p.draw / n, p.assemble / n, p.bind / n, p.sig / n, p.texup / n,
              p.compile / n, p.clear / n, p.copy / n, p.sync / n, p.present / n, p.swap / n, p.wait / n,
              (el - host) / n);
-        LOGI("perf: title thread per frame: recording %.2f ms, waiting %.2f ms (%.1f waits: read-back %.2f "
+        LOGR("perf: title thread per frame: recording %.2f ms, waiting %.2f ms (%.1f waits: read-back %.2f "
              "resource %.2f fence %.2f flush %.2f copy %.2f, next frame %.2f) | read-backs waited for: %.1f lock, "
              "%.1f NOOVERWRITE",
              g_perf_capture_ns.exchange(0) / n / 1e6, g_perf_wait_ns.exchange(0) / n / 1e6,
@@ -3017,13 +3026,21 @@ void LogPerf() {
              g_perf_wait_kind_ns[3].exchange(0) / n / 1e6, g_perf_wait_kind_ns[4].exchange(0) / n / 1e6,
              g_perf_wait_kind_ns[5].exchange(0) / n / 1e6, g_perf_sync_block.exchange(0) / n,
              g_perf_sync_late.exchange(0) / n);
-        LOGI("perf: per frame %.0f draws (%.0f raw) %.0fk verts %.1f MB upload %.1f overflow | %.0f checks %.2f MB "
+        LOGR("perf: per frame %.0f draws (%.0f raw) %.0fk verts %.1f MB upload %.1f overflow | %.0f checks %.2f MB "
              "hashed | %.1f tex uploads %.2f MB, %.1f new tex, %.1f new targets, %.1f target uploads, %.1f shrinks, "
              "%.1f read-backs %.1f late | %llu shaders %llu psos this second",
              p.draws / n, p.raw / n, p.verts / n / 1000.0, p.upload / n / 1048576.0, p.overflow / n, p.sigs / n,
              p.sig_bytes / n / 1048576.0, p.texups / n, p.texup_bytes / n / 1048576.0, p.newtex / n,
              p.targets / n, p.rtups / n, p.shrinks / n, p.syncs / n, p.lates / n,
              (unsigned long long)p.shaders, (unsigned long long)p.psos);
+        if (!intervals.empty()) {
+            std::sort(intervals.begin(), intervals.end());
+            const auto percentile = [&](size_t percent) { return intervals[(intervals.size() - 1) * percent / 100]; };
+            const auto over = intervals.end() - std::upper_bound(intervals.begin(), intervals.end(), 1000.0 / 240);
+            LOGR("perf: present intervals p50 %.2f p95 %.2f p99 %.2f worst %.2f ms; over 240 fps budget %zu/%zu",
+                 percentile(50), percentile(95), percentile(99), intervals.back(), size_t(over), intervals.size());
+            intervals.clear();
+        }
         g_perf = Perf{};
         perf_start = PerfClock::now();
         perf_frames = 0;
@@ -3049,9 +3066,9 @@ void D3D12Backend::Present(const Surface& front) {
     Submit(false);
     DeliverReports();
     bool vsync = app::Get().vsync;
-    auto perf_swap = PerfClock::now();
+    auto perf_swap = PerfStart();
     swap_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
-    g_perf.swap += PerfMs(perf_swap);
+    if (diag::Perf()) g_perf.swap += PerfMs(perf_swap);
 
     presents_++;
     presents_seen_.store(presents_);
