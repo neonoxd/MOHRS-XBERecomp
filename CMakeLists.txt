@@ -2,7 +2,7 @@
 
 cmake_minimum_required(VERSION 3.25)
 # the release version: the executables' version resource, the log's first line and release.bat's tag
-project(mohrs VERSION 0.1.0 LANGUAGES C CXX RC)
+project(mohrs VERSION 0.1.2 LANGUAGES C CXX RC)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/version.txt ${PROJECT_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)

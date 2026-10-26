@@ -7,13 +7,17 @@ param(
     [string]$Level = "1_1",
     [int]$Seconds = 14,
     [ValidateRange(45,140)][int]$Fov = 70,
-    [switch]$Coop
+    [ValidateRange(640,7680)][int]$Width = 1280,
+    [ValidateRange(480,4320)][int]$Height = 720,
+    [ValidateRange(25,200)][int]$RenderPercent = 100,
+    [switch]$Coop,
+    [switch]$NoPerf
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot
 if (Get-Process MOHRS,MOHRSCoop -ErrorAction SilentlyContinue) { throw "Close the running game before this test." }
 if ($Cap -lt 0 -or $Seconds -lt 2 -or $Level -notmatch '^\d+_\d+$') { throw "Invalid probe arguments" }
-$tag = "{0}_{1}_{2}_fov{3}_{4}" -f $Cap, $Unlocked.IsPresent, $Level, $Fov, (Get-Date -Format 'yyyyMMdd_HHmmss_fff')
+$tag = "{0}_{1}_{2}_fov{3}_{4}x{5}_scale{6}_{7}" -f $Cap, $Unlocked.IsPresent, $Level, $Fov, $Width, $Height, $RenderPercent, (Get-Date -Format 'yyyyMMdd_HHmmss_fff')
 $dir = Join-Path $root "re\fps-probes\$tag"
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 foreach ($name in 'MOHRS.exe','MOHRS.dll','MOHRSCoop.exe','MOHRSCoop.dll') {
@@ -23,8 +27,9 @@ Get-ChildItem -LiteralPath $dir -Filter '*.dll' | ForEach-Object { $_.LastWriteT
 $flag = $Unlocked.IsPresent.ToString().ToLowerInvariant()
 @"
 display_mode = 'windowed'
-width = 1280
-height = 720
+width = $Width
+height = $Height
+render_percent = $RenderPercent
 vsync = false
 fps_cap = $Cap
 fps60 = true
@@ -41,6 +46,7 @@ $oldFovTrace = $env:MOHRS_FOV_TRACE
 $env:MOHRS_START_LEVEL = $Level
 $env:MOHRS_TIMING = '1'
 $env:XBE_PERF = '1'
+if ($NoPerf) { Remove-Item Env:\XBE_PERF -ErrorAction SilentlyContinue }
 $env:MOHRS_FOV_TRACE = '1'
 $exe = Join-Path $dir $(if ($Coop) { 'MOHRSCoop.exe' } else { 'MOHRS.exe' })
 try {

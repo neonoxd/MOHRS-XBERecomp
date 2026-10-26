@@ -16,6 +16,7 @@ Single-player and co-op boot and run with graphics, audio, saves, controller and
 Widescreen and 60 FPS are implemented. An experimental mode above 60 FPS uses elapsed-time updates;
 see [frame timing and settings](docs/frame-timing.md). The game uses XDK 5455, supported by this repo's SDK.
 Adjustable [field of view](docs/fov.md) is available through `fov` in `settings.toml` (70 is the original view).
+See [performance measurements](docs/performance.md) for the packed-vertex optimization and benchmark commands.
 Display, frame rate, field of view and mouse settings can also be changed in the game's own menus under
 [PC Options](docs/pc-options.md), in Options and in the pause screen's Preferences.
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
