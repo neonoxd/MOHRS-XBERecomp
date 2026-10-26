@@ -128,6 +128,11 @@ back (co-op quitting to `default.xbe`) was not in the logs, as the window was cl
 - `release.bat` zip with no game code (built on the player's PC from their own XBE), README for players, version
   resource, crash dumps checked.
 - Exit: a fresh folder with only the zip + the user's ISO builds and runs the game.
+- 2026-10-26, v0.1.0 preview packaged: `release.bat` ships both executables, the compiler folder without its work
+  folder, the VC++ runtime, d3dcompiler_47.dll, licenses and `docs/player-readme.txt` as README.txt; version
+  resource from CMake, logged first. Clean-folder test: unzip + ISO, the first start built both DLLs (14 s on the
+  dev PC), MOHRS.exe and MOHRSCoop.exe then reached their title screens. Not checked: a crash dump from the zip, a PC
+  without Visual Studio.
 
 ### Phase 2 - Enhancements (after M9, scoped then)
 Following BLACK as a reference: output resolution and widescreen/aspect, unlocked frame rate (needs every

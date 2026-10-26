@@ -1,7 +1,9 @@
 # Medal of Honor: Rising Sun (original Xbox), statically recompiled
 
 cmake_minimum_required(VERSION 3.25)
-project(mohrs LANGUAGES C CXX RC)
+# the release version: the executables' version resource, the log's first line and release.bat's tag
+project(mohrs VERSION 0.1.0 LANGUAGES C CXX RC)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/version.txt ${PROJECT_VERSION})
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,6 +23,16 @@ function(add_game_icon target xbe section)
         VERBATIM)
     set_source_files_properties(${resource} PROPERTIES OBJECT_DEPENDS ${icon})
     target_sources(${target} PRIVATE ${resource})
+endfunction()
+
+# the version resource (Properties > Details) and MOHRS_VERSION for the log
+function(add_version target description)
+    set(VERSION_TARGET ${target})
+    set(VERSION_DESCRIPTION ${description})
+    set(resource ${CMAKE_CURRENT_BINARY_DIR}/version/${target}.rc)
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/version.rc.in ${resource} @ONLY)
+    target_sources(${target} PRIVATE ${resource})
+    target_compile_definitions(${target} PRIVATE MOHRS_VERSION="${PROJECT_VERSION}")
 endfunction()
 
 # the SDK: sdk/ here, two folders up inside the SDK's templates, a checkout beside this repository, else downloaded
@@ -61,8 +73,10 @@ endfunction()
 config_partitions(game.toml GAME_PARTITIONS)
 add_xbe_image(MOHRS xbe/default.xbe game.toml ${GAME_PARTITIONS} game)
 add_game_icon(MOHRS xbe/default.xbe "$$XTIMAGE")
+add_version(MOHRS "Medal of Honor: Rising Sun, recompiled")
 
 # the co-op executable, which default.xbe launches for co-op and which launches default.xbe back
 config_partitions(coop.toml COOP_PARTITIONS)
 add_xbe_image(MOHRSCoop xbe/moh3rdc.xbe coop.toml ${COOP_PARTITIONS} coop)
 add_game_icon(MOHRSCoop xbe/moh3rdc.xbe "$$XSIMAGE")
+add_version(MOHRSCoop "Medal of Honor: Rising Sun co-op, recompiled")

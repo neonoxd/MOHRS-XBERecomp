@@ -58,6 +58,13 @@ The build extracts the original title logo for `MOHRS.exe` and the silver save s
 XBEs and embeds them as Windows icons. Generated icon files stay in the build folder; no extra Python packages
 are needed.
 
+### 4. Release zip
+Run `release.bat` (needs 7-Zip on `PATH`). It brings the release build up to date and writes `MOHRS-XBERecomp.zip`:
+both executables, the `compiler` folder that builds the game code on the player's PC from their own disc image on
+the first start, the Visual C++ runtime, `d3dcompiler_47.dll`, licenses and the player's
+[README](docs/player-readme.txt). No game code or game data goes into it. The version is `project(... VERSION)` in
+`CMakeLists.txt`; it is in each executable's file properties and on the first line of the log.
+
 ## Credits
 
 - [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) and [BLACK-XBERecomp](https://github.com/TGP482/BLACK-XBERecomp)

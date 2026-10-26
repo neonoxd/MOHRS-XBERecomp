@@ -17,6 +17,7 @@
 #include "common/options.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
+#include "core/log.h"
 
 namespace game {
 
@@ -131,6 +132,7 @@ void Save(void* table) {
 // after the settings load, before boot; a settings file missing a game setting or an action's keys is written out
 // with them (keys of actions no longer bound drop out)
 void Init() {
+    LOGR("MOHRS-XBERecomp %s", MOHRS_VERSION);
     StartWidescreen();
     input::LoadBindings();
     if (!g_complete) app::Save();
