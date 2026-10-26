@@ -222,9 +222,6 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
         bool mouse = Wheel(vk) || vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON;
         return Down(vk) && (play || !mouse);
     };
-    static bool pause_held;
-    static bool pause_backs;
-    bool pause = false;
     for (size_t i = 0; i < kCount; i++) {
         int b = kActions[i].button;
         if (!std::any_of(binds[i].begin(), binds[i].end(), pressed)) continue;
@@ -237,17 +234,11 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
             held.stick[b - kFirstMoveKey] = 1;
         } else if (b < kFirstButtonBit) {
             p.analog[b] = 0xFF;
-        } else if (b == kStart) {
-            // pressed in a menu it backs out of it, and does nothing more once the menu has gone
-            if (!pause_held) pause_backs = !play;
-            pause = true;
-            if (!pause_backs) p.buttons |= uint16_t(1u << (b - kFirstButtonBit));
-            else if (!play) p.analog[1] = 0xFF;
         } else {
+            // Start pauses and resumes; keep the pause binding identical in play and menus.
             p.buttons |= uint16_t(1u << (b - kFirstButtonBit));
         }
     }
-    pause_held = pause;
     return held;
 }
 
