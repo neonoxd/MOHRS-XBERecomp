@@ -31,6 +31,7 @@ copy /y "%OUT%\MOHRSCoop.exe" "%STAGE%\" >nul || exit /b 1
 for %%f in (msvcp140 vcruntime140 vcruntime140_1) do copy /y "%VCRUNTIME%\%%f.dll" "%STAGE%\" >nul || exit /b 1
 copy /y "%D3DCOMPILER%" "%STAGE%\" >nul || exit /b 1
 copy /y "%SDK%\THIRD_PARTY.txt" "%STAGE%\" >nul || exit /b 1
+copy /y LICENSE "%STAGE%\LICENSE.txt" >nul || exit /b 1
 copy /y "%SDK%\LICENSE" "%STAGE%\LICENSE-XboxXBE-Recomp.txt" >nul || exit /b 1
 rem the compiler folder without its work folder (the build's game code); xbe_recomp.exe needs its own runtime copy,
 rem Windows only looks beside the exe it starts

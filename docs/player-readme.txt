@@ -93,4 +93,5 @@ were doing.
 Credits
 -------
 Built with Xbox XBE Recomp by TGP482 (https://github.com/TGP482/XboxXBE-Recomp), modelled on BLACK-XBERecomp.
-Third party licenses: THIRD_PARTY.txt and compiler\LLVM-LICENSE.txt.
+This port is under the MIT License (LICENSE.txt), the SDK under its own (LICENSE-XboxXBE-Recomp.txt); third party
+licenses are in THIRD_PARTY.txt and compiler\LLVM-LICENSE.txt. The game and its data belong to Electronic Arts.

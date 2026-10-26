@@ -65,6 +65,12 @@ the first start, the Visual C++ runtime, `d3dcompiler_47.dll`, licenses and the 
 [README](docs/player-readme.txt). No game code or game data goes into it. The version is `project(... VERSION)` in
 `CMakeLists.txt`; it is in each executable's file properties and on the first line of the log.
 
+## License
+
+This repository's own code is under the [MIT License](LICENSE). The vendored SDK in `sdk/` has its own MIT license
+(`sdk/LICENSE`) and lists its third party code in `sdk/THIRD_PARTY.txt`. Medal of Honor: Rising Sun, its code and
+its data belong to Electronic Arts and are not covered; this project is not affiliated with or endorsed by EA.
+
 ## Credits
 
 - [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) and [BLACK-XBERecomp](https://github.com/TGP482/BLACK-XBERecomp)
