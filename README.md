@@ -15,6 +15,7 @@ libraries run as host code, graphics go through Direct3D 12 and audio through XA
 Single-player and co-op boot and run with graphics, audio, saves, controller and keyboard/mouse support.
 Widescreen and 60 FPS are implemented. An experimental mode above 60 FPS uses elapsed-time updates;
 see [frame timing and settings](docs/frame-timing.md). The game uses XDK 5455, supported by this repo's SDK.
+Adjustable [field of view](docs/fov.md) is available through `fov` in `settings.toml` (70 is the original view).
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 
 ## Repository layout

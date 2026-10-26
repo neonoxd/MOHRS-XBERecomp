@@ -1,6 +1,7 @@
 // Hooks for moh3rdc.xbe (co-op). A strong definition replaces the recompiled function at that address. The same
 // game functions as in src/game/hooks.cpp, found by their bytes in this build of the game code.
 #include "common/mouse_look.h"
+#include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
@@ -38,6 +39,7 @@ X86_FUNC(sub_000754F0) {
     uint32_t camera = ctx.ecx;
     __imp__sub_000754F0(ctx, base);
     game::WidenView(camera);
+    game::AdjustPlayerFov(camera, kPlayers, 0x1F54B8, 0x1230);
 }
 
 // 60 fps (src/common/test_hooks.h): [[hook]]s on the frame's end compares of the blanks passed with 2, eax at 0x13AFF and

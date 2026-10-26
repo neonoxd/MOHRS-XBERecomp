@@ -6,13 +6,14 @@ param(
     [switch]$Unlocked,
     [string]$Level = "1_1",
     [int]$Seconds = 14,
+    [ValidateRange(45,140)][int]$Fov = 70,
     [switch]$Coop
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot
 if (Get-Process MOHRS,MOHRSCoop -ErrorAction SilentlyContinue) { throw "Close the running game before this test." }
 if ($Cap -lt 0 -or $Seconds -lt 2 -or $Level -notmatch '^\d+_\d+$') { throw "Invalid probe arguments" }
-$tag = "{0}_{1}_{2}_{3}" -f $Cap, $Unlocked.IsPresent, $Level, (Get-Date -Format 'yyyyMMdd_HHmmss_fff')
+$tag = "{0}_{1}_{2}_fov{3}_{4}" -f $Cap, $Unlocked.IsPresent, $Level, $Fov, (Get-Date -Format 'yyyyMMdd_HHmmss_fff')
 $dir = Join-Path $root "re\fps-probes\$tag"
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 foreach ($name in 'MOHRS.exe','MOHRS.dll','MOHRSCoop.exe','MOHRSCoop.dll') {
@@ -29,15 +30,18 @@ fps_cap = $Cap
 fps60 = true
 unlocked_fps = $flag
 fps_counter = true
+fov = $Fov
 skip_intros = true
 skip_cutscenes = true
 "@ | Set-Content -LiteralPath (Join-Path $dir 'settings.toml') -Encoding ascii
 $oldLevel = $env:MOHRS_START_LEVEL
 $oldTiming = $env:MOHRS_TIMING
 $oldPerf = $env:XBE_PERF
+$oldFovTrace = $env:MOHRS_FOV_TRACE
 $env:MOHRS_START_LEVEL = $Level
 $env:MOHRS_TIMING = '1'
 $env:XBE_PERF = '1'
+$env:MOHRS_FOV_TRACE = '1'
 $exe = Join-Path $dir $(if ($Coop) { 'MOHRSCoop.exe' } else { 'MOHRS.exe' })
 try {
     $p = Start-Process -FilePath $exe -WorkingDirectory $dir -WindowStyle Hidden -PassThru
@@ -59,9 +63,10 @@ try {
     $env:MOHRS_START_LEVEL = $oldLevel
     $env:MOHRS_TIMING = $oldTiming
     $env:XBE_PERF = $oldPerf
+    $env:MOHRS_FOV_TRACE = $oldFovTrace
 }
 $log = Join-Path $dir 'logs\mohrs.log'
 if (Test-Path $log) {
-    Select-String -LiteralPath $log -Pattern 'timing:|perf:|\[error\]' | ForEach-Object Line
+    Select-String -LiteralPath $log -Pattern 'timing:|fov:|perf:|\[error\]' | ForEach-Object Line
 } else { throw "No game log: $dir" }
 "results: $dir"

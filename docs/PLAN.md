@@ -136,6 +136,9 @@ distance, skip intros, pause on focus loss, texture dumping/replacement (already
 - Keyboard and mouse: done early (2026-10-25, at the user's request). Raw mouse look added to the player's yaw and
   pitch in the game's look update (and on mounted guns), keys on port 0's pad with bindings in `settings.toml`
   `[keys]`, after BLACK. No in-game settings panel yet.
+- Adjustable FoV: implemented early (2026-10-26, at the user's request). `settings.toml` key `fov`, 45-140
+  horizontal degrees on a 4:3 frame, 70 default; existing Hor+ widening still applies. Both images' player world
+  cameras only, with zoom ratios preserved. See [FoV notes and checks](fov.md). Native PC settings menu is next.
 
 ## Risks
 

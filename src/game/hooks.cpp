@@ -1,5 +1,6 @@
 // Hooks for default.xbe. A strong definition replaces the recompiled function at that address.
 #include "common/mouse_look.h"
+#include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
@@ -36,6 +37,7 @@ X86_FUNC(sub_00082BA0) {
     uint32_t camera = ctx.ecx;
     __imp__sub_00082BA0(ctx, base);
     game::WidenView(camera);
+    game::AdjustPlayerFov(camera, kPlayers, 0x1FC658, 0x1150);
 }
 
 // 60 fps (src/common/test_hooks.h): [[hook]]s on the frame's end compares of the blanks passed with 2, eax at 0x13AAF and

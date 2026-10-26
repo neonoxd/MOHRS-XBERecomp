@@ -100,6 +100,9 @@ void Load(const void* table) {
     size_t count;
     const input::Action* actions = input::Actions(&count);
     for (size_t i = 0; i < count; i++) g_complete = g_complete && t["keys"][actions[i].id];
+    uint32_t requested_fov = o.fov;
+    o.fov = ClampFov(o.fov);
+    if (requested_fov != o.fov) g_complete = false;
     o.mouse_sensitivity = ReadFloat(t, "mouse_sensitivity", o.mouse_sensitivity);
     o.mouse_vertical_sensitivity = ReadFloat(t, "mouse_vertical_sensitivity", o.mouse_vertical_sensitivity);
     if (const toml::table* keys = t["keys"].as_table())
@@ -156,6 +159,7 @@ const app::GameInfo app::kGame = {
                 {"widescreen", &game::Opt().widescreen, nullptr},
                 {"fps60", &game::Opt().fps60, nullptr},
                 {"unlocked_fps", &game::Opt().unlocked_fps, nullptr},
+                {"fov", nullptr, &game::Opt().fov},
                 {"invert_mouse", &game::Opt().invert_mouse, nullptr},
                 {"invert_mouse_x", &game::Opt().invert_mouse_x, nullptr},
                 {"walk_speed", nullptr, &game::Opt().walk_speed}},
