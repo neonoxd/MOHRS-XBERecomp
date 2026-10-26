@@ -1,10 +1,27 @@
 # Medal of Honor: Rising Sun (original Xbox), statically recompiled
 
 cmake_minimum_required(VERSION 3.25)
-project(mohrs LANGUAGES C CXX)
+project(mohrs LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+# Derive the icons from the user's XBEs; original game artwork stays out of the repository.
+function(add_game_icon target xbe section)
+    set(icon ${CMAKE_CURRENT_BINARY_DIR}/icons/${target}.ico)
+    set(resource ${CMAKE_CURRENT_BINARY_DIR}/icons/${target}.rc)
+    add_custom_command(
+        OUTPUT ${icon} ${resource}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/extract_xbe_icon.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/assets/${xbe} ${section} ${icon}
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tools/extract_xbe_icon.py ${CMAKE_CURRENT_SOURCE_DIR}/assets/${xbe}
+        COMMENT "Extracting ${target} icon from ${xbe}"
+        VERBATIM)
+    set_source_files_properties(${resource} PROPERTIES OBJECT_DEPENDS ${icon})
+    target_sources(${target} PRIVATE ${resource})
+endfunction()
 
 # the SDK: sdk/ here, two folders up inside the SDK's templates, a checkout beside this repository, else downloaded
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/sdk/cmake/XbeRecomp.cmake)
@@ -43,7 +60,9 @@ endfunction()
 # assets/: the runtime prefers a loose assets/default.xbe and would then look for the data files beside it
 config_partitions(game.toml GAME_PARTITIONS)
 add_xbe_image(MOHRS xbe/default.xbe game.toml ${GAME_PARTITIONS} game)
+add_game_icon(MOHRS xbe/default.xbe "$$XTIMAGE")
 
 # the co-op executable, which default.xbe launches for co-op and which launches default.xbe back
 config_partitions(coop.toml COOP_PARTITIONS)
 add_xbe_image(MOHRSCoop xbe/moh3rdc.xbe coop.toml ${COOP_PARTITIONS} coop)
+add_game_icon(MOHRSCoop xbe/moh3rdc.xbe "$$XSIMAGE")

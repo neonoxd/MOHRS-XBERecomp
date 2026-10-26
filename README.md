@@ -52,6 +52,10 @@ tools.
 Run `build.bat`. It writes `config/game.toml` with `xbe_symbols` on the first build, recompiles the XBE and builds
 `out\build\release\MOHRS.exe`.
 
+The build extracts the original title logo for `MOHRS.exe` and the silver save star for `MOHRSCoop.exe` from your
+XBEs and embeds them as Windows icons. Generated icon files stay in the build folder; no extra Python packages
+are needed.
+
 ## Credits
 
 - [XboxXBE-Recomp](https://github.com/TGP482/XboxXBE-Recomp) and [BLACK-XBERecomp](https://github.com/TGP482/BLACK-XBERecomp)
