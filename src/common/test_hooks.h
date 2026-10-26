@@ -32,4 +32,8 @@ void FrameWait(uint32_t& blanks);
 // capture, which saves the next frame under XBE_CAPTURE_DIR. Each press is held a tenth of a second.
 void ProbePad(input::Pad& pad);
 
+// Development: MOHRS_EVENT_TRACE logs each animation event an entity's listener handles (default.xbe 0xCF780, thiscall
+// with the event record: opcode at +2, argument at +4), with the caller and the listener.
+void TraceAnimEvent(const X86Context& ctx);
+
 }  // namespace game

@@ -383,3 +383,12 @@ call = "ResetPopupAnimation"
 at = 0xF6C5A
 after = true
 call = "PopupAnimation"
+
+# Animation events (dialogue lines, sounds, effects) in the scan 0x6FA30: the previous and current animation frames
+# (30 a second) as integers in ebx and edx; previous >= current takes the loop wrap branch, which on an animation's
+# first scan fires every event. At 30 FPS the first scan always moves a frame on; faster, it can stay on frame 0, and
+# every event fired twice. On equal frames the forward scan runs instead: events up to the current frame, as at 30.
+[[hook]]
+at = 0x6FB74
+call = "AnimEventFirstScan"
+on_true = 0x6FB0D

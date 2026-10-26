@@ -4,15 +4,18 @@
 # powershell -NoProfile -File tools/menu_probe.ps1 -Level 1_1 -Script "8:start,10:right,11.5:right,13:capture" -Seconds 16
 param(
     [string]$Level = "1_1",
-    [Parameter(Mandatory)][string]$Script,
+    [string]$Script = "",
     [int]$Seconds = 20,
-    [switch]$Coop
+    [switch]$Coop,
+    [ValidateSet("30", "60", "unlocked")][string]$Rate = "60",
+    [int]$Cap = 60,
+    [switch]$EventTrace
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot
 if (Get-Process MOHRS,MOHRSCoop -ErrorAction SilentlyContinue) { throw "Close the running game before this test." }
 if ($Seconds -lt 2 -or ($Level -and $Level -notmatch '^\d+_\d+$')) { throw "Invalid probe arguments" }
-$tag = "menu_{0}_{1}" -f $Level, (Get-Date -Format 'yyyyMMdd_HHmmss_fff')
+$tag = "menu_{0}_{1}_{2}" -f $Level, $Rate, (Get-Date -Format 'yyyyMMdd_HHmmss_fff')
 $dir = Join-Path $root "re\menu-probes\$tag"
 New-Item -ItemType Directory -Path $dir -Force | Out-Null
 foreach ($name in 'MOHRS.exe','MOHRS.dll','MOHRSCoop.exe','MOHRSCoop.dll') {
@@ -24,17 +27,18 @@ display_mode = 'windowed'
 width = 1280
 height = 720
 vsync = false
-fps_cap = 60
-fps60 = true
-unlocked_fps = false
+fps_cap = $Cap
+fps60 = $(($Rate -ne "30").ToString().ToLowerInvariant())
+unlocked_fps = $(($Rate -eq "unlocked").ToString().ToLowerInvariant())
 skip_intros = true
 skip_cutscenes = true
 "@ | Set-Content -LiteralPath (Join-Path $dir 'settings.toml') -Encoding ascii
 $saved = @{}
-foreach ($name in 'MOHRS_START_LEVEL','MOHRS_MENU_PROBE','XBE_CAPTURE_DIR') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
+foreach ($name in 'MOHRS_START_LEVEL','MOHRS_MENU_PROBE','XBE_CAPTURE_DIR','MOHRS_EVENT_TRACE') { $saved[$name] = [Environment]::GetEnvironmentVariable($name) }
 $env:MOHRS_START_LEVEL = $Level
 $env:MOHRS_MENU_PROBE = $Script
 $env:XBE_CAPTURE_DIR = 'captures'
+$env:MOHRS_EVENT_TRACE = $(if ($EventTrace) { '1' } else { $null })
 $exe = Join-Path $dir $(if ($Coop) { 'MOHRSCoop.exe' } else { 'MOHRS.exe' })
 try {
     $p = Start-Process -FilePath $exe -WorkingDirectory $dir -WindowStyle Hidden -PassThru
@@ -51,7 +55,7 @@ try {
 }
 $log = Join-Path $dir 'logs\mohrs.log'
 if (Test-Path $log) {
-    Select-String -LiteralPath $log -Pattern 'MOHRS_MENU_PROBE|PC options|\[error\]' | ForEach-Object Line
+    Select-String -LiteralPath $log -Pattern 'MOHRS_MENU_PROBE|PC options|event:|\[error\]' | ForEach-Object Line
 } else { throw "No game log: $dir" }
 Get-ChildItem -LiteralPath (Join-Path $dir 'captures') -Recurse -Filter 'final*' -ErrorAction SilentlyContinue | ForEach-Object FullName
 "results: $dir"

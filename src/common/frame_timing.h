@@ -18,6 +18,10 @@ void LoadingAnimation(X86Context& ctx);
 // Profile checking and save prompts use the same animation in a separate memory-card popup renderer.
 void ResetPopupAnimation();
 void PopupAnimation(X86Context& ctx);
+// Animation event scan, at its loop wrap branch: ebx the previous animation frame, edx the current one. True (go to
+// the forward scan) when they are equal, which only gets here on an animation's first scan; the wrap branch would
+// fire all its events. 30 FPS never has equal frames there, 60 FPS and faster do.
+bool AnimEventFirstScan(const X86Context& ctx);
 // Optional MOHRS_TIMING diagnostics: actual player tick frequency and time advanced.
 void PlayerTick(float delta);
 // At frame end, also covers the front end, loading and pause paths.

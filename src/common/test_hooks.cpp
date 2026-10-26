@@ -58,6 +58,24 @@ void FrameWait(uint32_t& blanks) {
     else if (Opt().fps60 && blanks == 1) blanks = 2;
 }
 
+void TraceAnimEvent(const X86Context& ctx) {
+    static const bool on = std::getenv("MOHRS_EVENT_TRACE") != nullptr;
+    if (!on) return;
+    uint32_t record = R32(ctx.esp + 4);
+    // return addresses further up the guest stack, code section values
+    std::string up;
+    for (uint32_t at = ctx.esp + 4, n = 0; at < ctx.esp + 0x400 && n < 8; at += 4) {
+        uint32_t v = R32(at);
+        if (v < 0x11000 || v >= 0x1BB7DC) continue;
+        char text[12];
+        std::snprintf(text, sizeof(text), " %06X", v);
+        up += text;
+        n++;
+    }
+    LOGR("event: opcode %04X arg %08X record %08X listener %08X from %08X%s", kernel::R16(record + 2),
+         R32(record + 4), record, ctx.ecx, R32(ctx.esp), up.c_str());
+}
+
 void ProbePad(input::Pad& pad) {
     struct Press {
         double at;

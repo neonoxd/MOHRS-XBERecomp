@@ -13,7 +13,7 @@ from disasm import load
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def audit(image, config, frame_end, expected):
+def audit(image, config, frame_end, expected, scan):
     base, data, sections = load(str(ROOT / "assets/xbe" / image))
     text = (ROOT / "config" / config).read_text()
     hooks = {}
@@ -39,7 +39,17 @@ def audit(image, config, frame_end, expected):
         assert hooks.get(va) == (name, name in ("LoadingAnimation", "PopupAnimation")), f"{image}: missing {name} at {va:X}"
         code = bytes.fromhex(code)
         assert data[va - base:va - base + len(code)] == code, f"{image}: unexpected instruction at {va:X}"
-    print(f"{image}: 9 frame deltas, both wait compares, 3 timer hooks and 4 cosmetic animation hooks verified")
+    # the animation event scan: cmp ebx, edx; jae wrap at compare + 10, the forward scan right after it
+    compare, wrap, forward = scan
+    assert data[compare - base:compare - base + 2] == bytes.fromhex("3bda"), f"{image}: expected cmp ebx,edx"
+    jae = data[compare - base + 10:compare - base + 12]
+    assert jae[0] == 0x73 and compare + 12 + jae[1] == wrap and forward == compare + 12, f"{image}: event scan branch"
+    assert data[forward - base:forward - base + 2] == bytes.fromhex("33ed"), f"{image}: expected xor ebp,ebp"
+    assert hooks.get(wrap) == ("AnimEventFirstScan", False), f"{image}: missing AnimEventFirstScan at {wrap:X}"
+    jump = rf'at = 0x{wrap:X}\ncall = "AnimEventFirstScan"\non_true = 0x{forward:X}'
+    assert re.search(jump, text), f"{image}: AnimEventFirstScan must jump to {forward:X}"
+    print(f"{image}: 9 frame deltas, both wait compares, 3 timer hooks, 4 cosmetic animation hooks and the animation "
+          "event scan verified")
 
 
 if __name__ == "__main__":
@@ -51,7 +61,7 @@ if __name__ == "__main__":
         (0xFD3DC, "LoadingAnimation", "f30f2ac04083f821"),
         (0xF6B74, "ResetPopupAnimation", "c7461400000000"),
         (0xF6C5A, "PopupAnimation", "f30f2ac04083f821"),
-    ])
+    ], (0x6FB01, 0x6FB74, 0x6FB0D))
     audit("moh3rdc.xbe", "coop.toml", 0x13AE0, [
         (0x13AFF, "FrameWaitEax", "83f802"), (0x13B1A, "FrameWaitEcx", "83f902"),
         (0x98C88, "MissionTicks", "506a00"), (0x98D94, "MenuTicks", "50"),
@@ -60,4 +70,4 @@ if __name__ == "__main__":
         (0xF5EEC, "LoadingAnimation", "f30f2ac04083f821"),
         (0xEF594, "ResetPopupAnimation", "c7461400000000"),
         (0xEF67A, "PopupAnimation", "f30f2ac04083f821"),
-    ])
+    ], (0x62541, 0x625B4, 0x6254D))

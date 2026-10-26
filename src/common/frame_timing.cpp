@@ -53,6 +53,10 @@ void MessageTicks(X86Context& ctx) {
     if (Opt().unlocked_fps) ctx.xmm[3].f[0] = ctx.xmm[2].f[0];
 }
 
+// equal frames reach the wrap branch only when the scan's started flag (+0xE4) is clear: the original 30 FPS steps
+// always move the first scan a frame on, so this is the forward scan the console ran there
+bool AnimEventFirstScan(const X86Context& ctx) { return ctx.ebx == ctx.edx; }
+
 void ResetLoadingAnimation() { loading = {}; }
 
 void LoadingAnimation(X86Context& ctx) {

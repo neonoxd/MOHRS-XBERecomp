@@ -57,6 +57,15 @@ void ResetLoadingAnimation(X86Context&, uint8_t*) { game::ResetLoadingAnimation(
 void LoadingAnimation(X86Context& ctx, uint8_t*) { game::LoadingAnimation(ctx); }
 void ResetPopupAnimation(X86Context&, uint8_t*) { game::ResetPopupAnimation(); }
 void PopupAnimation(X86Context& ctx, uint8_t*) { game::PopupAnimation(ctx); }
+// [[hook]] 0x6FB74, the animation event scan's loop wrap branch; true goes to its forward scan at 0x6FB0D
+bool AnimEventFirstScan(X86Context& ctx, uint8_t*) { return game::AnimEventFirstScan(ctx); }
+
+// an entity's animation event listener (vtable 0x1E84F0 slot 1): dialogue lines start here (opcode 0xCAF0)
+X86_EXTERN_FUNC(__imp__sub_000CF780);
+X86_FUNC(sub_000CF780) {
+    game::TraceAnimEvent(ctx);
+    __imp__sub_000CF780(ctx, base);
+}
 
 // PC Options in the options menus (src/common/options_menu.h): SetText 0x138A40, RunScript 0x138330, the menu sound
 // 0x123C10

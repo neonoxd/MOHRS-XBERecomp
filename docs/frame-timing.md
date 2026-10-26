@@ -39,6 +39,8 @@ The handover's earlier inference that interpolation is required was too strong. 
 | Loading animation float phase, hook after CVTSI2SS | 0xFD3DC | 0xF5EEC |
 | Profile/save popup animation initialization | 0xF6B74 | 0xEF594 |
 | Profile/save popup float phase, hook after CVTSI2SS | 0xF6C5A | 0xEF67A |
+| Animation event scan | 0x6FA30 | 0x62470 |
+| Its loop wrap branch, hook jumping to the forward scan | 0x6FB74 -> 0x6FB0D | 0x625B4 -> 0x6254D |
 
 There are nine callers of frame end in each image. Each converts EAX with `cvtsi2ss xmm0,eax`, multiplies it by
 the saved PAL/NTSC scale and stores the global float delta. `FrameDelta` runs **after the conversion**, on all
@@ -68,6 +70,19 @@ the render rate even though gameplay receives the correct time delta. In the 60 
 `LoadingAnimation` supplies a continuous phase at 30 steps/second, preserving the console's 1.1-second cycle.
 Texture initialization resets the host animation clock, and the first draw starts at phase zero. The original
 integer counter and all draw calls remain intact. The original 30 FPS mode uses its unchanged guest phase.
+
+Animation events (dialogue lines, opcode `0xCAF0`, sounds, effects) are fired by the scan at `0x6FA30` (co-op
+`0x62470`) to the entity's listener (vtable `0x1E84F0`, handler `0xCF780`). It turns the previous and current
+animation times into whole frames at 30 a second (`ebx`, `edx`) and keeps a started flag at `+0xE4`. Previous
+below current fires the events between them, and on the first scan every event up to the current frame. Previous
+at or above current is taken as a loop wrap, and with the flag clear that branch fires every event of the
+animation. At 30 FPS a first scan always moves at least one frame on. At 60 FPS and unlocked it can stay on frame
+0, so every event of a new animation fired at once and then again at its own time: dialogue lines were heard
+twice. `AnimEventFirstScan` sends equal frames, which only reach that branch on a first scan, to the forward scan
+instead. `MOHRS_EVENT_TRACE=1` logs every event the listener handles with the guest call chain. In 1_1's first 40
+seconds the 60 FPS run handled 256 events before the fix and 135 after it, against 138 at 30 FPS and 134 unlocked
+at 144 FPS. The remaining differences are a repeating event on looping animations, within one per listener, and
+depend on where each run stopped.
 
 Profile checking and save-game prompts share another medal/star renderer (`0xF6C30`, co-op `0xEF650`),
 used by the `MemoryCardPopup.fng` hierarchy. It loads the same `data\loading\medal.xsh` texture and uses the

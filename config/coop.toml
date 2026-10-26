@@ -377,3 +377,9 @@ call = "ResetPopupAnimation"
 at = 0xEF67A
 after = true
 call = "PopupAnimation"
+
+# The animation event scan's first-scan fix, default.xbe's 0x6FB74 -> 0x6FB0D in the scan 0x62470.
+[[hook]]
+at = 0x625B4
+call = "AnimEventFirstScan"
+on_true = 0x6254D
