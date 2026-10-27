@@ -80,6 +80,10 @@ public:
     void AddTarget(uint32_t like, uint32_t guid);
     void RemoveTarget(uint32_t guid);
 
+    // Clone a native package transition, retaining its cleanup commands but replacing its message and
+    // destination filename. Returns false for an existing message or a source without a replace-package command.
+    bool AddPackageTransition(uint32_t message, uint32_t like, std::string_view file);
+
 private:
     std::vector<Chunk> top_;  // PkHd, TypS, ... in file order; the object chunk is rebuilt from objects
     uint32_t objects_tag_ = 0;

@@ -29,6 +29,10 @@ std::atomic<int> g_dy{0};
 std::atomic<uint64_t> g_take_ms{0};  // TakeMouse, asked every tick in play
 std::atomic<bool> g_settle{false};
 std::atomic<bool> g_keyboard{true};
+std::atomic<bool> g_menu{false};
+std::atomic<uint32_t> g_menu_pressed{0}, g_block_mouse{0};
+std::atomic<int> g_menu_wheel{0};
+std::atomic<uint64_t> g_resume_until{0};
 constexpr uint64_t kPlayMs = 250;
 constexpr uint64_t kTapMs = 80;
 // The wheel binds as two keys, codes Windows leaves unassigned. A notch holds what is bound to it for one tap.
@@ -219,8 +223,11 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
     Held held;
     // in a menu the wheel and the mouse buttons do nothing, a bound key presses its button
     auto pressed = [play](int vk) {
-        bool mouse = Wheel(vk) || vk == VK_LBUTTON || vk == VK_RBUTTON || vk == VK_MBUTTON;
-        return Down(vk) && (play || !mouse);
+        constexpr int buttons[] = {VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
+        uint32_t mask = 0;
+        for (int i = 0; i < 5; i++) if (buttons[i] == vk) mask = 1u << i;
+        bool mouse = Wheel(vk) || mask;
+        return Down(vk) && (play || !mouse) && !(mask & g_block_mouse.load());
     };
     for (size_t i = 0; i < kCount; i++) {
         int b = kActions[i].button;
@@ -258,6 +265,11 @@ void OnRawInput(void* handle) {
     if (ri.header.dwType != RIM_TYPEMOUSE || !Active()) return;
     const RAWMOUSE& m = ri.data.mouse;
     if (m.usButtonFlags & RI_MOUSE_WHEEL) g_wheel_ms[SHORT(m.usButtonData) < 0] = NowMs();
+    if (g_menu) {
+        if (m.usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN) g_menu_pressed.fetch_or(1);
+        if (m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN) g_menu_pressed.fetch_or(2);
+        if (m.usButtonFlags & RI_MOUSE_WHEEL) g_menu_wheel += SHORT(m.usButtonData);
+    }
     // the cursor is free outside play
     if (!Playing()) {
         ClipCursor(nullptr);
@@ -274,11 +286,19 @@ void OnRawInput(void* handle) {
 void ReleaseCursor() {
     ClipCursor(nullptr);
     g_settle = true;
+    g_menu_pressed = 0;
+    g_menu_wheel = 0;
+    g_resume_until = 0;
 }
 
-bool Playing() { return NowMs() - g_take_ms < kPlayMs; }
+bool Playing() { return !g_menu && NowMs() - g_take_ms < kPlayMs; }
 
 bool TakeMouse(float& dx, float& dy) {
+    if (g_menu.exchange(false)) {
+        g_dx = g_dy = 0;
+        g_wheel_ms[0] = g_wheel_ms[1] = 0;
+        RefreshCursor();
+    }
     uint64_t now = NowMs();
     bool stale = now - g_take_ms.exchange(now) >= kPlayMs;
     if (stale) RefreshCursor();
@@ -292,6 +312,12 @@ bool TakeMouse(float& dx, float& dy) {
 }
 
 void Keyboard(Pad& p) {
+    constexpr int mouse_buttons[] = {VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
+    uint32_t mouse_down = 0;
+    for (int i = 0; i < 5; i++) if (Down(mouse_buttons[i])) mouse_down |= 1u << i;
+    uint32_t blocked = g_block_mouse.load() & mouse_down;
+    if (g_menu || g_settle || !Active()) blocked |= mouse_down;
+    g_block_mouse = blocked;
     if (!Active()) {
         g_settle = true;
         return;
@@ -308,6 +334,7 @@ void Keyboard(Pad& p) {
     // Enter, Space and Backspace act in menus; in play they do what they are bound to
     if (!play && (Down(VK_RETURN) || Down(VK_SPACE))) p.analog[0] = 0xFF;
     if (!play && Down(VK_BACK)) p.analog[1] = 0xFF;
+    if (NowMs() < g_resume_until) p.buttons |= 0x10;
     // the arrows, kFixed's first four, are the dpad's bits
     if (!play) {
         for (int i = 0; i < 4; i++) p.buttons |= uint16_t(Down(kFixed[i]) << i);
@@ -332,6 +359,40 @@ void SeenPad(const Pad& p) {
 }
 
 bool KeyboardActive() { return g_keyboard; }
+
+MenuPointer ReadMenuPointer() {
+    MenuPointer p;
+    p.pressed = g_menu_pressed.exchange(0);
+    p.wheel = g_menu_wheel.exchange(0);
+    POINT point;
+    RECT rect;
+    if (!Active() || !GetCursorPos(&point) || !ScreenToClient(g_hwnd, &point) || !GetClientRect(g_hwnd, &rect)) return p;
+    p.active = true;
+    p.x = float(point.x); p.y = float(point.y);
+    p.width = float(rect.right); p.height = float(rect.bottom);
+    p.buttons = uint32_t(Down(VK_LBUTTON)) | uint32_t(Down(VK_RBUTTON)) << 1;
+    return p;
+}
+
+void SetMenuInput(bool active) {
+    if (g_menu.exchange(active) != active) {
+        g_dx = g_dy = 0;
+        g_wheel_ms[0] = g_wheel_ms[1] = 0;
+        g_menu_pressed = 0;
+        g_menu_wheel = 0;
+        RefreshCursor();
+    }
+    if (active) {
+        // A mouse click which closes a menu must be released before it can become fire/aim in play.
+        constexpr int buttons[] = {VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
+        uint32_t down = 0;
+        for (int i = 0; i < 5; i++) if (Down(buttons[i])) down |= 1u << i;
+        g_block_mouse.fetch_or(down);
+    }
+}
+
+void UseMenuMouse() { SetKeyboard(true); }
+void MenuResume() { g_resume_until = NowMs() + kTapMs; }
 
 const Action* Actions(size_t* count) {
     static const auto list = [] {

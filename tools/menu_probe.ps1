@@ -9,6 +9,7 @@ param(
     [switch]$Coop,
     [ValidateSet("30", "60", "unlocked")][string]$Rate = "60",
     [int]$Cap = 60,
+    [switch]$CopyProfiles,
     [switch]$EventTrace
 )
 $ErrorActionPreference = "Stop"
@@ -22,6 +23,14 @@ foreach ($name in 'MOHRS.exe','MOHRS.dll','MOHRSCoop.exe','MOHRSCoop.dll') {
     Copy-Item -LiteralPath (Join-Path $root "out\build\release\$name") -Destination $dir
 }
 Get-ChildItem -LiteralPath $dir -Filter '*.dll' | ForEach-Object { $_.LastWriteTime = Get-Date }
+if ($CopyProfiles) {
+    # Copy only the profile/save partition into the isolated run. The player's files are never written back.
+    $profiles = Join-Path $root 'out\build\release\hdd\E\UDATA'
+    if (!(Test-Path -LiteralPath $profiles)) { throw "No profiles to copy: $profiles" }
+    $profileDestination = Join-Path $dir 'hdd\E'
+    New-Item -ItemType Directory -Path $profileDestination -Force | Out-Null
+    Copy-Item -LiteralPath $profiles -Destination $profileDestination -Recurse
+}
 @"
 display_mode = 'windowed'
 width = 1280
@@ -55,7 +64,7 @@ try {
 }
 $log = Join-Path $dir 'logs\mohrs.log'
 if (Test-Path $log) {
-    Select-String -LiteralPath $log -Pattern 'MOHRS_MENU_PROBE|PC options|event:|\[error\]' | ForEach-Object Line
+    Select-String -LiteralPath $log -Pattern 'MOHRS_MENU_PROBE|PC options|Menus:|event:|\[error\]' | ForEach-Object Line
 } else { throw "No game log: $dir" }
 Get-ChildItem -LiteralPath (Join-Path $dir 'captures') -Recurse -Filter 'final*' -ErrorAction SilentlyContinue | ForEach-Object FullName
 "results: $dir"

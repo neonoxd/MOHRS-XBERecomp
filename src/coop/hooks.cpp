@@ -4,6 +4,7 @@
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/options_menu.h"
+#include "common/menu_mouse.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
 #include "kernel/kernel.h"
@@ -74,3 +75,21 @@ X86_FUNC(sub_0011B1B0) { game::MenuScreen(ctx, base, __imp__sub_0011B1B0); }
 // the HUD options screen's event handler (0x12A620)
 X86_EXTERN_FUNC(__imp__sub_00124C20);
 X86_FUNC(sub_00124C20) { game::MenuEvent(ctx, base, __imp__sub_00124C20, kMenuCalls); }
+
+// The same FEng pointer/drawing paths as default.xbe, verified in the co-op image.
+constexpr game::MenuMouseCalls kMouseMenu = {
+    0x892A0, 0x85BC0, 0x88270, 0x15BEF0, 0x7AFB0,
+    0x1F54E0, 0x1F54E4, 0x23E66C, 0x23E670, 0x23E62C, 0x23E628};
+X86_EXTERN_FUNC(__imp__sub_00087B80);
+X86_FUNC(sub_00087B80) { game::MenuMouseUpdate(ctx, base, __imp__sub_00087B80, kMouseMenu); }
+X86_EXTERN_FUNC(__imp__sub_00086840);
+X86_FUNC(sub_00086840) { game::MenuMouseRender(ctx, base, __imp__sub_00086840); }
+X86_EXTERN_FUNC(__imp__sub_0010EFB0);
+X86_FUNC(sub_0010EFB0) { game::MenuMouseObject(ctx, base, __imp__sub_0010EFB0); }
+// ShellManager's drawing override (default.xbe 0x125E10).
+X86_EXTERN_FUNC(__imp__sub_0011FE90);
+X86_FUNC(sub_0011FE90) { game::MenuMouseObject(ctx, base, __imp__sub_0011FE90); }
+X86_EXTERN_FUNC(__imp__sub_0015BEB0);
+X86_FUNC(sub_0015BEB0) { game::MenuMouseText(ctx, base, __imp__sub_0015BEB0, kMouseMenu); }
+X86_EXTERN_FUNC(__imp__sub_000AB430);
+X86_FUNC(sub_000AB430) { game::MenuMouseSprite(ctx, base, __imp__sub_000AB430, kMouseMenu); }

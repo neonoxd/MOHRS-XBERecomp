@@ -10,6 +10,8 @@ namespace game::menu {
 
 inline constexpr char kScreen[] = "PCOptions.fng";
 inline constexpr size_t kRows = 10;
+inline constexpr const char* kPauseTabEvents[] = {
+    "Mouse Pause Objectives", "Mouse Pause Notes", "Mouse Pause Preferences", "Mouse Pause Exit"};
 
 // the row's objects the screen's handler shows text in and finds the focus by: part "text", "value" or "button"
 std::string RowObject(size_t row, const char* part);
@@ -21,5 +23,9 @@ std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vect
 // an options list with a PC Options entry under Audio opening PCOptions.fng from the same folder: the shell's
 // Option_overlay.fng, the pause screen's Preferences.fng or MPPreferences.fng; empty on failure
 std::vector<uint8_t> AddEntry(const uint8_t* list, size_t size);
+
+// Direct mouse tab transitions, cloned from each pause page's native left/right cleanup response.
+// Empty for packages other than pause pages, or when a native transition could not be found.
+std::vector<uint8_t> AddPauseTabs(const uint8_t* data, size_t size);
 
 }  // namespace game::menu

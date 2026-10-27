@@ -4,6 +4,8 @@
 // The folders hold the .fng files of data\shell\shell.viv and data\pausscrn\pause.viv (or mppause.viv), extracted
 // from your copy of the game; --out writes the made packages there.
 #include <cstdio>
+#include <cstring>
+#include <map>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -91,6 +93,87 @@ static void Entry(const fs::path& list) {
     std::printf("%s: entry at y %.0f\n", list.string().c_str(), e->Y());
 }
 
+static uint32_t U32(const std::vector<uint8_t>& d, size_t at) {
+    uint32_t v; Check(at + 4 <= d.size(), "truncated field");
+    std::memcpy(&v, d.data() + at, 4); return v;
+}
+
+// Inspect serialized package responses independently of the package writer.
+static std::map<uint32_t, std::vector<feng::Field>> Responses(const std::vector<uint8_t>& d) {
+    std::map<uint32_t, std::vector<feng::Field>> result;
+    for (size_t at = 8; at + 8 <= d.size();) {
+        size_t end = at + 8 + U32(d, at + 4);
+        Check(end <= d.size(), "response chunk bounds");
+        if (U32(d, at) == 0x52676B50) { // PkgR
+            uint32_t message = 0;
+            for (size_t f = at + 8; f + 4 <= end;) {
+                uint16_t tag, size;
+                std::memcpy(&tag, d.data() + f, 2); std::memcpy(&size, d.data() + f + 2, 2);
+                Check(f + 4 + size <= end, "response field bounds");
+                if (tag == feng::Tag2("Mi")) message = U32(d, f + 4);
+                result[message].push_back({tag, {d.begin() + f + 4, d.begin() + f + 4 + size}});
+                f += 4 + size;
+            }
+        }
+        at = end;
+    }
+    return result;
+}
+
+static void PauseTabs(const fs::path& file) {
+    const char* single[] = {"ObjectivesOverlay.fng", "Notes.fng", "Preferences.fng", "LoadRestart.fng"};
+    const char* multi[] = {"MPLeaderBoard.fng", nullptr, "MPPreferences.fng", "MPLoadRestart.fng"};
+    const char* const* pages = nullptr;
+    int current = -1;
+    for (int i = 0; i < 4; i++) {
+        if (file.filename() == single[i]) { pages = single; current = i; }
+        if (multi[i] && file.filename() == multi[i]) { pages = multi; current = i; }
+    }
+    if (!pages) return;
+    auto data = Read(file);
+    // Preferences must support both the PC Options insertion and direct tab responses.
+    if (current == 2) data = game::menu::AddEntry(data.data(), data.size());
+    auto original = Responses(data);
+    auto made = game::menu::AddPauseTabs(data.data(), data.size());
+    Check(!made.empty(), "direct tab responses: " + file.string());
+    auto parsed = feng::Package::Parse(made.data(), made.size());
+    Check(parsed && parsed->Write() == made, "tab package round trip");
+    if (current == 2) Check(parsed->Find("PC Options button"), "PC Options entry survived tab additions");
+    auto changed = Responses(made);
+    uint32_t source = feng::Hash(current == 0 ? "Pad_Right" : "Pad_Left");
+    Check(original.contains(source), "native tab cleanup response exists");
+    for (const auto& [message, fields] : original) {
+        Check(changed.contains(message) && changed[message].size() == fields.size(), "native response retained");
+        for (size_t i = 0; i < fields.size(); i++)
+            Check(fields[i].tag == changed[message][i].tag && fields[i].data == changed[message][i].data,
+                  "native keyboard/controller response is unchanged");
+    }
+    size_t added = 0;
+    for (int tab = 0; tab < 4; tab++) {
+        uint32_t message = feng::Hash(game::menu::kPauseTabEvents[tab]);
+        if (!pages[tab] || tab == current) { Check(!changed.contains(message), "no missing/current page transition"); continue; }
+        added++;
+        Check(changed.contains(message), "clicked tab has a direct response");
+        auto expected = original[source];
+        auto actual = changed[message];
+        Check(actual.size() == expected.size(), "same native cleanup command count");
+        bool destination = false;
+        for (size_t i = 0; i < actual.size(); i++) {
+            Check(actual[i].tag == expected[i].tag, "native command order");
+            if (actual[i].tag == feng::Tag2("Mi")) continue;
+            if (actual[i].tag == feng::Tag2("Rs")) {
+                std::string path(reinterpret_cast<const char*>(actual[i].data.data()));
+                Check(path.ends_with(std::string("\\") + pages[tab]), "direct destination filename");
+                destination = true;
+            } else Check(actual[i].data == expected[i].data, "all native cleanup arguments retained");
+        }
+        Check(destination, "direct page replacement");
+    }
+    Check(changed.size() == original.size() + added, "exactly one response per other available tab");
+    Check(game::menu::AddPauseTabs(made.data(), made.size()).empty(), "tab responses cannot be inserted twice");
+    std::printf("%s: direct pause tabs validated\n", file.string().c_str());
+}
+
 int main(int argc, char** argv) {
     std::vector<fs::path> dirs;
     for (int i = 1; i < argc; i++) {
@@ -111,6 +194,7 @@ int main(int argc, char** argv) {
             Check(p->Write() == d, "does not write back the same: " + f.path().string());
             files++;
             std::string name = f.path().filename().string();
+            PauseTabs(f.path());
             if (name == "HUD.fng") Screen(f.path());
             if (name == "Option_overlay.fng" || name == "Preferences.fng" || name == "MPPreferences.fng") Entry(f.path());
         }

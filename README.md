@@ -19,6 +19,8 @@ Adjustable [field of view](docs/fov.md) is available through `fov` in `settings.
 See [performance measurements](docs/performance.md) for the packed-vertex optimization and benchmark commands.
 Display, frame rate, field of view and mouse settings can also be changed in the game's own menus under
 [PC Options](docs/pc-options.md), in Options and in the pause screen's Preferences.
+The [menu mouse adapter](docs/menu-mouse.md) adds hover/click navigation, settings arrows and wheel control, and
+clickable pause headings alongside keyboard and controller input.
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 
 ## Repository layout

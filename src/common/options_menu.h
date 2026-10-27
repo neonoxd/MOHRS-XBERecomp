@@ -19,7 +19,7 @@ struct MenuCalls {
 };
 
 // the archive's file lookup (cdecl: archive, path, flags; the file's data): PCOptions.fng made from the archive's
-// HUD.fng, the options lists given their entry
+// HUD.fng, the options lists given their entry, and pause pages given direct mouse tab responses
 void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original);
 // the shell's screen factory (cdecl: package name; a new handler): PCOptions.fng gets the HUD screen's handler
 void MenuScreen(X86Context& ctx, uint8_t* base, GuestFunction original);

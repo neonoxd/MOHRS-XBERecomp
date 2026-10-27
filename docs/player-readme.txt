@@ -40,7 +40,11 @@ Controllers work as on the Xbox. Keyboard and mouse share the first player's con
   Sniper zoom           Wheel, 1 and 2   D-pad left/right      3, 4
   Back (objectives)     Tab              Pause                 Escape
 
-In menus the arrow keys move, Enter confirms and Backspace goes back. Every binding can be changed in the [keys]
+In menus, hover and left click to select an entry; right click goes back. The wheel moves through entries. On
+settings screens, click a label or displayed value to select its row, then click the arrows or use the wheel to
+change the value. Click the select/confirm hint to save or
+the back hint to cancel. Pause headings are clickable; right click on a pause page resumes.
+The arrow keys also move, Enter confirms and Backspace goes back. Gameplay bindings can be changed in the [keys]
 table of settings.toml.
 
 

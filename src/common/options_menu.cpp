@@ -137,10 +137,13 @@ Saved g_saved;  // game thread
 struct Made {
     const char* name;
     bool pause;  // from a pause screen archive
+    bool tabs = false;
     uint32_t va = 0;
 };
 Made g_made[] = {{menu::kScreen, false}, {menu::kScreen, true}, {"Option_overlay.fng", false},
-                 {"Preferences.fng", true}, {"MPPreferences.fng", true}};
+                 {"Preferences.fng", true, true}, {"MPPreferences.fng", true, true},
+                 {"ObjectivesOverlay.fng", true, true}, {"Notes.fng", true, true}, {"LoadRestart.fng", true, true},
+                 {"MPLeaderBoard.fng", true, true}, {"MPLoadRestart.fng", true, true}};
 
 uint32_t Copy(const std::vector<uint8_t>& data) {
     if (data.empty()) return 0;
@@ -272,11 +275,16 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
         const uint8_t* data = static_cast<const uint8_t*>(kernel::HostPtr(ctx.eax));
         std::vector<std::string> labels;
         for (const Row& row : kRows) labels.push_back(row.label);
-        made->va = Copy(screen ? menu::MakeScreen(data, size, labels) : menu::AddEntry(data, size));
+        bool entry = EqualNoCase(file, "Option_overlay.fng") || EqualNoCase(file, "Preferences.fng") ||
+                     EqualNoCase(file, "MPPreferences.fng");
+        std::vector<uint8_t> modified = screen ? menu::MakeScreen(data, size, labels) :
+                                        entry ? menu::AddEntry(data, size) : std::vector<uint8_t>(data, data + size);
+        if (made->tabs && !modified.empty()) modified = menu::AddPauseTabs(modified.data(), modified.size());
+        made->va = Copy(modified);
         if (made->va) {
-            LOGR("PC options: made %s for the %s", file.c_str(), made->pause ? "pause screen" : "shell");
+            LOGR("Menus: made %s for the %s", file.c_str(), made->pause ? "pause screen" : "shell");
         } else {
-            LOGE("PC options: could not make %s", file.c_str());
+            LOGE("Menus: could not make %s", file.c_str());
         }
     }
     // the stock list when its entry could not be added; no screen without a pattern

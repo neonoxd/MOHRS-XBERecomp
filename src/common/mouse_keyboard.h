@@ -18,6 +18,17 @@ bool Playing();                  // the game took mouse counts in the last momen
 // update, which runs in play only: being asked is what Playing reports.
 bool TakeMouse(float& dx, float& dy);
 
+struct MenuPointer {
+    bool active = false;
+    float x = 0, y = 0, width = 0, height = 0;
+    uint32_t buttons = 0, pressed = 0;  // LMB bit 0, RMB bit 1
+    int wheel = 0;
+};
+MenuPointer ReadMenuPointer();
+void SetMenuInput(bool active);  // explicit FEng ownership, independent of the gameplay look timeout
+void UseMenuMouse();
+void MenuResume();             // a short Start press through the normal pause handling
+
 // actions the keyboard and mouse can be bound to in the settings file's [keys], key names comma separated
 // letter, digit and symbol keys bind by position as the US key there
 struct Action {

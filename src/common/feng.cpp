@@ -286,6 +286,39 @@ std::optional<Package> Package::Parse(const uint8_t* data, size_t size) {
     return p;
 }
 
+bool Package::AddPackageTransition(uint32_t message, uint32_t like, std::string_view file) {
+    for (Chunk& c : top_) {
+        if (c.tag != kAnswers) continue;
+        for (size_t begin = 0; begin < c.fields.size(); begin++) {
+            if (c.fields[begin].tag != Tag2("Mi")) continue;
+            if (Get32(c.fields[begin].data, 0) == message) return false;
+        }
+        for (size_t begin = 0; begin < c.fields.size(); begin++) {
+            if (c.fields[begin].tag != Tag2("Mi") || Get32(c.fields[begin].data, 0) != like) continue;
+            size_t end = begin + 1;
+            while (end < c.fields.size() && c.fields[end].tag != Tag2("Mi")) end++;
+            std::vector<Field> response(c.fields.begin() + begin, c.fields.begin() + end);
+            uint32_t kind = 0;
+            bool replaced = false;
+            for (Field& f : response) {
+                if (f.tag == Tag2("Ri")) kind = Get32(f.data, 0);
+                if (f.tag != Tag2("Rs") || kind != 0x200) continue;
+                std::string path(reinterpret_cast<const char*>(f.data.data()),
+                                 strnlen(reinterpret_cast<const char*>(f.data.data()), f.data.size()));
+                size_t slash = path.find_last_of("\\/");
+                path.replace(slash == std::string::npos ? 0 : slash + 1, std::string::npos, file);
+                f.data = Ascii(path);
+                replaced = true;
+            }
+            if (!replaced) return false;
+            response.front().data = U32(message);
+            c.fields.insert(c.fields.end(), response.begin(), response.end());
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<uint8_t> Package::Write() const {
     // the button count sizes the button map the reader fills (0x88540)
     std::vector<uint8_t> list;

@@ -113,4 +113,24 @@ std::vector<uint8_t> AddEntry(const uint8_t* list, size_t size) {
     return p.Write();
 }
 
+std::vector<uint8_t> AddPauseTabs(const uint8_t* data, size_t size) {
+    auto p = feng::Package::Parse(data, size);
+    if (!p) return {};
+    const char* single[] = {"ObjectivesOverlay.fng", "Notes.fng", "Preferences.fng", "LoadRestart.fng"};
+    const char* multi[] = {"MPLeaderBoard.fng", nullptr, "MPPreferences.fng", "MPLoadRestart.fng"};
+    const char* const* pages = nullptr;
+    int current = -1;
+    for (int i = 0; i < 4; i++) {
+        if (p->Name() == single[i]) { pages = single; current = i; break; }
+        if (multi[i] && p->Name() == multi[i]) { pages = multi; current = i; break; }
+    }
+    if (!pages) return {};
+    uint32_t source = feng::Hash(current == 0 ? "Pad_Right" : "Pad_Left");
+    for (int tab = 0; tab < 4; tab++) {
+        if (!pages[tab] || tab == current) continue;
+        if (!p->AddPackageTransition(feng::Hash(kPauseTabEvents[tab]), source, pages[tab])) return {};
+    }
+    return p->Write();
+}
+
 }  // namespace game::menu
