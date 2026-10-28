@@ -51,6 +51,7 @@ struct State {
     Clock::time_point rendered{};
     menu::PointerButtons buttons;
     uint32_t active = 0, press_package = 0, press_object = 0;
+    uint32_t input_mask = 0;
     uint32_t press_guid = 0;
     std::string active_name;
     bool foreground = false;
@@ -67,6 +68,15 @@ bool Trace() {
 
 bool Readable(uint32_t va, uint32_t size = 4) {
     return va >= 0x10000 && va <= UINT32_MAX - size && mem::IsCommitted(va) && mem::IsCommitted(va + size - 1);
+}
+
+uint32_t KeyboardMask(const MenuMouseCalls& calls) {
+    // FEng masks address logical players, while KBM is always guest port 0 (docs/controller-routing.md).
+    if (!Readable(calls.input_manager, 0x23E1)) return 0;
+    uint32_t count = std::min(uint32_t(G<uint8_t>(calls.input_manager + 0x23E0)), 4u);
+    for (uint32_t i = 0; i < count; i++)
+        if (G<uint8_t>(calls.input_manager + i * 0x8F8) == 0) return 1u << i;
+    return 0;
 }
 
 std::string Name(uint32_t package) {
@@ -205,8 +215,8 @@ uint32_t ThisCall(X86Context& ctx, uint32_t function, uint32_t receiver, std::in
 
 void Message(X86Context& ctx, const MenuMouseCalls& calls, uint32_t engine, uint32_t package,
              uint32_t message, uint32_t object = 0) {
-    ThisCall(ctx, calls.message, engine, {message, 0, package, object ? object : kPackage, 1});
-    ThisCall(ctx, calls.message, engine, {message, object, package, kHandler, 1});
+    ThisCall(ctx, calls.message, engine, {message, 0, package, object ? object : kPackage, state.input_mask});
+    ThisCall(ctx, calls.message, engine, {message, object, package, kHandler, state.input_mask});
 }
 
 void Focus(X86Context& ctx, const MenuMouseCalls& calls, uint32_t engine, uint32_t package, uint32_t object) {
@@ -228,11 +238,11 @@ bool Live(const Region& r) {
     return false;
 }
 
-uint32_t Active(uint32_t engine, std::string& name) {
+uint32_t Active(uint32_t engine, std::string& name, uint32_t input_mask) {
     uint32_t selected = 0;
     if (!Readable(engine, 0x110) || !G<uint8_t>(engine + 1) || !G<uint8_t>(engine + 2)) return 0;
     for (uint32_t p = R32(engine + 0xE4), n = 0; Readable(p, 0xA4) && n < 128; p = R32(p + 4), n++) {
-        if (!(R32(p + 0x1C) & kernel::R16(engine + 0xD8) & 1)) continue;
+        if (!(R32(p + 0x1C) & kernel::R16(engine + 0xD8) & input_mask)) continue;
         auto it = state.frames.find(p);
         if (it == state.frames.end() || it->second.name != Name(p)) continue;
         if (Backdrop(it->second.name)) continue;
@@ -303,7 +313,8 @@ void ProbePointer(input::MenuPointer& pointer, const MenuMouseCalls& calls) {
 
 void Update(X86Context& ctx, uint32_t engine, const MenuMouseCalls& calls) {
     std::string name;
-    uint32_t package = state.engine == engine ? Active(engine, name) : 0;
+    uint32_t input_mask = KeyboardMask(calls);
+    uint32_t package = state.engine == engine ? Active(engine, name, input_mask) : 0;
     bool fresh = Clock::now() - state.rendered < std::chrono::milliseconds(500);
     if (!fresh) package = 0;
     input::SetMenuInput(package != 0);
@@ -314,11 +325,12 @@ void Update(X86Context& ctx, uint32_t engine, const MenuMouseCalls& calls) {
     }
     input::MenuPointer pointer = input::ReadMenuPointer();
     ProbePointer(pointer, calls);
-    bool changed = package != state.active || name != state.active_name || pointer.active != state.foreground ||
-                   pointer.width != state.width || pointer.height != state.height;
+    bool changed = input_mask != state.input_mask || package != state.active || name != state.active_name ||
+                   pointer.active != state.foreground || pointer.width != state.width || pointer.height != state.height;
     uint32_t pressed = state.buttons.Advance(pointer.buttons, pointer.pressed, changed || !pointer.active || !package);
     bool moved = pointer.x != state.x || pointer.y != state.y;
     state.active = package; state.active_name = name; state.foreground = pointer.active;
+    state.input_mask = input_mask;
     state.x = pointer.x; state.y = pointer.y; state.width = pointer.width; state.height = pointer.height;
     if (changed) {
         state.press_object = state.press_package = 0;
@@ -352,7 +364,7 @@ void Update(X86Context& ctx, uint32_t engine, const MenuMouseCalls& calls) {
                 bool present = false;
                 for (uint32_t live = R32(engine + 0xE4), n = 0; Readable(live, 0xA4) && n < 128; live = R32(live + 4), n++)
                     if (live == p && Name(live) == frame.name) { present = true; break; }
-                if (!present) continue;
+                if (!present || !(R32(p + 0x1C) & input_mask)) continue;
                 const Region* root_hit = Hit(frame, x, y);
                 if (root_hit && ((root_hit->action == Action::Resume && tab >= 0) ||
                                  root_hit->action == Action::Accept || root_hit->action == Action::Back)) hit = root_hit;
@@ -436,10 +448,11 @@ void MenuMouseUpdate(X86Context& ctx, uint8_t* base, GuestFunction original, con
     if (state.tab_package) {
         X86Context result = ctx;
         uint32_t engine = saved.ecx;
-        if (Readable(engine, 0x110) && G<uint8_t>(engine + 1) && G<uint8_t>(engine + 2)) {
+        if (Readable(engine, 0x110) && G<uint8_t>(engine + 1) && G<uint8_t>(engine + 2) &&
+            KeyboardMask(calls) == state.input_mask) {
             for (uint32_t p = R32(engine + 0xE4), n = 0; Readable(p, 0xA4) && n < 128; p = R32(p + 4), n++) {
                 if (p != state.tab_package || Name(p) != state.tab_name ||
-                    !(R32(p + 0x1C) & kernel::R16(engine + 0xD8) & 1)) continue;
+                    !(R32(p + 0x1C) & kernel::R16(engine + 0xD8) & state.input_mask)) continue;
                 Message(ctx, calls, engine, p, state.tab_message);
                 if (Trace()) LOGR("menu mouse: direct tab from %s, message %08X", state.tab_name.c_str(), state.tab_message);
                 break;
@@ -450,11 +463,12 @@ void MenuMouseUpdate(X86Context& ctx, uint8_t* base, GuestFunction original, con
     }
 }
 
-void MenuMouseRender(X86Context& ctx, uint8_t* base, GuestFunction original) {
+void MenuMouseRender(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuMouseCalls& calls) {
     state.engine = ctx.ecx;
     state.objects.clear(); state.frames.clear(); state.drawing = 0;
     state.object_draws = state.known_draws = state.text_draws = state.sprite_draws = 0;
     uint32_t callback = R32(R32(R32(ctx.ecx + 0x10C)) + 0x38);
+    uint32_t input_mask = KeyboardMask(calls);
     for (uint32_t p = R32(ctx.ecx + 0xE4), n = 0; Readable(p, 0xA4) && n < 128; p = R32(p + 4), n++) {
         std::string name = Name(p);
         static thread_local int option_reports = 0;
@@ -467,7 +481,7 @@ void MenuMouseRender(X86Context& ctx, uint8_t* base, GuestFunction original) {
             LOGR("menu mouse: options package %08X parent %08X %s", p, parent,
                  Readable(parent, 0xA4) ? Name(parent).c_str() : "none");
         }
-        if (!(R32(p + 0x1C) & 1) && !Backdrop(name)) continue;
+        if (!(R32(p + 0x1C) & input_mask) && !Backdrop(name)) continue;
         state.frames[p].name = name;
         size_t budget = 4096;
         Objects(R32(p + 0x40), p, 0, false, 0, budget);

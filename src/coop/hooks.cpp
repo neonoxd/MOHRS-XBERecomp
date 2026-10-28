@@ -86,11 +86,11 @@ X86_FUNC(sub_00124C20) { game::MenuEvent(ctx, base, __imp__sub_00124C20, kMenuCa
 // The same FEng pointer/drawing paths as default.xbe, verified in the co-op image.
 constexpr game::MenuMouseCalls kMouseMenu = {
     0x892A0, 0x85BC0, 0x88270, 0x15BEF0, 0x7AFB0,
-    0x1F54E0, 0x1F54E4, 0x23E66C, 0x23E670, 0x23E62C, 0x23E628};
+    0x1F54E0, 0x1F54E4, 0x23E66C, 0x23E670, 0x23E62C, 0x23E628, 0x266618};
 X86_EXTERN_FUNC(__imp__sub_00087B80);
 X86_FUNC(sub_00087B80) { game::MenuMouseUpdate(ctx, base, __imp__sub_00087B80, kMouseMenu); }
 X86_EXTERN_FUNC(__imp__sub_00086840);
-X86_FUNC(sub_00086840) { game::MenuMouseRender(ctx, base, __imp__sub_00086840); }
+X86_FUNC(sub_00086840) { game::MenuMouseRender(ctx, base, __imp__sub_00086840, kMouseMenu); }
 X86_EXTERN_FUNC(__imp__sub_0010EFB0);
 X86_FUNC(sub_0010EFB0) { game::MenuMouseObject(ctx, base, __imp__sub_0010EFB0); }
 // ShellManager's drawing override (default.xbe 0x125E10).

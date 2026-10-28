@@ -15,7 +15,8 @@ pointer-driven pause heading and menu-entry transitions; manual testing is ongoi
 - Pause headings are clickable, including the multiplayer leaderboard/preferences/exit headings. Right click on
   a pause page resumes; the displayed Start/resume prompt is also clickable. Escape still pauses/resumes.
   Clicking a heading requests that page directly, without opening the intervening pages.
-- Keyboard/mouse share player 1 and do not take over menus owned exclusively by another controller.
+- Mouse navigation follows KBM's assigned player, including when KBM joins as player 2 in co-op. It does not take
+  over menus owned exclusively by another controller.
 - Click the bottom mission name on the mission map to confirm the current selection and open mission details.
   The details screen's top title has no click action. Single-player and co-op maps use the native selection and
   respect disabled missions.
@@ -27,6 +28,12 @@ messages. Backdrop confirm/back hints act on the current package. A held click c
 or become fire/aim on resuming. Guest reads and calls stay on the UI's guest thread.
 
 ## Validation and user testing
+
+The pause adapter uses the input manager's player-to-port table (`0x271188` / co-op `0x266618`) to find KBM's
+guest port 0 and derive its FEng player mask. Package selection, drawing geometry, queued messages and deferred
+pause-tab actions all use that mask. This fixes the earlier player-1-only assumption: with a controller as
+player 1 and KBM as player 2, mouse navigation now works in KBM's own pause menu. Reassignment also settles held
+clicks. The host adapter tests run the complete navigation suite with KBM assigned to each of players 1-4.
 
 Build the executables and game-code DLLs:
 

@@ -17,7 +17,7 @@ constexpr uint32_t engine = 0x10000, package = 0x20000, object = 0x22000, other 
 constexpr uint32_t arrow_right = 0x22800;
 constexpr uint32_t second_row = 0x29000, row_label = 0x29400, row_value = 0x29800;
 constexpr uint32_t stack = 0x70000;
-constexpr game::MenuMouseCalls calls{1, 2, 3, 4, 5, 0x25000, 0x25004, 0x25008, 0x2500C, 0x25010, 0x25014};
+constexpr game::MenuMouseCalls calls{1, 2, 3, 4, 5, 0x25000, 0x25004, 0x25008, 0x2500C, 0x25010, 0x25014, 0x30000};
 input::MenuPointer pointer{true, 10, 10, 640, 480};
 bool menu_active = false, resumed = false;
 struct Sent { uint32_t hash, object, target; };
@@ -25,6 +25,7 @@ std::vector<Sent> messages;
 std::vector<uint32_t> drawn{object};
 X86Context incoming{};
 bool original_called = false;
+uint32_t expected_input_mask = 1;
 const char* change_during_update = nullptr;
 void Check(bool condition, const char* message) {
     if (!condition) { std::fprintf(stderr, "%s\n", message); std::exit(1); }
@@ -73,7 +74,7 @@ void OriginalUpdate(X86Context& ctx, uint8_t*) {
         change_during_update = nullptr;
     }
 }
-void Render(X86Context& ctx) { ctx.ecx = engine; ctx.esp = stack; game::MenuMouseRender(ctx, memory.data(), Draw); }
+void Render(X86Context& ctx) { ctx.ecx = engine; ctx.esp = stack; game::MenuMouseRender(ctx, memory.data(), Draw, calls); }
 void Update(X86Context& ctx) {
     ctx.ecx = engine; ctx.esp = stack; ctx.xmm[0].f[0] = 12.5f; ctx.st[0] = 3.25;
     incoming = ctx; original_called = false;
@@ -98,7 +99,7 @@ uint32_t CallGuest(X86Context& ctx, uint32_t fn, const uint32_t* args, size_t co
     if (fn == calls.message) {
         for (const char* event : game::menu::kPauseTabEvents)
             if (args[0] == feng::Hash(event)) Check(original_called, "tab events follow native initialization dispatch");
-        Check(ctx.ecx == engine && count == 5 && args[4] == 1, "message ABI and player ownership"); messages.push_back({args[0], args[1], args[3]}); }
+        Check(ctx.ecx == engine && count == 5 && args[4] == expected_input_mask, "message ABI and KBM player ownership"); messages.push_back({args[0], args[1], args[3]}); }
     if (fn == calls.object_message) return R32(ctx.ecx + 0x18) == 5 ? 0 : 1;
     if (fn == calls.measure_text) {
         G<float>(args[2]) = 0; G<float>(args[3]) = 0;
@@ -119,13 +120,24 @@ void UseMenuMouse() {}
 void MenuResume() { resumed = true; }
 }
 
-int main() {
+void AssignKeyboard(int player) {
+    memory[calls.input_manager + 0x23E0] = 4;
+    for (int i = 0; i < 4; i++)
+        memory[calls.input_manager + i * 0x8F8] = uint8_t(i == player ? 0 : i < player ? i + 1 : i);
+    expected_input_mask = 1u << player;
+}
+
+void RunTests(int keyboard_player) {
     using kernel::W32;
+    std::fill(memory.begin(), memory.end(), 0);
+    pointer = {true, 10, 10, 640, 480};
+    messages.clear(); drawn = {object}; resumed = false;
+    AssignKeyboard(keyboard_player);
     X86Context ctx{};
     memory[engine + 1] = memory[engine + 2] = 1;
-    kernel::W16(engine + 0xD8, 1);
+    kernel::W16(engine + 0xD8, 0xF);
     W32(engine + 0xE4, package); W32(package + 0x0C, name);
-    W32(package + 0x1C, 1); W32(package + 0x40, object);
+    W32(package + 0x1C, expected_input_mask); W32(package + 0x40, object);
     W32(package + 0x84, 0x23000); W32(package + 0x88, 1); W32(0x23000, object);
     W32(calls.width, 640); W32(calls.height, 480);
     SetName("MainMenu.fng"); MakeObject(object, "Options tab", true);
@@ -171,6 +183,9 @@ int main() {
     Check(messages.size() == 2 && messages[0].hash == feng::Hash(game::menu::kPauseTabEvents[0]),
           "reverse jump requests Objectives directly");
     messages.clear(); pointer.buttons = 0; Update(ctx);
+    pointer.buttons = pointer.pressed = 2; Update(ctx);
+    Check(resumed && messages.empty(), "right click resumes through KBM's normal Start input for any assigned player");
+    resumed = false; pointer.buttons = 0; Update(ctx);
     MakeObject(object, "Preferences text", false); Render(ctx);
     pointer.buttons = pointer.pressed = 1; Update(ctx);
     Check(messages.empty(), "clicking the current tab does not reload it");
@@ -181,9 +196,14 @@ int main() {
     Check(messages.empty(), "discard a tab click if the native update replaced its package");
     W32(object + 0x54, 0);
     pointer.buttons = 0; Update(ctx);
-    // No input to a package belonging to controller 2, or while FEng disables input during transitions.
-    W32(package + 0x1C, 2); Update(ctx); Check(!menu_active, "keyboard mouse does not take another player's menu");
-    W32(package + 0x1C, 1); memory[engine + 2] = 0; Update(ctx); Check(!menu_active, "engine input gate respected");
+    // Ownership follows the assigned player, even when the controller owns player 1 and KBM owns player 2.
+    W32(package + 0x1C, 1u << ((keyboard_player + 1) % 4));
+    Update(ctx); Check(!menu_active, "keyboard mouse does not take another player's menu");
+    W32(package + 0x1C, expected_input_mask); memory[engine + 2] = 0;
+    Update(ctx); Check(!menu_active, "engine input gate respected");
+    memory[engine + 2] = 1; kernel::W16(engine + 0xD8, uint16_t(0xF & ~expected_input_mask));
+    Update(ctx); Check(!menu_active, "engine's player mask can disable KBM input");
+    kernel::W16(engine + 0xD8, 0xF);
     // A settings row uses arrow images rather than button objects; clicking the row only focuses it.
     memory[engine + 2] = 1; W32(package + 0x88, 1);
     SetName("PCOptions.fng"); MakeObject(object, "PC Row 0 button", true); W32(object + 0x18, 5);
@@ -256,5 +276,25 @@ int main() {
         Check(messages.empty(), "mission details headings and unrelated labels are not clickable");
         pointer.buttons = 0; Update(ctx); messages.clear();
     }
-    std::puts("menu mouse: drawing bounds, focus, routing, transitions, pause tabs and mission titles passed");
+    // A reassignment with the same package/name must settle a held click and rebuild the accessible geometry.
+    SetName("Preferences.fng"); MakeObject(object, "Audio button", true);
+    W32(object + 4, 0); drawn = {object}; pointer.x = 110; Render(ctx); Update(ctx);
+    pointer.buttons = pointer.pressed = 1; Update(ctx); messages.clear();
+    AssignKeyboard((keyboard_player + 1) % 4);
+    W32(package + 0x1C, expected_input_mask); Render(ctx); Update(ctx);
+    Check(messages.empty(), "held click cannot activate a menu after the KBM player assignment changes");
+    pointer.buttons = 0; Update(ctx); messages.clear();
+    pointer.buttons = pointer.pressed = 1; Update(ctx);
+    Check(messages.size() == 2, "fresh click uses KBM's new player mask after reassignment");
+    pointer.buttons = 0; Update(ctx); messages.clear();
+    // KBM may be absent from a controller-only match; do not fall back to the first player's mouse ownership.
+    memory[calls.input_manager + 0x23E0] = 3;
+    for (int i = 0; i < 3; i++) memory[calls.input_manager + i * 0x8F8] = uint8_t(i + 1);
+    Render(ctx); Update(ctx);
+    Check(!menu_active, "no KBM participant means no mouse takeover of a controller player's menu");
+}
+
+int main() {
+    for (int player = 0; player < 4; player++) RunTests(player);
+    std::puts("menu mouse: drawing, routing, transitions, pause tabs and mission titles passed for KBM players 1-4");
 }

@@ -92,11 +92,11 @@ X86_FUNC(sub_0012A620) { game::MenuEvent(ctx, base, __imp__sub_0012A620, kMenuCa
 // FEng menu pointer adapter; actual text/sprite draws supply the clickable geometry (docs/menu-mouse.md).
 constexpr game::MenuMouseCalls kMouseMenu = {
     0x96900, 0x93260, 0x958D0, 0x162B20, 0x88630,
-    0x1FC680, 0x1FC684, 0x246450, 0x246454, 0x246424, 0x246420};
+    0x1FC680, 0x1FC684, 0x246450, 0x246454, 0x246424, 0x246420, 0x271188};
 X86_EXTERN_FUNC(__imp__sub_00095220);
 X86_FUNC(sub_00095220) { game::MenuMouseUpdate(ctx, base, __imp__sub_00095220, kMouseMenu); }
 X86_EXTERN_FUNC(__imp__sub_00093EE0);
-X86_FUNC(sub_00093EE0) { game::MenuMouseRender(ctx, base, __imp__sub_00093EE0); }
+X86_FUNC(sub_00093EE0) { game::MenuMouseRender(ctx, base, __imp__sub_00093EE0, kMouseMenu); }
 X86_EXTERN_FUNC(__imp__sub_001164E0);
 X86_FUNC(sub_001164E0) { game::MenuMouseObject(ctx, base, __imp__sub_001164E0); }
 // ShellManager overrides the base FengInterface drawing callback; both shell and pause use this vtable slot.
