@@ -111,26 +111,68 @@ void MouseTests() {
     X86Context ctx{};
     ctx.ebp = 0x18000;
     ctx.esi = first;
-    game::MouseLook(ctx, players, manager);
+    game::MouseLook(ctx, players, manager, game::kDefaultMouseLook);
     Check(mouse_reads == 0 && ticks == 1, "controller player's update cannot consume mouse counts; timing still runs once");
     ctx.esi = second;
-    game::MouseLook(ctx, players, manager);
+    game::MouseLook(ctx, players, manager, game::kDefaultMouseLook);
     Check(mouse_reads == 1 && ticks == 1 && kernel::G<float>(second + 0x274) < 0 &&
           kernel::G<float>(first + 0x274) == 0, "mouse follows KBM when the controller joined first");
     kernel::G<uint8_t>(manager) = 0;
     kernel::G<uint8_t>(manager + 0x8F8) = 1;
     ctx.esi = first;
-    game::MouseLook(ctx, players, manager);
+    game::MouseLook(ctx, players, manager, game::kDefaultMouseLook);
     Check(mouse_reads == 2 && kernel::G<float>(first + 0x278) > 0, "KBM-first join order aims the first player");
-    game::TurretLook(ctx, players, manager);
+    game::TurretLook(ctx, players, manager, game::kDefaultMouseLook);
     Check(mouse_reads == 3 && kernel::G<float>(first + 0xE1C) < 0, "mounted guns use the same KBM assignment");
     kernel::G<uint8_t>(manager) = 2;
-    game::MouseLook(ctx, players, manager);
+    game::MouseLook(ctx, players, manager, game::kDefaultMouseLook);
     Check(mouse_reads == 3, "no KBM participant means mouse cannot steer a controller player");
     kernel::G<uint8_t>(manager + 0x23E0) = 1;
     kernel::G<uint8_t>(manager) = 0;
-    game::MouseLook(ctx, players, manager);
+    game::MouseLook(ctx, players, manager, game::kDefaultMouseLook);
     Check(mouse_reads == 4, "singleplayer mouse still aims player 1");
+
+    // Co-op's mounted branch bypasses the ordinary look hook. It must poll even with no movement to keep
+    // Playing() (and therefore mouse fire) alive, use the right fields, and respect either join order.
+    constexpr float radians = 0.05f * 3.14159265f / 180.0f;
+    kernel::G<uint8_t>(manager + 0x23E0) = 2;
+    for (bool keyboard_first : {true, false}) {
+        kernel::G<uint8_t>(manager) = keyboard_first ? 0 : 1;
+        kernel::G<uint8_t>(manager + 0x8F8) = keyboard_first ? 1 : 0;
+        uint32_t keyboard = keyboard_first ? first : second;
+        uint32_t controller = keyboard_first ? second : first;
+        kernel::G<float>(keyboard + 0xE30) = 7;  // deliberately different from co-op's real zoom
+        kernel::G<float>(keyboard + 0xF10) = 17.5f;
+        kernel::G<float>(keyboard + 0xEFC) = 0.25f;
+        kernel::G<float>(keyboard + 0xF00) = -0.1f;
+        kernel::G<float>(keyboard + 0xE1C) = 123;
+        kernel::G<float>(keyboard + 0xE20) = 456;
+        int reads = mouse_reads;
+        ctx.esi = controller;
+        game::TurretLook(ctx, players, manager, game::kCoopMouseLook);
+        Check(mouse_reads == reads, "co-op controller gun cannot consume the KBM player's mouse counts");
+        ctx.esi = keyboard;
+        game::TurretLook(ctx, players, manager, game::kCoopMouseLook);
+        Check(mouse_reads == reads + 1 &&
+              std::abs(kernel::G<float>(keyboard + 0xEFC) - (0.25f - 5 * radians)) < 0.000001f &&
+              std::abs(kernel::G<float>(keyboard + 0xF00) - (-0.1f + 2.5f * radians)) < 0.000001f,
+              "co-op gun uses its own yaw, pitch and zoom in either join order");
+        Check(kernel::G<float>(keyboard + 0xE1C) == 123 && kernel::G<float>(keyboard + 0xE20) == 456,
+              "co-op gun leaves the singleplayer offsets untouched");
+        float yaw = kernel::G<float>(keyboard + 0xEFC), pitch = kernel::G<float>(keyboard + 0xF00);
+        mouse_available = false;
+        game::TurretLook(ctx, players, manager, game::kCoopMouseLook);
+        Check(mouse_reads == reads + 2 && kernel::G<float>(keyboard + 0xEFC) == yaw &&
+              kernel::G<float>(keyboard + 0xF00) == pitch,
+              "stationary mounted mouse still polls gameplay without changing the angles");
+        mouse_available = true;
+        kernel::G<float>(keyboard + 0x274) = 0;
+        kernel::G<float>(keyboard + 0x278) = 0;
+        game::MouseLook(ctx, players, manager, game::kCoopMouseLook);
+        Check(std::abs(kernel::G<float>(keyboard + 0x274) + 5 * radians) < 0.000001f &&
+              std::abs(kernel::G<float>(keyboard + 0x278) - 2.5f * radians) < 0.000001f,
+              "co-op on-foot mouse uses the real zoom field too");
+    }
 }
 }
 

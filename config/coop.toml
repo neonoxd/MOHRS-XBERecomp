@@ -291,6 +291,11 @@ XPP_MemoryUnitType          = 0x1D1678
 at = 0xD8A1E
 call = "MouseLook"
 
+# Mounted guns use a separate update and co-op player offsets (docs/mouse-look.md).
+[[hook]]
+at = 0xD6151
+call = "TurretLook"
+
 # 60 fps: the frame's end waits for 2 vertical blanks (cmp eax, 2 / cmp ecx, 2); src/common/test_hooks.h
 [[hook]]
 at = 0x13AFF

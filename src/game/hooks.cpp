@@ -37,9 +37,9 @@ X86_FUNC(sub_0010EA00) {
 // Mouse look (src/common/mouse_look.h), using the native player-to-port assignments.
 constexpr uint32_t kPlayers = 0x270108;
 // [[hook]] 0xE0AEE in the player's look update 0xE0A50: esi the player, before the stick's rates are added
-void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers, 0x271188); }
+void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers, 0x271188, game::kDefaultMouseLook); }
 // [[hook]] 0xDC911 in the mounted gun's update: esi the player, before the stick's rates are added
-void TurretLook(X86Context& ctx, uint8_t*) { game::TurretLook(ctx, kPlayers, 0x271188); }
+void TurretLook(X86Context& ctx, uint8_t*) { game::TurretLook(ctx, kPlayers, 0x271188, game::kDefaultMouseLook); }
 
 // the camera's SetFov(half width, half height) in radians (thiscall, ret 8), 0x82BA0: the view widened for 16:9
 X86_EXTERN_FUNC(__imp__sub_00082BA0);
