@@ -24,7 +24,7 @@ namespace game {
 
 namespace {
 
-// the system arrow, none in play while the keyboard and mouse are in use
+// Show the system arrow in menus; keep it hidden in play with either input device.
 bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
     switch (msg) {
         case WM_SYSCOMMAND:
@@ -43,7 +43,7 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
         case WM_SETCURSOR:
             if (LOWORD(lp) == HTCLIENT) {
                 static const HCURSOR arrow = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));  // IDC_ARROW
-                SetCursor(input::Playing() && input::KeyboardActive() ? nullptr : arrow);
+                SetCursor(input::Playing() ? nullptr : arrow);
                 *result = TRUE;
                 return true;
             }
