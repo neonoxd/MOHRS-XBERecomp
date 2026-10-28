@@ -1,0 +1,2 @@
+#include <winres.h>
+MOHRS_CURSOR RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/cursor.png"

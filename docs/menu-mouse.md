@@ -17,6 +17,11 @@ pointer-driven pause heading and menu-entry transitions; manual testing is ongoi
   Clicking a heading requests that page directly, without opening the intervening pages.
 - Mouse navigation follows KBM's assigned player, including when KBM joins as player 2 in co-op. It does not take
   over menus owned exclusively by another controller.
+- Menus draw the root `cursor.png` as a software pointer in both executables. The PNG is embedded at build time,
+  so release and isolated probe copies need no loose image. It scales with the displayed picture (24 pixels at
+  720p), with its arrow tip at the hit-test position. The Windows pointer is hidden over the client area; the
+  software pointer requires freshly drawn interactive menu controls, keeping it hidden on loading screens and
+  cutscenes, during gameplay, while unfocused, and outside the game window.
 - Click the bottom mission name on the mission map to confirm the current selection and open mission details.
   The details screen's top title has no click action. Single-player and co-op maps use the native selection and
   respect disabled missions.
@@ -73,6 +78,8 @@ differing from the current mission button during transitions and disabled missio
 Run `out/build/release/MOHRS.exe` for the interactive check: main menu entries, Options, PC Options including
 confirm/cancel, pause headings, Preferences and resume. Check a confirmation dialog and keyboard/controller input
 with a stationary pointer. Repeat in co-op and, if convenient, with widescreen off and a different window size.
+`tests/software_cursor_test.cpp` also checks the embedded PNG's colour and alpha pixels at the overlay upload,
+valid atlas UVs, and coexistence with the FPS font without a game window or GPU.
 The initial implementation was tested with host fixtures only. A subsequent isolated game probe reproduced a
 missing hit-target bug: ShellManager overrides the base FEng drawing callback. The adapter now hooks both the base
 and derived callbacks. The corrected probe records rendered targets and clicks through pause > Preferences > Audio

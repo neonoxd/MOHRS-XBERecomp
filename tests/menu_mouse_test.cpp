@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
+#include <thread>
 
 namespace {
 std::vector<uint8_t> memory(0x80000);
@@ -292,6 +294,25 @@ void RunTests(int keyboard_player) {
     for (int i = 0; i < 3; i++) memory[calls.input_manager + i * 0x8F8] = uint8_t(i + 1);
     Render(ctx); Update(ctx);
     Check(!menu_active, "no KBM participant means no mouse takeover of a controller player's menu");
+    Check(!game::MenuMouseCursorVisible(), "controller-only menus hide the software cursor");
+
+    // Cursor visibility follows actual interactive draws, rather than absence of gameplay mouse polling.
+    AssignKeyboard(keyboard_player); W32(package + 0x1C, expected_input_mask);
+    SetName("MainMenu.fng"); MakeObject(object, "Options button", true); drawn = {object};
+    Render(ctx);
+    Check(game::MenuMouseCursorVisible(), "rendered menu controls show the software cursor");
+    drawn.clear(); Render(ctx);
+    Check(!game::MenuMouseCursorVisible(), "undrawn menu objects cannot leave a cursor on a loading frame");
+    drawn = {object}; Render(ctx);
+    std::this_thread::sleep_for(std::chrono::milliseconds(120));
+    Check(!game::MenuMouseCursorVisible(), "cursor expires when movies/loading stop rendering FEng");
+    Render(ctx); memory[engine + 2] = 0; Update(ctx);
+    Check(!game::MenuMouseCursorVisible(), "disabled menu input immediately hides the cursor");
+    memory[engine + 2] = 1; W32(package + 0x88, 0);
+    MakeObject(object, "Loading title", false); SetName("Loading.fng"); Render(ctx);
+    Check(!game::MenuMouseCursorVisible(), "noninteractive loading text does not show a cursor");
+    SetName("Movie.fng"); Render(ctx);
+    Check(!game::MenuMouseCursorVisible(), "noninteractive movie overlays do not show a cursor");
 }
 
 int main() {

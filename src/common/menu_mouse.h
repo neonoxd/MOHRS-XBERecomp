@@ -9,6 +9,9 @@ struct MenuMouseCalls {
     uint32_t input_manager;
 };
 
+// Host renderer: true only while a fresh, interactive menu owned by KBM has been drawn. No guest reads.
+bool MenuMouseCursorVisible();
+
 // FEng's update and drawing adapters. All guest reads/calls and geometry collection stay on the guest UI thread.
 void MenuMouseUpdate(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuMouseCalls& calls);
 void MenuMouseRender(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuMouseCalls& calls);

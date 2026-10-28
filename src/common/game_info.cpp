@@ -16,6 +16,7 @@
 #include "common/controller_routing.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "common/software_cursor.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
 #include "core/log.h"
@@ -24,8 +25,8 @@ namespace game {
 
 namespace {
 
-// Show the system arrow in menus; keep it hidden in play with either input device.
-bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
+// The overlay draws the menu pointer; keep the Windows cursor hidden in the client area and during play.
+bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
     switch (msg) {
         case WM_SYSCOMMAND:
             // a bound Alt must not open the window menu
@@ -43,7 +44,8 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
         case WM_SETCURSOR:
             if (LOWORD(lp) == HTCLIENT) {
                 static const HCURSOR arrow = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512));  // IDC_ARROW
-                SetCursor(input::Playing() ? nullptr : arrow);
+                bool focused = GetForegroundWindow() == static_cast<HWND>(hwnd);
+                SetCursor(focused && (cursor::Ready() || input::Playing()) ? nullptr : arrow);
                 *result = TRUE;
                 return true;
             }
@@ -53,7 +55,7 @@ bool Message(void*, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* result) {
 }
 
 // the frames presented a second, over the top left corner of the picture
-void Ui(double fps) {
+void FpsCounter(double fps) {
     if (!Opt().fps_counter) return;
     // the picture is shown in the middle of the window, as BlitFrame places it
     ImVec2 window = ImGui::GetIO().DisplaySize;
@@ -69,10 +71,16 @@ void Ui(double fps) {
     draw->AddText(nullptr, size, at, IM_COL32(255, 255, 255, 230), text);
 }
 
+void Ui(double fps) {
+    FpsCounter(fps);
+    cursor::Draw();
+}
+
 // ImGui would set its arrow on every WM_SETCURSOR before Message sees it, and the window class has no cursor
 void Window(void* hwnd) {
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     input::StartMouse(hwnd);
+    cursor::Init(hwnd);
 }
 
 // Port 0 is KBM, with the first controller beside it only in singleplayer.

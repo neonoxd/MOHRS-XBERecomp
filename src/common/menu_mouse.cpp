@@ -1,6 +1,7 @@
 #include "common/menu_mouse.h"
 
 #include <chrono>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -22,6 +23,12 @@ using kernel::R32;
 using kernel::G;
 using menu::Rect;
 using Clock = std::chrono::steady_clock;
+std::atomic<int64_t> cursor_rendered_ms{0};
+constexpr int64_t kCursorFreshMs = 100;
+
+int64_t NowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+}
 constexpr uint32_t kPressed = 0x0C407210, kReleased = 0x936A6A7F, kAccept = 0x406415E3;
 constexpr uint32_t kBack = 0x911AB364, kLeft = 0x9120409E, kRight = 0xB5971BF1;
 constexpr uint32_t kPackage = 0xFFFFFFFD, kHandler = 0xFFFFFFFB;
@@ -318,6 +325,7 @@ void Update(X86Context& ctx, uint32_t engine, const MenuMouseCalls& calls) {
     bool fresh = Clock::now() - state.rendered < std::chrono::milliseconds(500);
     if (!fresh) package = 0;
     input::SetMenuInput(package != 0);
+    if (!package) cursor_rendered_ms = 0;
     static thread_local bool announced = false;
     if (package && !announced) {
         announced = true;
@@ -436,6 +444,11 @@ void Update(X86Context& ctx, uint32_t engine, const MenuMouseCalls& calls) {
 
 }  // namespace
 
+bool MenuMouseCursorVisible() {
+    int64_t rendered = cursor_rendered_ms.load();
+    return rendered != 0 && NowMs() - rendered < kCursorFreshMs;
+}
+
 void MenuMouseUpdate(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuMouseCalls& calls) {
     // Helpers can use x87/SIMD and flags too; the original update must receive its complete incoming context.
     X86Context saved = ctx;
@@ -497,6 +510,13 @@ void MenuMouseRender(X86Context& ctx, uint8_t* base, GuestFunction original, con
              state.objects.size(), state.object_draws, state.known_draws, state.text_draws, state.sprite_draws);
     }
     state.rendered = Clock::now();
+    // Publish only completed draws of real controls. Loading/movie frames don't keep a previous menu's cursor
+    // alive, even if FEng stops updating and its last input-ownership flag remains set.
+    std::string active_name;
+    uint32_t active = Active(state.engine, active_name, input_mask);
+    bool interactive = active && std::any_of(state.frames[active].regions.begin(), state.frames[active].regions.end(),
+                                             [](const Region& r) { return r.action != Action::None; });
+    cursor_rendered_ms = interactive ? NowMs() : 0;
 }
 
 void MenuMouseObject(X86Context& ctx, uint8_t* base, GuestFunction original) {

@@ -80,3 +80,10 @@ config_partitions(coop.toml COOP_PARTITIONS)
 add_xbe_image(MOHRSCoop xbe/moh3rdc.xbe coop.toml ${COOP_PARTITIONS} coop)
 add_game_icon(MOHRSCoop xbe/moh3rdc.xbe "$$XSIMAGE")
 add_version(MOHRSCoop "Medal of Honor: Rising Sun co-op, recompiled")
+
+# Embed the menu pointer in both executables, including standalone release/probe copies.
+set(cursor_resource ${CMAKE_CURRENT_BINARY_DIR}/cursor.rc)
+configure_file(src/cursor.rc.in ${cursor_resource} @ONLY)
+set_source_files_properties(${cursor_resource} PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cursor.png)
+target_sources(MOHRS PRIVATE ${cursor_resource})
+target_sources(MOHRSCoop PRIVATE ${cursor_resource})
