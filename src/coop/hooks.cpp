@@ -1,6 +1,7 @@
 // Hooks for moh3rdc.xbe (co-op). A strong definition replaces the recompiled function at that address. The same
 // game functions as in src/game/hooks.cpp, found by their bytes in this build of the game code.
 #include "common/mouse_look.h"
+#include "common/controller_routing.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/options_menu.h"
@@ -11,6 +12,12 @@
 #include "xdk/hle.h"
 
 using kernel::R32;
+
+X86_EXTERN_FUNC(__imp__sub_0015AA90);
+X86_FUNC(sub_0015AA90) {
+    game::UpdateControllerMode({0x23E5B1, 0x23A615, 0x23A616, 0x206F90, 0x206F91});
+    __imp__sub_0015AA90(ctx, base);
+}
 
 // the game state's SetCurrentLevel(mission, level), which the boot calls at 0x125E3 and 0x125FD
 X86_EXTERN_FUNC(__imp__sub_0008FB00);
@@ -28,11 +35,11 @@ X86_FUNC(sub_00107280) {
     if (ctx.eax & 0xFF) game::SkipMovie(key, buffer, size);
 }
 
-// mouse look (src/common/mouse_look.h); the player list is the game's, by controller (0x52BFF reads it)
+// Mouse look, using the native player-to-port assignments (default.xbe's input manager at 0x271188).
 constexpr uint32_t kPlayers = 0x265278;
 // [[hook]] 0xD8A1E in the player's look update 0xD8980: esi the player, before the stick's rates are added. This build
 // has no mounted gun update like default.xbe's 0xDC911.
-void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers); }
+void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers, 0x266618); }
 
 // the camera's SetFov(half width, half height) in radians (thiscall, ret 8), the bytes of default.xbe's 0x82BA0: the
 // view widened for 16:9

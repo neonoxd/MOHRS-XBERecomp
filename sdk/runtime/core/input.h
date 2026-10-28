@@ -13,7 +13,7 @@ struct Pad {
 
 void Init();  // window thread, before boot; the game code window starts it earlier
 uint16_t HeldOnAnyController();  // face buttons as XINPUT_GAMEPAD_A/B/X/Y masks, GameInfo::pad left out
-// the controller on that port, then GameInfo::pad
+// GameInfo::controller_port maps the guest port to a physical slot, then GameInfo::pad adds virtual input.
 Pad Poll(int port);
 void Rumble(int port, uint16_t left, uint16_t right);
 

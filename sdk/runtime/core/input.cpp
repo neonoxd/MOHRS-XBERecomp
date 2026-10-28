@@ -15,7 +15,7 @@ namespace input {
 
 namespace {
 
-// a controller takes the lowest free port when it is plugged in and keeps it until it is unplugged
+// A controller takes the lowest free physical slot and keeps it until unplugged. Games can map guest ports to it.
 std::mutex g_lock;
 bool g_sdl = false;
 SDL_Gamepad* g_pads[4] = {};
@@ -82,10 +82,11 @@ void Init() {
 
 Pad Poll(int port) {
     Pad p;
+    int device = app::kGame.controller_port ? app::kGame.controller_port(port, false) : port;
     {
         std::lock_guard lock(g_lock);
         UpdatePads();
-        if (SDL_Gamepad* pad = port >= 0 && port < 4 ? g_pads[port] : nullptr) {
+        if (SDL_Gamepad* pad = device >= 0 && device < 4 ? g_pads[device] : nullptr) {
             p.connected = true;
             constexpr SDL_GamepadButton kButtons[] = {
                 SDL_GAMEPAD_BUTTON_DPAD_UP,   SDL_GAMEPAD_BUTTON_DPAD_DOWN,  SDL_GAMEPAD_BUTTON_DPAD_LEFT,
@@ -129,8 +130,9 @@ uint16_t HeldOnAnyController() {
 // the motors run until set again
 void Rumble(int port, uint16_t left, uint16_t right) {
     if (app::kGame.rumble) app::kGame.rumble(port, left, right);
+    int device = app::kGame.controller_port ? app::kGame.controller_port(port, true) : port;
     std::lock_guard lock(g_lock);
-    if (port >= 0 && port < 4 && g_pads[port]) SDL_RumbleGamepad(g_pads[port], left, right, 0);
+    if (device >= 0 && device < 4 && g_pads[device]) SDL_RumbleGamepad(g_pads[device], left, right, 0);
 }
 
 }  // namespace input

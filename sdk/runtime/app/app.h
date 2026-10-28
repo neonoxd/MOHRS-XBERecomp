@@ -103,6 +103,9 @@ struct GameInfo {
     bool widescreen = true;
     // a game setting that turns widescreen off when false (the frame is then 4:3 on any output); null: always on
     const bool* widescreen_option = nullptr;
+    // Map a guest port to an SDL controller slot for reads/motors; -1 means no physical controller.
+    // GameInfo::pad still receives the original guest port. Null keeps the SDK's one-to-one mapping.
+    int (*controller_port)(int port, bool rumble) = nullptr;
 };
 extern const GameInfo kGame;
 

@@ -13,6 +13,8 @@ libraries run as host code, graphics go through Direct3D 12 and audio through XA
 ## Status
 
 Single-player and co-op boot and run with graphics, audio, saves, controller and keyboard/mouse support.
+KBM and the first controller share player 1 in singleplayer. Co-op and split-screen multiplayer setup give KBM
+and controllers separate inputs automatically; see [controller routing](docs/controller-routing.md).
 Widescreen and 60 FPS are implemented. An experimental mode above 60 FPS uses elapsed-time updates;
 see [frame timing and settings](docs/frame-timing.md). The game uses XDK 5455, supported by this repo's SDK.
 Adjustable [field of view](docs/fov.md) is available through `fov` in `settings.toml` (70 is the original view).

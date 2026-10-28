@@ -29,7 +29,13 @@ together.
 
 Controls
 --------
-Controllers work as on the Xbox. Keyboard and mouse share the first player's controller:
+Controllers work as on the Xbox. In singleplayer, keyboard/mouse and the first controller both control player 1;
+switch between them at any time. In co-op or split-screen multiplayer setup they become separate inputs. At
+"press A to join", press Enter on KBM and A on the controller. Join with KBM first to make it player 1.
+They stay separate during the match and pause menus, and share player 1 again on returning to singleplayer.
+KBM has its own Xbox port, leaving three ports for physical controllers. No settings change is needed.
+
+Keyboard and mouse controls:
 
   Move                  W A S D          Walk (hold)           Alt
   Fire                  Left mouse       Aim mode              Right mouse

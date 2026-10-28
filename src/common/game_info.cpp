@@ -13,6 +13,7 @@
 #include <toml++/toml.hpp>
 
 #include "app/app.h"
+#include "common/controller_routing.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
 #include "common/test_hooks.h"
@@ -74,10 +75,11 @@ void Window(void* hwnd) {
     input::StartMouse(hwnd);
 }
 
-// port 0 has the keyboard and mouse beside any controller there
+// Port 0 is KBM, with the first controller beside it only in singleplayer.
 void Pad(int port, input::Pad& pad) {
-    input::SeenPad(pad);
+    FilterController(port, pad);
     if (port != 0) return;
+    input::SeenPad(pad);
     pad.connected = true;
     input::Keyboard(pad);
     ProbePad(pad);
@@ -178,4 +180,5 @@ const app::GameInfo app::kGame = {
     .rumble = game::Rumble,               // changes a rumble before it is set
     .widescreen = true,                   // MOHRS draws 4:3 only; src/common/widescreen.cpp widens its view for 16:9
     .widescreen_option = &game::Opt().widescreen,  // off: 4:3 on any output
+    .controller_port = game::ControllerPort,
 };

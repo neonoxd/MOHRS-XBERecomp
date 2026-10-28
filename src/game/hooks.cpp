@@ -1,5 +1,6 @@
 // Hooks for default.xbe. A strong definition replaces the recompiled function at that address.
 #include "common/mouse_look.h"
+#include "common/controller_routing.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/options_menu.h"
@@ -10,6 +11,13 @@
 #include "xdk/hle.h"
 
 using kernel::R32;
+
+// Publish the native shell/game mode before this frame's XInput reads (docs/controller-routing.md).
+X86_EXTERN_FUNC(__imp__sub_001616C0);
+X86_FUNC(sub_001616C0) {
+    game::UpdateControllerMode({0x2463B1, 0x242435, 0x242436, 0x20EDB0, 0x20EDB1});
+    __imp__sub_001616C0(ctx, base);
+}
 
 // the game state's SetCurrentLevel(mission, level), which the boot calls at 0x12623 and 0x1263D
 X86_EXTERN_FUNC(__imp__sub_0009D180);
@@ -26,12 +34,12 @@ X86_FUNC(sub_0010EA00) {
     if (ctx.eax & 0xFF) game::SkipMovie(key, buffer, size);
 }
 
-// mouse look (src/common/mouse_look.h); the player list is the game's, by controller
+// Mouse look (src/common/mouse_look.h), using the native player-to-port assignments.
 constexpr uint32_t kPlayers = 0x270108;
 // [[hook]] 0xE0AEE in the player's look update 0xE0A50: esi the player, before the stick's rates are added
-void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers); }
+void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers, 0x271188); }
 // [[hook]] 0xDC911 in the mounted gun's update: esi the player, before the stick's rates are added
-void TurretLook(X86Context& ctx, uint8_t*) { game::TurretLook(ctx, kPlayers); }
+void TurretLook(X86Context& ctx, uint8_t*) { game::TurretLook(ctx, kPlayers, 0x271188); }
 
 // the camera's SetFov(half width, half height) in radians (thiscall, ret 8), 0x82BA0: the view widened for 16:9
 X86_EXTERN_FUNC(__imp__sub_00082BA0);
