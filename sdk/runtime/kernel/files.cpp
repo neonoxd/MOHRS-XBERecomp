@@ -8,12 +8,16 @@
 #include <map>
 
 #include "kernel/disc.h"
+#include "kernel/crypto.h"
 #include "kernel/kernel.h"
 #include "kernel/exports.h"
+#include "xbe/xbe.h"
 
 namespace fs = std::filesystem;
 
 namespace kernel {
+
+extern const xbe::Image* g_image;
 
 namespace {
 
@@ -731,21 +735,43 @@ constexpr uint32_t kSptdCdb = 0x1C;
 constexpr uint8_t kModeSense10 = 0x5A;
 constexpr uint8_t kXboxSecurityPage = 0x3E;
 constexpr uint32_t kSecurityPageBytes = 13;  // mode header, page code and length, then the three bytes XAPI checks
+constexpr uint8_t kReadAuthentication[] = {0xAD, 0, 0xFF, 2, 0xFD, 0xFF, 0xFE, 0, 6, 0x64, 0, 0xC0};
+constexpr uint32_t kAuthenticationBytes = 0x664;
+constexpr uint32_t kAuthenticationTimestamp = 0x4AB;
+constexpr uint32_t kAuthenticationDigest = 0x4CF;
 
 // XAPI starts a title whose media must be an Xbox DVD only once the drive's security page reports an
 // authenticated disc (page bytes 2 and 4 set, byte 3 one); the game files stand in for that disc
 static void ScsiPassThrough(uint32_t sptd) {
     uint32_t cdb = sptd + kSptdCdb;
-    if (G<uint8_t>(cdb) != kModeSense10 || (G<uint8_t>(cdb + 2) & 0x3F) != kXboxSecurityPage) return;
     uint32_t data = R32(sptd + kSptdDataBuffer), n = R32(sptd + kSptdTransferLength);
-    if (!data || n < kSecurityPageBytes || n > 0xFF) return;
-    std::memset(HostPtr(data), 0, n);
-    G<uint8_t>(data + 1) = uint8_t(n - 2);  // mode data length, big endian
-    G<uint8_t>(data + 8) = kXboxSecurityPage;
-    G<uint8_t>(data + 9) = uint8_t(n - 10);
-    G<uint8_t>(data + 10) = 1;
-    G<uint8_t>(data + 11) = 1;
-    G<uint8_t>(data + 12) = 1;
+    if (!data) return;
+    if (G<uint8_t>(cdb) == kModeSense10 && (G<uint8_t>(cdb + 2) & 0x3F) == kXboxSecurityPage) {
+        if (n < kSecurityPageBytes || n > 0xFF) return;
+        std::memset(HostPtr(data), 0, n);
+        G<uint8_t>(data + 1) = uint8_t(n - 2);  // mode data length, big endian
+        G<uint8_t>(data + 8) = kXboxSecurityPage;
+        G<uint8_t>(data + 9) = uint8_t(n - 10);
+        G<uint8_t>(data + 10) = 1;
+        G<uint8_t>(data + 11) = 1;
+        G<uint8_t>(data + 12) = 1;
+    } else if (n == kAuthenticationBytes && std::memcmp(HostPtr(cdb), kReadAuthentication, sizeof(kReadAuthentication)) == 0) {
+        // Unmodified retail certificates also request READ DVD STRUCTURE authentication data. XAPI compares
+        // the certificate timestamp, then SHA-1(length || payload), before the kernel signature check. Without
+        // this reply XapiInitProcess returns before mounting T:/U:, which appears as a save-space failure.
+        uint32_t timestamp;
+        if (!g_image || !g_image->Read32(g_image->cert + 4, timestamp)) return;
+        std::memset(HostPtr(data), 0, n);
+        G<uint8_t>(data) = uint8_t((n - 2) >> 8);
+        G<uint8_t>(data + 1) = uint8_t(n - 2);
+        W32(data + kAuthenticationTimestamp, timestamp);
+        constexpr uint32_t payload_bytes = kAuthenticationDigest - 4;
+        alignas(8) uint8_t sha[128];
+        crypto::ShaInit(sha);
+        crypto::ShaUpdate(sha, reinterpret_cast<const uint8_t*>(&payload_bytes), sizeof(payload_bytes));
+        crypto::ShaUpdate(sha, static_cast<const uint8_t*>(HostPtr(data + 4)), payload_bytes);
+        crypto::ShaFinal(sha, static_cast<uint8_t*>(HostPtr(data + kAuthenticationDigest)));
+    }
 }
 
 KERNEL_EXPORT(196, NtDeviceIoControlFile, 10) {
@@ -759,7 +785,7 @@ KERNEL_EXPORT(196, NtDeviceIoControlFile, 10) {
         W32(out + 16, 63);
         W32(out + 20, 512);
     }
-    if (code == kScsiPassThroughDirect && in) ScsiPassThrough(in);
+    if (code == kScsiPassThroughDirect && in && a[7] >= 0x2C) ScsiPassThrough(in);
     IoStatus(iosb, kSuccess, out_len);
     return kSuccess;
 }

@@ -190,6 +190,8 @@ const app::GameInfo app::kGame = {
     .widescreen_option = &game::Opt().widescreen,  // off: 4:3 on any output
     .controller_port = game::ControllerPort,
     .supported_hashes = {
+        {"default.xbe", "9f5197f8ded3ce1cd3e1c1cae14a756a17c39d56"},  // Original modified USA dump
+        {"moh3rdc.xbe", "a9d9a2b524a8bf37d28d8e7d0004ddbee847a78e"},  // Original modified USA dump
         {"default.xbe", "247b9eef7f96e23ddc3a794985a8cb6e3afc8433"},  // USA Redump
         {"default.xbe", "ace5406789a9bcc325be895df67d4e5f4301cf0c"},  // Europe Redump
         {"moh3rdc.xbe", "c8d6bf573ffbb32d2df3b9298a41fde4f831e4e7"},  // USA Redump

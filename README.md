@@ -48,8 +48,8 @@ python tools/xiso.py xbes "assets/Medal of Honor Rising Sun.iso" assets/xbe
 The build reads `assets/xbe/default.xbe`; the game itself runs from the `.iso` in `assets/`. Keep the XBEs out of
 `assets/` itself, or the runtime will look for loose data files beside them.
 
-Expected `default.xbe` SHA-1: `9f5197f8ded3ce1cd3e1c1cae14a756a17c39d56`.
-This development baseline is a modified USA XBE.
+The current development baseline is the unmodified USA Redump. Its `default.xbe` SHA-1 is
+`247b9eef7f96e23ddc3a794985a8cb6e3afc8433`.
 
 ### 2. Dependencies
 Visual Studio 2022 with **Desktop development with C++**, **C++ Clang Compiler for Windows** and **C++ CMake tools
