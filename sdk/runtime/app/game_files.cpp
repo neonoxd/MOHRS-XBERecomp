@@ -1,5 +1,5 @@
 // The game in assets: its files, or a disc image (.iso) with this executable's xbe on it. The xbe must be the one
-// this executable was recompiled from; another release's would run its own data under this code.
+// this executable was recompiled from, or a compatible release declared by the game.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
+#include <string_view>
 
 #include "app/app.h"
 #include "core/log.h"
@@ -73,20 +74,30 @@ bool FindGame(GameFiles& game) {
         }
     std::sort(isos.begin(), isos.end());
 
-    // the first copy with this xbe wins, the extracted files before any image; another release is kept to offer
-    GameFiles other;
-    std::unique_ptr<kernel::Disc> other_disc;
+    // Prefer the exact build hash; otherwise the first supported copy, then offer an unknown release.
+    // Within each group, extracted files precede sorted disc images.
+    GameFiles supported, other;
+    std::unique_ptr<kernel::Disc> supported_disc, other_disc;
+    bool have_supported = false;
     fs::path other_name;
     auto consider = [&](const fs::path& name, std::vector<uint8_t> xbe, std::unique_ptr<kernel::Disc> disc) {
         std::string sha = Sha1(xbe);
         bool match = sha == kImageSha1;
-        LOGR("Game: %s in %s, sha1 %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(), match ? "" : ", another release");
+        bool compatible = std::any_of(kGame.supported_hashes.begin(), kGame.supported_hashes.end(), [&](const auto& entry) {
+            return std::string_view(entry.first) == IMAGE_XBE && sha == entry.second;
+        });
+        LOGR("Game: %s in %s, sha1 %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(),
+             match ? "" : compatible ? ", supported release" : ", another release");
         if (match) {
             game = {assets, std::move(xbe)};
             kernel::MountDisc(std::move(disc));
             return true;
         }
-        if (other_name.empty()) {
+        if (compatible && !have_supported) {
+            supported = {assets, std::move(xbe)};
+            supported_disc = std::move(disc);
+            have_supported = true;
+        } else if (!compatible && other_name.empty()) {
             other = {assets, std::move(xbe)};
             other_disc = std::move(disc);
             other_name = name;
@@ -108,6 +119,12 @@ bool FindGame(GameFiles& game) {
             continue;
         }
         if (consider(iso, std::move(xbe), std::move(disc))) return true;
+    }
+
+    if (have_supported) {
+        game = std::move(supported);
+        kernel::MountDisc(std::move(supported_disc));
+        return true;
     }
 
     if (other_name.empty()) {

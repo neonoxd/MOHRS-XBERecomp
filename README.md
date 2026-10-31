@@ -49,6 +49,7 @@ The build reads `assets/xbe/default.xbe`; the game itself runs from the `.iso` i
 `assets/` itself, or the runtime will look for loose data files beside them.
 
 Expected `default.xbe` SHA-1: `9f5197f8ded3ce1cd3e1c1cae14a756a17c39d56`.
+This development baseline is a modified USA XBE.
 
 ### 2. Dependencies
 Visual Studio 2022 with **Desktop development with C++**, **C++ Clang Compiler for Windows** and **C++ CMake tools

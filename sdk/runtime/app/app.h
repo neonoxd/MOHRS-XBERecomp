@@ -106,6 +106,8 @@ struct GameInfo {
     // Map a guest port to an SDL controller slot for reads/motors; -1 means no physical controller.
     // GameInfo::pad still receives the original guest port. Null keeps the SDK's one-to-one mapping.
     int (*controller_port)(int port, bool rumble) = nullptr;
+    // Additional compatible releases: xbe file name, SHA-1. The exact build hash remains preferred.
+    std::vector<std::pair<const char*, const char*>> supported_hashes;
 };
 extern const GameInfo kGame;
 

@@ -189,4 +189,10 @@ const app::GameInfo app::kGame = {
     .widescreen = true,                   // MOHRS draws 4:3 only; src/common/widescreen.cpp widens its view for 16:9
     .widescreen_option = &game::Opt().widescreen,  // off: 4:3 on any output
     .controller_port = game::ControllerPort,
+    .supported_hashes = {
+        {"default.xbe", "247b9eef7f96e23ddc3a794985a8cb6e3afc8433"},  // USA Redump
+        {"default.xbe", "ace5406789a9bcc325be895df67d4e5f4301cf0c"},  // Europe Redump
+        {"moh3rdc.xbe", "c8d6bf573ffbb32d2df3b9298a41fde4f831e4e7"},  // USA Redump
+        {"moh3rdc.xbe", "9828a3ff41de9439d6fd0eb561a8b453414002f4"},  // Europe Redump
+    },
 };

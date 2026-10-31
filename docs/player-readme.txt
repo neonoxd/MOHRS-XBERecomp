@@ -9,7 +9,8 @@ Requirements
 ------------
 - Windows 10 or 11, 64-bit
 - A graphics card with Direct3D 12
-- Room for your disc image (4.5 GB) in assets\, and about 1 GB more for the first start's build
+- Room for your disc image (about 4.5 GB for a game-partition image or 7.8 GB for a full Redump) in assets\,
+  and about 1 GB more for the first start's build
 - A controller (XInput) or keyboard and mouse
 
 
@@ -17,8 +18,8 @@ Installing
 ----------
 1. Unzip this folder anywhere you can write to (not Program Files).
 2. Put your Xbox disc image (.iso) into the assets folder. An image of the game partition (xiso) or a full redump
-   both work. The expected default.xbe SHA-1 is 9f5197f8ded3ce1cd3e1c1cae14a756a17c39d56; the game warns before
-   starting from a different one.
+   both work. The original modified USA dump and the USA and Europe (En,Es,It,Nl,Sv) Redump releases are recognized.
+   Other XBE hashes trigger a warning before starting. Keep only the copy you want to use in assets.
 3. Start MOHRS.exe. The first start translates the game's code from your disc image and builds it into MOHRS.dll and
    MOHRSCoop.dll behind a progress window, which takes a few minutes. Later starts go straight to the game. If the
    build is interrupted, the next start carries on where it stopped.
