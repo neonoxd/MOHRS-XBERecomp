@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "audio/audio.h"
+#include "core/snapshot.h"
 #include "xbe/xbe.h"
 #include "xdk/hle.h"
 #include "xdk/dsp_image.h"
@@ -641,6 +642,7 @@ void Start() {
         constexpr int64_t kPumpMs = 250;
         for (;;) {
             std::vector<Done> done;
+            GuestScope guest;  // taken and run on one side of a quick save (core/snapshot.h)
             {
                 std::unique_lock<std::recursive_mutex> lock(g_lock);
                 g_done_cv.wait_for(lock, std::chrono::milliseconds(50));
@@ -1248,3 +1250,151 @@ STREAM(SetPosition, 5) {
 }
 STREAM(SetVelocity, 5) { return 0; }
 STREAM(SetI3DL2Source, 3) { return 0; }
+
+// quick save (core/snapshot.h)
+
+namespace {
+
+// a voice's fields but its containers, the same list writing and reading
+template <typename IO>
+void VoiceFields(IO& io, Voice& v) {
+    io.Pod(v.obj);
+    io.Pod(v.stream);
+    io.Pod(v.refs);
+    io.Pod(v.tag);
+    io.Pod(v.channels);
+    io.Pod(v.bits);
+    io.Pod(v.align);
+    io.Pod(v.rate);
+    io.Pod(v.data);
+    io.Pod(v.bytes);
+    io.Pod(v.loop_start);
+    io.Pod(v.loop_len);
+    io.Pod(v.play_start);
+    io.Pod(v.play_len);
+    io.Pod(v.owned);
+    io.Pod(v.playing);
+    io.Pod(v.looping);
+    io.Pod(v.paused);
+    io.Pod(v.sync);
+    io.Pod(v.active);
+    io.Pod(v.ending);
+    io.Pod(v.pos);
+    io.Pod(v.freq);
+    io.Pod(v.max_packets);
+    io.Pod(v.callback);
+    io.Pod(v.context);
+    io.Pod(v.volume);
+    io.Pod(v.headroom);
+    io.Pod(v.nbins);
+    io.Pod(v.bin);
+    io.Pod(v.bin_mb);
+    io.Pod(v.is3d);
+    io.Pod(v.mode);
+    io.Pod(v.p);
+    io.Pod(v.min_dist);
+    io.Pod(v.max_dist);
+    io.Pod(v.gain);
+    io.Pod(v.has_gain);
+    io.Pod(v.itd);
+    io.Pod(v.ear);
+    io.Pod(v.ear_pos);
+    io.Pod(v.block);
+    io.Pod(v.last);
+    io.Pod(v.decoded);
+}
+
+bool SameSegments(const std::vector<Segment>& a, const std::vector<Segment>& b) {
+    return a.size() == b.size() &&
+           std::equal(a.begin(), a.end(), b.begin(), [](const Segment& x, const Segment& y) { return x.at == y.at && x.bytes == y.bytes; });
+}
+
+struct SavedSound : snapshot::Part {
+    std::map<uint32_t, Voice> voices;
+    float listener[3], front[3], top[3];
+    std::deque<Done> done;
+    uint8_t bin_headroom[kBins];
+    uint32_t ds = 0;
+    std::vector<Segment> effects;  // where the effects image's state is: the DSP reads it there
+
+    bool Prepare(const snapshot::RestoreInfo&, std::string& why) override {
+        std::lock_guard<std::recursive_mutex> lock(g_lock);
+        if (!SameSegments(effects, g_effect_states)) {
+            why = "the sound effects image is elsewhere in this run";
+            return false;
+        }
+        return true;
+    }
+
+    void Restore(const snapshot::RestoreInfo&) override {
+        std::lock_guard<std::recursive_mutex> lock(g_lock);
+        g_voices = voices;
+        std::copy_n(listener, 3, g_listener);
+        std::copy_n(front, 3, g_front);
+        std::copy_n(top, 3, g_top);
+        g_done = done;
+        std::copy_n(bin_headroom, kBins, g_bin_headroom);
+        g_ds = ds;
+    }
+
+    void Write(snapshot::Writer& w) const override {
+        w.Pod(uint32_t(sizeof(Voice)));
+        w.Pod(uint64_t(voices.size()));
+        for (const auto& [obj, v] : voices) {
+            w.Pod(obj);
+            VoiceFields(w, const_cast<Voice&>(v));
+            w.Vec(std::vector<Packet>(v.packets.begin(), v.packets.end()));
+            w.Vec(v.curve);
+        }
+        w.Pod(listener);
+        w.Pod(front);
+        w.Pod(top);
+        w.Vec(std::vector<Done>(done.begin(), done.end()));
+        w.Pod(bin_headroom);
+        w.Pod(ds);
+        w.Vec(effects);
+    }
+};
+
+}  // namespace
+
+snapshot::PartRef dsound::ReadSound(snapshot::Reader& r) {
+    auto s = std::make_unique<SavedSound>();
+    r.Expect(uint32_t(sizeof(Voice)));
+    uint64_t n = r.Pod<uint64_t>();
+    if (n > 4096) r.ok = false;
+    for (uint64_t i = 0; i < n && r.ok; i++) {
+        uint32_t obj = r.Pod<uint32_t>();
+        Voice& v = s->voices[obj];
+        VoiceFields(r, v);
+        std::vector<Packet> packets;
+        r.Vec(packets);
+        v.packets.assign(packets.begin(), packets.end());
+        r.Vec(v.curve);
+    }
+    r.Pod(s->listener);
+    r.Pod(s->front);
+    r.Pod(s->top);
+    std::vector<Done> done;
+    r.Vec(done);
+    s->done.assign(done.begin(), done.end());
+    r.Pod(s->bin_headroom);
+    r.Pod(s->ds);
+    r.Vec(s->effects);
+    if (!r.ok) return nullptr;
+    return s;
+}
+
+snapshot::PartRef dsound::SaveSound() {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    auto s = std::make_unique<SavedSound>();
+    s->voices = g_voices;
+    std::copy_n(g_listener, 3, s->listener);
+    std::copy_n(g_front, 3, s->front);
+    std::copy_n(g_top, 3, s->top);
+    s->done = g_done;
+    std::copy_n(g_bin_headroom, kBins, s->bin_headroom);
+    s->ds = g_ds;
+    s->effects = g_effect_states;
+    return s;
+}

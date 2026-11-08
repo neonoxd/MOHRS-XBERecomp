@@ -19,6 +19,20 @@ X86_FUNC(sub_0015AA90) {
     __imp__sub_0015AA90(ctx, base);
 }
 
+// the script system's frame update, default.xbe's 0x4C0F0: at the console's 30 Hz in the 60 FPS and unlocked modes
+X86_EXTERN_FUNC(__imp__sub_0004F220);
+X86_FUNC(sub_0004F220) {
+    if (game::ScriptFrame(ctx)) __imp__sub_0004F220(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 0);
+}
+
+// the entity manager's update, default.xbe's 0xFAB00: short steps carried over in the 60 FPS and unlocked modes
+X86_EXTERN_FUNC(__imp__sub_000F35D0);
+X86_FUNC(sub_000F35D0) {
+    if (game::EntityStep(ctx)) __imp__sub_000F35D0(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 1);
+}
+
 // the game state's SetCurrentLevel(mission, level), which the boot calls at 0x125E3 and 0x125FD
 X86_EXTERN_FUNC(__imp__sub_0008FB00);
 X86_FUNC(sub_0008FB00) {
@@ -63,7 +77,15 @@ void FrameDelta(X86Context& ctx, uint8_t*) {
 }
 void MissionTicks(X86Context& ctx, uint8_t*) { game::MissionTicks(ctx); }
 void MenuTicks(X86Context& ctx, uint8_t*) { game::MenuTicks(ctx); }
+void PopupTicks(X86Context& ctx, uint8_t*) { game::PopupTicks(ctx); }
 void MessageTicks(X86Context& ctx, uint8_t*) { game::MessageTicks(ctx); }
+// [[hook]]s in the soldier AI brain: goal timer ticks at 0x19056, threat memory decay at 0x21F58
+void BrainTicks(X86Context& ctx, uint8_t*) { game::BrainTicks(ctx); }
+void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
+void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
+void FloorRayRetry(X86Context& ctx, uint8_t*) {
+    game::FloorRayRetry(ctx, {0x90, 0xE0, 0x50, 0x13DF00, 0x13BBE0, 0x13BD80, 0x6D290});
+}
 void ResetLoadingAnimation(X86Context&, uint8_t*) { game::ResetLoadingAnimation(); }
 void LoadingAnimation(X86Context& ctx, uint8_t*) { game::LoadingAnimation(ctx); }
 void ResetPopupAnimation(X86Context&, uint8_t*) { game::ResetPopupAnimation(); }

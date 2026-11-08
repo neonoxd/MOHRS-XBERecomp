@@ -29,6 +29,7 @@ struct Target {
     D3D12_RESOURCE_STATES state = D3D12_RESOURCE_STATE_COMMON;
     uint32_t data = 0, bytes = 0;
     uint64_t epoch = 0, sig = 0;  // last lock seen, guest memory as last matched
+    uint64_t checked = 0;         // SurfaceDirtyGeneration at the last lock check
     bool drawn = false;           // the GPU wrote it since the last readback
     std::vector<uint8_t> read;    // what Sync left in guest memory
     Microsoft::WRL::ComPtr<ID3D12Resource> fb;  // copy read by draws that sample the target they render to

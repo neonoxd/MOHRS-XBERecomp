@@ -23,6 +23,7 @@ Display, frame rate, field of view and mouse settings can also be changed in the
 [PC Options](docs/pc-options.md), in Options and in the pause screen's Preferences.
 The [menu mouse adapter](docs/menu-mouse.md) adds hover/click navigation, settings arrows and wheel control, and
 clickable pause headings alongside keyboard and controller input.
+For testing, F5 and F9 [quick save and load](docs/quick-save.md) the whole machine in single player.
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 
 ## Repository layout

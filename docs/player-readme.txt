@@ -46,6 +46,11 @@ Keyboard and mouse controls:
   Melee                 V, Middle mouse  Center view           Z
   Sniper zoom           Wheel, 1 and 2   D-pad left/right      3, 4
   Back (objectives)     Tab              Pause                 Escape
+  Quick save            F5               Quick load            F9
+
+Quick save and load are for testing, in single player during play. There is one slot, also written to
+quicksave\MOHRS.qsv: after a restart, start or continue any mission and press F9. A new version of the game
+cannot load an older version's quick save.
 
 In menus, hover and left click to select an entry; right click goes back. The wheel moves through entries. On
 settings screens, click a label or displayed value to select its row, then click the arrows or use the wheel to

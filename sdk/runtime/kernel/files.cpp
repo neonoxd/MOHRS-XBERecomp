@@ -7,6 +7,7 @@
 #include <fstream>
 #include <map>
 
+#include "core/snapshot.h"
 #include "kernel/disc.h"
 #include "kernel/crypto.h"
 #include "kernel/kernel.h"
@@ -85,6 +86,21 @@ struct File : Object {
     bool delete_on_close = false;
     std::mutex io;  // threads sharing a handle: seek and transfer stay together
     File() : Object(ObjType::File) {}
+    uint64_t* Position() override { return &pos; }
+    // on the disc by its entry, a host folder or file by its path (RebuildObject)
+    void Describe(snapshot::Writer& w) const override {
+        w.Pod(uint8_t(entry ? 0 : dir ? 1 : fp ? 2 : 3));
+        w.Str(xbox);
+        if (entry) {
+            w.Pod(entry->offset);
+            w.Pod(entry->size);
+            w.Pod(uint8_t(entry->dir));
+            w.Str(entry->name);
+        } else {
+            w.Str(host.string());
+            w.Pod(uint8_t(delete_on_close));
+        }
+    }
     ~File() override {
         if (fp) std::fclose(fp);
         if (delete_on_close) {
@@ -97,7 +113,16 @@ struct File : Object {
 struct Link : Object {
     std::string target;
     Link() : Object(ObjType::SymLink) {}
+    void Describe(snapshot::Writer& w) const override { w.Str(target); }
 };
+
+// the disc entry a quick save named by its place in the image
+const Disc::Entry* FindEntry(const Disc::Entry& at, uint64_t offset, uint32_t size, bool dir, const std::string& name) {
+    if (at.offset == offset && at.size == size && at.dir == dir && at.name == name) return &at;
+    for (const Disc::Entry& c : at.children)
+        if (const Disc::Entry* e = FindEntry(c, offset, size, dir, name)) return e;
+    return nullptr;
+}
 
 uint64_t ToFileTime(fs::file_time_type t) {
     using namespace std::chrono;
@@ -328,6 +353,44 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
 }  // namespace
 
 std::string ResolvePath(const std::string& xbox_path, uint32_t root_handle) { return Resolve(xbox_path, root_handle).host; }
+
+ObjectRef RebuildObject(ObjType type, snapshot::Reader& r) {
+    if (type == ObjType::SymLink) {
+        auto l = std::make_shared<Link>();
+        l->target = r.Str();
+        return r.ok ? l : nullptr;
+    }
+    if (type != ObjType::File) return nullptr;
+    auto f = std::make_shared<File>();
+    uint8_t kind = r.Pod<uint8_t>();
+    f->xbox = r.Str();
+    if (kind == 0) {
+        uint64_t offset = r.Pod<uint64_t>();
+        uint32_t size = r.Pod<uint32_t>();
+        bool dir = r.Pod<uint8_t>() != 0;
+        std::string name = r.Str();
+        const Disc* disc = MountedDisc();
+        const Disc::Entry* root = disc ? disc->Find(std::vector<std::string>{}) : nullptr;
+        f->entry = r.ok && root ? FindEntry(*root, offset, size, dir, name) : nullptr;
+        if (!f->entry) return nullptr;
+        f->dir = dir;
+        return f;
+    }
+    f->host = r.Str();
+    f->delete_on_close = r.Pod<uint8_t>() != 0;
+    if (!r.ok) return nullptr;
+    f->dir = kind == 1;
+    if (kind == 2) {
+        // as it was opened, never truncated: a file made with "w+b" exists by now
+        f->fp = std::fopen(f->host.string().c_str(), "r+b");
+        if (!f->fp) f->fp = std::fopen(f->host.string().c_str(), "rb");
+        if (!f->fp) {
+            LOGW("snapshot: cannot open %s again", f->host.string().c_str());
+            return nullptr;
+        }
+    }
+    return f;
+}
 
 bool ReadGameFile(const std::string& xbox_path, std::vector<uint8_t>& out) {
     Target t = Resolve(xbox_path, 0);

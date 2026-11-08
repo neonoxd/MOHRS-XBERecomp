@@ -37,6 +37,9 @@ struct PixelKey {
 };
 
 uint64_t Hash(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
+// Several times Hash's speed on long inputs, with other values: for keys and change checks that live only in this
+// process. Anything kept or shared, such as texture pack names, stays on Hash.
+uint64_t FastHash(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
 PixelKey MakePixelKey(const State& s, const TexInfo tex[4]);
 

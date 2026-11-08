@@ -15,6 +15,9 @@ namespace app {
 
 enum class DisplayMode : uint32_t { Fullscreen, Borderless, Windowed };
 inline constexpr uint32_t kFpsCapRefresh = 1;  // fps_cap: just under the monitor's refresh rate
+// the highest frame rate, also with fps_cap 0 (off): the game steps time in fractions of a 60 Hz tick, and some of
+// its steps stop advancing when those get too short (MOHRS physics above 3,840 FPS)
+inline constexpr uint32_t kMaxFps = 2400;
 
 struct Settings {
     DisplayMode display_mode = DisplayMode::Borderless;

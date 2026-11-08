@@ -126,7 +126,8 @@ function(add_xbe_image target xbe config partitions game_dir)
 
     # without a C runtime: the executable passes on what the code calls
     add_library(${target}_code SHARED ${GEN_SOURCES})
-    set_target_properties(${target}_code PROPERTIES OUTPUT_NAME ${target} CXX_EXTENSIONS OFF)
+    # its own PDB name: as <target>.pdb, a build with debug information overwrote the executable's, linked first
+    set_target_properties(${target}_code PROPERTIES OUTPUT_NAME ${target} PDB_NAME ${target}_code CXX_EXTENSIONS OFF)
     set_source_files_properties(${GEN_SOURCES} PROPERTIES GENERATED TRUE)
     add_dependencies(${target}_code recompile_${target})
     target_include_directories(${target}_code PRIVATE ${XBE_SDK_DIR}/runtime ${GEN})

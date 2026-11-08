@@ -50,7 +50,10 @@ bool CopySurfaceMemory(const Surface& src, const Surface& dst, uint32_t count, u
 
 // the title locked a resource, the next bind re-uploads it
 void MarkDirty(uint32_t resource);
+void MarkAllDirty();  // every resource checked against its bytes again: guest memory was put back (a quick load)
 uint64_t DirtyEpoch(uint32_t data_va);
+// changes whenever a lock may have dirtied a surface or texture; equal values mean no such lock in between
+uint64_t SurfaceDirtyGeneration();
 
 // vertex declarations and pixel shader constant routing, both follow the XDK's definitions
 void ParseDeclaration(VertexShader& vs);

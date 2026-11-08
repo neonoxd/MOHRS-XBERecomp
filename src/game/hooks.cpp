@@ -4,6 +4,7 @@
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/options_menu.h"
+#include "common/quick_save.h"
 #include "common/menu_mouse.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
@@ -24,6 +25,29 @@ X86_EXTERN_FUNC(__imp__sub_0009D180);
 X86_FUNC(sub_0009D180) {
     game::PickStartLevel(ctx);
     __imp__sub_0009D180(ctx, base);
+}
+
+// the main gameplay frame, called once a frame from the level's loop at 0x128B9: its entry is where a quick save is
+// taken and put back (src/common/quick_save.h), the host's call chain being the same there every frame
+X86_EXTERN_FUNC(__imp__sub_000A4A90);
+X86_FUNC(sub_000A4A90) {
+    game::QuickSaveFrame(ctx, reinterpret_cast<const void*>(&sub_000A4A90));
+    __imp__sub_000A4A90(ctx, base);
+}
+
+// the script system's frame update (docs/frame-timing.md): at the console's 30 Hz in the 60 FPS and unlocked modes
+X86_EXTERN_FUNC(__imp__sub_0004C0F0);
+X86_FUNC(sub_0004C0F0) {
+    if (game::ScriptFrame(ctx)) __imp__sub_0004C0F0(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 0);
+}
+
+// the entity manager's update (docs/frame-timing.md): steps under 1/64 tick carried over in the 60 FPS and unlocked
+// modes instead of standing still
+X86_EXTERN_FUNC(__imp__sub_000FAB00);
+X86_FUNC(sub_000FAB00) {
+    if (game::EntityStep(ctx)) __imp__sub_000FAB00(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 1);
 }
 
 // the config's GetString(key, buffer, size), which reads data\game.cfg; true when the key exists
@@ -61,7 +85,19 @@ void FrameDelta(X86Context& ctx, uint8_t*) {
 }
 void MissionTicks(X86Context& ctx, uint8_t*) { game::MissionTicks(ctx); }
 void MenuTicks(X86Context& ctx, uint8_t*) { game::MenuTicks(ctx); }
+void PopupTicks(X86Context& ctx, uint8_t*) { game::PopupTicks(ctx); }
 void MessageTicks(X86Context& ctx, uint8_t*) { game::MessageTicks(ctx); }
+// [[hook]]s in the soldier AI brain: goal timer ticks at 0x197C6, threat memory decay at 0x223A8
+void BrainTicks(X86Context& ctx, uint8_t*) { game::BrainTicks(ctx); }
+void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
+void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
+void TraceNative(X86Context& ctx, uint8_t*) { game::TraceNative(ctx); }
+// [[hook]] 0x162E70, the top of the resource loader worker's loop (0x162E30): its slot from the table at [0x399758]
+// again, the worker's index being its argument at [esp+0x24] there, so a quick load's table is the one it serves
+void LoaderSlot(X86Context& ctx, uint8_t*) { ctx.ebx = R32(0x399758) + R32(ctx.esp + 0x24) * 0xB8; }
+void FloorRayRetry(X86Context& ctx, uint8_t*) {
+    game::FloorRayRetry(ctx, {0x80, 0xC0, 0x40, 0x144C30, 0x142910, 0x142AB0, 0x7A8A0});
+}
 void ResetLoadingAnimation(X86Context&, uint8_t*) { game::ResetLoadingAnimation(); }
 void LoadingAnimation(X86Context& ctx, uint8_t*) { game::LoadingAnimation(ctx); }
 void ResetPopupAnimation(X86Context&, uint8_t*) { game::ResetPopupAnimation(); }
@@ -74,6 +110,64 @@ X86_EXTERN_FUNC(__imp__sub_000CF780);
 X86_FUNC(sub_000CF780) {
     game::TraceAnimEvent(ctx);
     __imp__sub_000CF780(ctx, base);
+}
+
+// the animation event scan (default 0x6FA30): MOHRS_ANIM_TRACE=<listener> logs one listener's channel each call
+X86_EXTERN_FUNC(__imp__sub_0006FA30);
+X86_FUNC(sub_0006FA30) {
+    game::TraceAnim(ctx);
+    __imp__sub_0006FA30(ctx, base);
+}
+
+// an animation channel's event table is set when it starts (0x6F9A0, from 0x6DAF0): MOHRS_ANIM_TRACE logs who starts it
+X86_EXTERN_FUNC(__imp__sub_0006F9A0);
+X86_FUNC(sub_0006F9A0) {
+    game::TraceAnimStart(ctx);
+    __imp__sub_0006F9A0(ctx, base);
+}
+
+// an animation graph's set-variable-by-name (0x6A120, vtable 0x1E2E20): MOHRS_GRAPH_TRACE logs each call
+X86_EXTERN_FUNC(__imp__sub_0006A120);
+X86_FUNC(sub_0006A120) {
+    game::TraceGraphSet(ctx);
+    __imp__sub_0006A120(ctx, base);
+}
+
+// a character's play-animation-state method (0xCE030, vtable 0x1E86A8): the same trace, with its caller
+X86_EXTERN_FUNC(__imp__sub_000CE030);
+X86_FUNC(sub_000CE030) {
+    game::TraceGraphPlay(ctx);
+    __imp__sub_000CE030(ctx, base);
+}
+
+// post a message to an object's script (0x4ADB0: target, message, argument, sender, flag): MOHRS_MESSAGE_TRACE
+X86_EXTERN_FUNC(__imp__sub_0004ADB0);
+X86_FUNC(sub_0004ADB0) {
+    game::TraceMessage(ctx);
+    __imp__sub_0004ADB0(ctx, base);
+}
+
+// the player's contact pair handler (player vtable 0x1E9100 slot +0x24): MOHRS_CONTACT_TRACE logs what it touches
+X86_EXTERN_FUNC(__imp__sub_000DEFA0);
+X86_FUNC(sub_000DEFA0) {
+    game::TraceContact(ctx);
+    __imp__sub_000DEFA0(ctx, base);
+}
+
+// the player's collision resolve (player vtable +0x28): MOHRS_STEP_TRACE logs each step near a point
+X86_EXTERN_FUNC(__imp__sub_000D8260);
+X86_FUNC(sub_000D8260) {
+    game::TraceStep(ctx, true);
+    __imp__sub_000D8260(ctx, base);
+    game::TraceStep(ctx, false);
+}
+
+// the player's movement step (player vtable +0x1C): the same trace, tagged "move"
+X86_EXTERN_FUNC(__imp__sub_000E0E50);
+X86_FUNC(sub_000E0E50) {
+    game::TraceMove(ctx, true);
+    __imp__sub_000E0E50(ctx, base);
+    game::TraceMove(ctx, false);
 }
 
 // PC Options in the options menus (src/common/options_menu.h): SetText 0x138A40, RunScript 0x138330, the menu sound

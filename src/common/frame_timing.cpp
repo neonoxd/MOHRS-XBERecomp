@@ -1,6 +1,12 @@
 #include "common/frame_timing.h"
 
+#include <algorithm>
 #include <chrono>
+#include <string>
+#include <vector>
+#include <cstdio>
+#include <cstring>
+#include <cmath>
 #include <cstdlib>
 
 #include "common/frame_clock.h"
@@ -12,11 +18,21 @@ namespace game {
 namespace {
 using Clock = std::chrono::steady_clock;
 thread_local FrameClock clock;
-thread_local TickRemainder mission, menu;
+thread_local TickRemainder mission, menu, popup_menu;
+thread_local KeyedTickRemainder brains;
 thread_local LoadingAnimationClock loading, popup;
 bool Diagnostics() {
     static bool on = std::getenv("MOHRS_TIMING") != nullptr;
     return on;
+}
+// MOHRS_TIMING=1 reports each second; a number below 1 is the report interval in seconds
+double ReportSeconds() {
+    static double s = [] {
+        const char* v = std::getenv("MOHRS_TIMING");
+        double d = v ? std::atof(v) : 1;
+        return d > 0 && d < 1 ? d : 1.0;
+    }();
+    return s;
 }
 thread_local uint32_t player_calls = 0, frames = 0;
 thread_local double player_ticks = 0, frame_ticks = 0;
@@ -34,7 +50,7 @@ void Animate(X86Context& ctx, LoadingAnimationClock& animation, const char* name
 void FrameDelta(X86Context& ctx) {
     if (!Opt().unlocked_fps) {
         clock = {};
-        mission = menu = {};
+        mission = menu = popup_menu = {};
         return;
     }
     auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
@@ -49,8 +65,106 @@ void MenuTicks(X86Context& ctx) {
     if (Opt().unlocked_fps) ctx.eax = menu.Advance(ctx.xmm[0].f[0]);
 }
 
+// the profile/save popup's own FEng package (0xF68A0 -> 0x95220), updated separately from the menu manager
+void PopupTicks(X86Context& ctx) {
+    if (Opt().unlocked_fps) ctx.eax = popup_menu.Advance(ctx.xmm[0].f[0]);
+}
+
 void MessageTicks(X86Context& ctx) {
     if (Opt().unlocked_fps) ctx.xmm[3].f[0] = ctx.xmm[2].f[0];
+}
+
+// Both apply in the 60 FPS mode too, where a slowed-down update (0xA4F30 scales the delta) also falls below one tick;
+// the original 30 FPS mode keeps its console behavior.
+void BrainTicks(X86Context& ctx) {
+    if (!Opt().unlocked_fps && !Opt().fps60) return;
+    ctx.eax = brains.Advance(ctx.ecx, kernel::G<float>(ctx.esp + 4));
+}
+
+void ThreatDecay(X86Context& ctx) {
+    if (!Opt().unlocked_fps && !Opt().fps60) return;
+    ctx.xmm[2].f[0] = PerConsoleFrame(ctx.xmm[2].f[0], kernel::G<float>(ctx.esp + 4));
+}
+
+namespace {
+thread_local uint32_t floor_world = 0;
+thread_local double script_total = 0, script_ran = 0;
+thread_local int64_t script_frames = 0;
+}
+
+namespace {
+thread_local double entity_carry = 0;
+}
+
+bool EntityStep(X86Context& ctx) {
+    if (!Opt().unlocked_fps && !Opt().fps60) {
+        entity_carry = 0;
+        return true;
+    }
+    float& dt = kernel::G<float>(ctx.esp + 4);
+    if (!(dt > 0)) return true;  // paused: the manager's own path
+    constexpr double kShortest = 1.0 / 64;  // 0x1EAA2C
+    double total = entity_carry + dt;
+    if (total < kShortest) {
+        entity_carry = total;
+        return false;
+    }
+    dt = float(total);
+    entity_carry = 0;
+    return true;
+}
+
+bool ScriptFrame(X86Context& ctx) {
+    static const bool off = std::getenv("MOHRS_SCRIPT_EVERY_FRAME") != nullptr;  // test runs: the old behavior
+    if (off || (!Opt().unlocked_fps && !Opt().fps60)) {
+        script_total = script_ran = 0;
+        script_frames = 0;
+        return true;
+    }
+    float& dt = kernel::G<float>(ctx.esp + 4);
+    script_total += std::max(0.0f, dt);
+    // console frames are two ticks; run once each time the total enters a new one, with all the time since the last run
+    auto frame = int64_t(script_total / 2);
+    if (frame <= script_frames) return false;
+    script_frames = frame;
+    dt = float(script_total - script_ran);
+    script_ran = script_total;
+    return true;
+}
+
+void FloorRayWorld(const X86Context& ctx) { floor_world = ctx.edi; }
+
+void FloorRayRetry(X86Context& ctx, const FloorRaySite& s) {
+    if (ctx.edi != 1 || !floor_world || (!Opt().unlocked_fps && !Opt().fps60)) return;
+    // a seam is narrow: the nearest offsets first, along and across the floor
+    static constexpr float kOffsets[][2] = {{0.05f, 0}, {-0.05f, 0}, {0, 0.05f},  {0, -0.05f},
+                                            {0.15f, 0}, {-0.15f, 0}, {0, 0.15f},  {0, -0.15f}};
+    uint32_t in = ctx.esp + s.input, segment = ctx.esp + s.segment, hit = ctx.esp + s.hit;
+    // the input holds the start (x y z w) and, 0x10 on, the end of the ray
+    float x = kernel::G<float>(in), y = kernel::G<float>(in + 4);
+    uint32_t ecx = ctx.ecx, cast = kernel::R32(kernel::R32(floor_world) + 0x24);
+    for (const auto& o : kOffsets) {
+        kernel::G<float>(in) = kernel::G<float>(in + 0x10) = x + o[0];
+        kernel::G<float>(in + 4) = kernel::G<float>(in + 0x14) = y + o[1];
+        ctx.ecx = segment;
+        kernel::CallGuest(ctx, s.make_segment, {in});
+        ctx.ecx = hit;
+        kernel::CallGuest(ctx, s.free_hit, {});
+        kernel::CallGuest(ctx, s.init_hit, {});
+        kernel::CallGuest(ctx, s.flag, {1});
+        ctx.ecx = floor_world;
+        uint32_t result = kernel::CallGuest(ctx, cast, {segment, hit, 0});
+        kernel::CallGuest(ctx, s.flag, {0});
+        if (result != 1) {
+            if (Diagnostics())
+                LOGR("timing: floor ray missed at %.3f %.3f, floor found %+.2f %+.2f from it", x, y, o[0], o[1]);
+            ctx.edi = result;
+            break;
+        }
+    }
+    kernel::G<float>(in) = kernel::G<float>(in + 0x10) = x;
+    kernel::G<float>(in + 4) = kernel::G<float>(in + 0x14) = y;
+    ctx.ecx = ecx;
 }
 
 // equal frames reach the wrap branch only when the scan's started flag (+0xE4) is clear: the original 30 FPS steps
@@ -72,13 +186,197 @@ void PlayerTick(float delta) {
     player_ticks += delta;
 }
 
+namespace {
+// MOHRS_ENTITY_DUMP=<seconds>[:<radius>]: once, that long after the first frame, every entity of the manager at
+// 0x270630 within radius (8) units of the player, with its vtable and first words (test runs)
+void DumpEntities(uint32_t players) {
+    // several times: MOHRS_ENTITY_DUMP=<seconds>[,<seconds>...][:<radius>]
+    static double radius = 8;
+    static std::vector<double> times = [] {
+        std::vector<double> out;
+        const char* v = std::getenv("MOHRS_ENTITY_DUMP");
+        if (!v) return out;
+        if (const char* c = std::strchr(v, ':')) radius = std::atof(c + 1);
+        for (const char* p = v; p && *p && *p != ':';) {
+            out.push_back(std::atof(p));
+            p = std::strpbrk(p, ",:");
+            if (p && *p == ',') p++;
+            else break;
+        }
+        return out;
+    }();
+    static const Clock::time_point first = Clock::now();
+    if (times.empty() || std::chrono::duration<double>(Clock::now() - first).count() < times.front()) return;
+    times.erase(times.begin());
+    uint32_t p = kernel::R32(players);
+    if (!p) return;
+    float px = kernel::G<float>(p + 0x80), py = kernel::G<float>(p + 0x84), pz = kernel::G<float>(p + 0x88);
+    LOGR("entities: player %08X at %.3f %.3f %.3f", p, px, py, pz);
+    // MOHRS_DUMP=<addr>:<bytes>[,...] (hex): raw dwords at the same moment
+    for (const char* d = std::getenv("MOHRS_DUMP"); d && *d;) {
+        char* end = nullptr;
+        uint32_t at = uint32_t(std::strtoul(d, &end, 16));
+        if (*end != ':') break;
+        uint32_t bytes = uint32_t(std::strtoul(end + 1, &end, 16));
+        for (uint32_t o = 0; o < bytes; o += 0x20) {
+            std::string words;
+            for (uint32_t w = 0; w < 0x20 && o + w < bytes; w += 4) {
+                char s[12];
+                std::snprintf(s, sizeof s, " %08X", kernel::R32(at + o + w));
+                words += s;
+            }
+            LOGR("dump %08X +%04X:%s", at, o, words.c_str());
+        }
+        d = *end == ',' ? end + 1 : nullptr;
+    }
+    for (uint32_t field : {0x44u, 0x40u, 0x3Cu}) {
+        uint32_t o = kernel::R32(p + field);
+        LOGR("player +%02X = %08X vt %08X", field, o, o ? kernel::R32(o) : 0);
+    }
+    // the player's contact lists (0x1432E0 from 0xD8260: this = player + 0x290, entries of 16 bytes)
+    for (uint32_t list : {0x04u, 0x1Cu}) {
+        uint32_t base = kernel::R32(p + 0x290 + list), n = kernel::R32(p + 0x290 + list + 8);
+        LOGR("contacts +%02X: %u at %08X", list, n, base);
+        for (uint32_t i = 0; i < n && i < 64; i++) {
+            uint32_t c = base + i * 16;
+            LOGR("  %2u: %08X %08X %08X %08X = %.4f %.4f %.4f %.4f", i, kernel::R32(c), kernel::R32(c + 4),
+                 kernel::R32(c + 8), kernel::R32(c + 12), kernel::G<float>(c), kernel::G<float>(c + 4),
+                 kernel::G<float>(c + 8), kernel::G<float>(c + 12));
+        }
+    }
+    // the entity manager's contact pairs (0xFAB00: pointer +0x138, count +0x130, 0x24 bytes, the two objects first)
+    uint32_t pairs = kernel::R32(0x270630 + 0x138), npairs = kernel::R32(0x270630 + 0x130);
+    LOGR("pairs: %u at %08X", npairs, pairs);
+    for (uint32_t i = 0; i < npairs && i < 256; i++) {
+        uint32_t q = pairs + i * 0x24;
+        uint32_t a = kernel::R32(q), b = kernel::R32(q + 4);
+        std::string words;
+        for (uint32_t w = 0; w < 0x24; w += 4) {
+            char s[12];
+            std::snprintf(s, sizeof s, " %08X", kernel::R32(q + w));
+            words += s;
+        }
+        uint32_t va = a ? kernel::R32(a) : 0, vb = b ? kernel::R32(b) : 0;
+        LOGR("  pair %u: vt %08X / %08X:%s", i, va, vb, words.c_str());
+        for (uint32_t o : {a, b}) {
+            if (!o || o == p) continue;
+            LOGR("    %08X at %.3f %.3f %.3f:", o, kernel::G<float>(o + 0x80), kernel::G<float>(o + 0x84),
+                 kernel::G<float>(o + 0x88));
+        }
+    }
+    uint32_t count = 0;
+    for (uint32_t e = kernel::R32(0x270630); e && count < 4096; e = kernel::R32(e + 0x1C), count++) {
+        float x = kernel::G<float>(e + 0x80), y = kernel::G<float>(e + 0x84), z = kernel::G<float>(e + 0x88);
+        float dx = x - px, dy = y - py, dz = z - pz;
+        float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (!(d < radius)) continue;
+        std::string words;
+        for (uint32_t i = 0; i < 0x80; i += 4) {
+            char w[12];
+            std::snprintf(w, sizeof w, " %08X", kernel::R32(e + i));
+            words += w;
+        }
+        LOGR("entity %08X vt %08X at %.3f %.3f %.3f dist %.3f:%s", e, kernel::R32(e), x, y, z, d, words.c_str());
+    }
+    LOGR("entities: %u in the list", count);
+}
+// MOHRS_WATCH=<start>-<end>:<addr>:<bytes>[,<addr>:<bytes>...] (seconds after the first frame, hex addresses): each
+// dword's changes over the window, logged once at its end: how many frames changed it, and its total change as an
+// integer and as a float. A field counted per frame changes by frames, one counted in time by elapsed time.
+void Watch(float delta) {
+    struct Range {
+        uint32_t at, bytes;
+        std::vector<uint32_t> last;
+        std::vector<uint32_t> changes;
+        std::vector<int64_t> ints;
+        std::vector<double> floats;
+    };
+    static double from = -1, to = -1;
+    static std::vector<Range> ranges = [] {
+        std::vector<Range> out;
+        const char* v = std::getenv("MOHRS_WATCH");
+        if (!v || std::sscanf(v, "%lf-%lf", &from, &to) != 2) return out;
+        const char* p = std::strchr(v, ':');
+        while (p && *p) {
+            char* end = nullptr;
+            Range r;
+            r.at = uint32_t(std::strtoul(p + 1, &end, 16));
+            if (*end != ':') break;
+            r.bytes = uint32_t(std::strtoul(end + 1, &end, 16)) & ~3u;
+            out.push_back(std::move(r));
+            p = *end == ',' ? end : nullptr;
+        }
+        return out;
+    }();
+    static const Clock::time_point first = Clock::now();
+    static uint32_t frames = 0;
+    static double ticks = 0;
+    static bool done = false;
+    if (ranges.empty() || done) return;
+    double now = std::chrono::duration<double>(Clock::now() - first).count();
+    if (now < from) return;
+    if (now > to) {
+        done = true;
+        LOGR("watch: %u frames, %.3f ticks over %.2f s", frames, ticks, to - from);
+        for (Range& r : ranges)
+            for (uint32_t i = 0; i < r.bytes / 4; i++)
+                if (r.changes.size() && r.changes[i] >= frames / 4)
+                    LOGR("watch: %08X changed %u times, int %+lld, float %+.4f, now %08X", r.at + i * 4, r.changes[i],
+                         (long long)r.ints[i], r.floats[i], r.last[i]);
+        return;
+    }
+    frames++;
+    ticks += delta;
+    // MOHRS_SERIES=<addr>:<dwords> (hex): those floats every frame of the window
+    static const std::pair<uint32_t, uint32_t> series = [] {
+        const char* v = std::getenv("MOHRS_SERIES");
+        char* end = nullptr;
+        uint32_t at = v ? uint32_t(std::strtoul(v, &end, 16)) : 0;
+        return std::pair<uint32_t, uint32_t>(at, at && *end == ':' ? uint32_t(std::strtoul(end + 1, nullptr, 16)) : 0);
+    }();
+    if (series.second) {
+        std::string values;
+        for (uint32_t i = 0; i < series.second && i < 16; i++) {
+            char s[24];
+            std::snprintf(s, sizeof s, " %.4f", kernel::G<float>(series.first + i * 4));
+            values += s;
+        }
+        LOGR("series %.4f dt %.3f:%s", now, delta, values.c_str());
+    }
+    for (Range& r : ranges) {
+        uint32_t n = r.bytes / 4;
+        if (r.last.empty()) {
+            r.last.resize(n);
+            r.changes.assign(n, 0);
+            r.ints.assign(n, 0);
+            r.floats.assign(n, 0);
+            for (uint32_t i = 0; i < n; i++) r.last[i] = kernel::R32(r.at + i * 4);
+            continue;
+        }
+        for (uint32_t i = 0; i < n; i++) {
+            uint32_t v = kernel::R32(r.at + i * 4);
+            if (v == r.last[i]) continue;
+            r.changes[i]++;
+            r.ints[i] += int64_t(int32_t(v)) - int64_t(int32_t(r.last[i]));
+            float a, b;
+            std::memcpy(&a, &v, 4);
+            std::memcpy(&b, &r.last[i], 4);
+            if (std::isfinite(a) && std::isfinite(b)) r.floats[i] += double(a) - double(b);
+            r.last[i] = v;
+        }
+    }
+}
+}  // namespace
+
 void TimingFrame(float delta, uint32_t players, uint32_t state) {
     if (!Diagnostics()) return;
+    DumpEntities(players);
+    Watch(delta);
     frames++;
     frame_ticks += delta;
     auto now = Clock::now();
     double seconds = std::chrono::duration<double>(now - report).count();
-    if (seconds < 1) return;
+    if (seconds < ReportSeconds()) return;
     uint32_t p = kernel::R32(players), save = kernel::R32(state);
     LOGR("timing: %.1f frames/s, %.3f frame ticks/s; %.1f player updates/s, %.3f player ticks/s; "
          "mission ticks %u; player %08X xyz %.3f %.3f %.3f", frames / seconds, frame_ticks / seconds,

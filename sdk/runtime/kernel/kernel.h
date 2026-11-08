@@ -17,6 +17,11 @@
 #include "cpu/x86_ops.h"
 #include "kernel/memory.h"
 
+namespace snapshot {
+class Writer;
+class Reader;
+}  // namespace snapshot
+
 namespace kernel {
 
 // NTSTATUS values the kernel hands back
@@ -114,6 +119,9 @@ struct Object {
     std::string name;
     explicit Object(ObjType t) : type(t) {}
     virtual ~Object() = default;
+    virtual uint64_t* Position() { return nullptr; }  // a file's, which a quick load puts back
+    // what opens it again in another run (a file's path), for a quick save; RebuildObject reads it back
+    virtual void Describe(snapshot::Writer&) const {}
 };
 using ObjectRef = std::shared_ptr<Object>;
 
@@ -124,6 +132,8 @@ uint32_t DuplicateHandle(uint32_t handle);
 ObjectRef FromPointer(uint32_t guest);  // dispatcher object in guest memory, created on first use
 void Bind(ObjectRef obj, uint32_t guest);
 ObjectRef FindNamed(const std::string& name);
+// a file or link opened again from its Object::Describe, in a later run; null when it cannot be (files.cpp)
+ObjectRef RebuildObject(ObjType type, snapshot::Reader& r);
 void AddNamed(const std::string& name, ObjectRef obj);
 
 // dispatcher
@@ -156,6 +166,8 @@ struct Thread : Object {
     std::deque<std::array<uint32_t, 4>> apcs;  // routine, arg1, arg2, arg3
     std::condition_variable resume_cv;
     X86Context* ctx = nullptr;
+    // what the thread waits on while inside a kernel wait (under the dispatcher lock), for a quick load to match
+    std::vector<std::shared_ptr<Object>>* waiting = nullptr;
     Thread() : Object(ObjType::Thread) {}
 };
 using ThreadRef = std::shared_ptr<Thread>;
@@ -177,6 +189,28 @@ void SuspendPoint();           // blocks the current thread while it is suspende
 bool RunApcs(Thread& t);
 void QueueApc(Thread& t, uint32_t routine, uint32_t a1, uint32_t a2, uint32_t a3);
 std::vector<ThreadRef> Threads();
+std::vector<ThreadRef> HostThreads();  // the host's threads that run guest code (StartHostThread)
+
+// Stopping the world for a quick save (core/snapshot.h). A guest thread counts as running guest code from its start,
+// except inside a kernel wait, delay or yield; a host thread counts while it calls guest code.
+void EnterGuest();  // waits while the world is stopped
+void LeaveGuest();
+// a host thread's call into guest code, held back while the world is stopped; no change on a thread already counted
+struct GuestScope {
+    bool entered;
+    GuestScope();
+    ~GuestScope();
+    GuestScope(const GuestScope&) = delete;
+    GuestScope& operator=(const GuestScope&) = delete;
+};
+// a guest thread's blocking kernel call: the world may stop until it ends, and the thread stays there till it resumes
+struct BlockScope {
+    bool left;
+    BlockScope();
+    ~BlockScope();
+    BlockScope(const BlockScope&) = delete;
+    BlockScope& operator=(const BlockScope&) = delete;
+};
 
 // files
 void MountDefaults(const std::string& game_dir, const std::string& data_dir);

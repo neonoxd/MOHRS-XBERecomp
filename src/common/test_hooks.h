@@ -35,5 +35,24 @@ void ProbePad(input::Pad& pad);
 // Development: MOHRS_EVENT_TRACE logs each animation event an entity's listener handles (default.xbe 0xCF780, thiscall
 // with the event record: opcode at +2, argument at +4), with the caller and the listener.
 void TraceAnimEvent(const X86Context& ctx);
+// Development: MOHRS_CONTACT_TRACE logs each object the player's contact pair handler (0xDEFA0, thiscall player, pair
+// at [esp+4]) sees, once per object and again when its position changes.
+void TraceContact(const X86Context& ctx);
+// Development: MOHRS_ANIM_TRACE=<event table>[,<event table>...] (hex, the event records MOHRS_EVENT_TRACE logs lie in
+// them) logs each animation channel playing one (event scan 0x6FA30, fastcall channel): time +0x38, scanned time
+// +0xE0, +0x3C..+0x48, and the channel's first words and events when it starts one.
+void TraceAnim(const X86Context& ctx);
+void TraceAnimStart(const X86Context& ctx);
+void TraceGraphSet(const X86Context& ctx);
+void TraceGraphPlay(const X86Context& ctx);
+// Development: MOHRS_NATIVE_TRACE=find logs the script owner calling native 0x303A0 (play animation state);
+// MOHRS_NATIVE_TRACE=<owner hex> logs every native that owner's script calls (0x497F3: index, function, frame time).
+void TraceNative(const X86Context& ctx);
+// Development: MOHRS_MESSAGE_TRACE logs each message posted through 0x4ADB0 with its target, sender and caller.
+void TraceMessage(const X86Context& ctx);  // 0xCE030 (thiscall character, state, arg)  // 0x6A120 (thiscall graph, name, value, ...): MOHRS_GRAPH_TRACE  // 0x6F9A0 (thiscall channel, count, table): the guest call chain
+// Development: MOHRS_STEP_TRACE="x,y,radius" logs the player's collision resolve (0xD8260, fastcall player) within
+// radius of x,y: position before and after, step dt (+0x10C8), velocities (+0x230, +0x240), result and flags.
+void TraceStep(X86Context& ctx, bool before);
+void TraceMove(X86Context& ctx, bool before);  // the movement step 0xE0E50 (thiscall player, step dt at [esp+4])
 
 }  // namespace game

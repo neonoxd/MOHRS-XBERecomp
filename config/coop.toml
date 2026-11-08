@@ -359,9 +359,42 @@ call = "MissionTicks"
 at = 0x98D94
 call = "MenuTicks"
 
+# In-game menus (post-mission screens) and the save/profile popup also truncate dt * 20 FEng units to an integer,
+# zero above 1,200 FPS: whole units with the fraction kept, after the cvttss2si, before push eax.
+[[hook]]
+at = 0x11823D
+call = "MenuTicks"
+
+# the in-game menu's modal loop (end-of-mission screens, the save prompt) passes the frame's dt * 20 the same way
+[[hook]]
+at = 0x118078
+call = "MenuTicks"
+
+[[hook]]
+at = 0xEF2F6
+call = "PopupTicks"
+
 [[hook]]
 at = 0xF3684
 call = "MessageTicks"
+
+# The player's end-of-step floor ray, default.xbe's 0xDAC19 / 0xDAC2A in 0xD104A
+[[hook]]
+at = 0xD1581
+call = "FloorRayWorld"
+
+[[hook]]
+at = 0xD1592
+call = "FloorRayRetry"
+
+# Soldier AI brain, default.xbe's 0x197C6 / 0x223A8 in 0x19050 / 0x21F50.
+[[hook]]
+at = 0x19056
+call = "BrainTicks"
+
+[[hook]]
+at = 0x21F58
+call = "ThreatDecay"
 
 # Loading medal/stars, corresponding to default.xbe's 0xFC9FD / 0xFD3DC.
 [[hook]]

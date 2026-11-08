@@ -283,10 +283,10 @@ uint64_t MemSig(uint32_t data, uint32_t total) {
     uint64_t sig = Hash(&total, sizeof(total));
     g_perf.sigs++;
     g_perf.sig_bytes += total <= kSigWholeMax ? total : kSigSamples * kSigSampleBytes;
-    if (total <= kSigWholeMax) return Hash(p, total, sig);
+    if (total <= kSigWholeMax) return FastHash(p, total, sig);
     for (uint32_t i = 0; i < kSigSamples; i++) {
         const uint8_t* sample = p + uint64_t(total - kSigSampleBytes) * i / (kSigSamples - 1);
-        sig = Hash(sample, kSigSampleBytes, sig);
+        sig = FastHash(sample, kSigSampleBytes, sig);
     }
     return sig;
 }
@@ -305,6 +305,10 @@ bool Changed(const Target& t) {
 
 // a lock alone proves nothing, reads lock too: only changed bytes mean the CPU wrote it
 bool LatchCpuWrite(Target& t) {
+    // no surface lock anywhere since the last check: skips the locked map lookup on most draws
+    uint64_t generation = SurfaceDirtyGeneration();
+    if (generation == t.checked) return false;
+    t.checked = generation;
     uint64_t e = DirtyEpoch(t.data);
     if (e <= t.epoch) return false;
     t.epoch = e;
@@ -668,6 +672,18 @@ private:
     std::unordered_map<uint64_t, ComPtr<ID3D12PipelineState>> psos_;
     std::unordered_map<uint64_t, uint32_t> samplers_;
     uint32_t smp_used_ = 0;
+    // a draw's four texture views by the resources and views that made them, so draws binding the same textures share
+    // one table. Only within a frame's descriptor ring and garbage: ResetRing drops them before either is reused.
+    struct SrvTableKey {
+        ID3D12Resource* res[4];
+        D3D12_SHADER_RESOURCE_VIEW_DESC sv[4];
+    };
+    struct SrvTable {
+        SrvTableKey key;
+        uint32_t slot;
+    };
+    std::unordered_map<uint64_t, SrvTable> srv_tables_;
+    void ResetRing() { srv_tables_.clear(); }
     std::unordered_map<uint64_t, Target> targets_;
     std::unordered_map<uint32_t, uint64_t> target_used_;  // target address to the frame it was last used
     std::unordered_map<uint64_t, Tex> textures_;  // by data address, a P8 texture's with its palette's above
@@ -923,6 +939,7 @@ void D3D12Backend::Submit(bool wait) {
         f.garbage.clear();
         f.used = 0;
         f.srv = 0;
+        ResetRing();
         cl_->Reset(f.alloc.Get(), nullptr);
         Begin();
     }
@@ -977,6 +994,7 @@ uint32_t D3D12Backend::AllocSrvSlots(uint32_t n) {
     if (f.srv + n > per) {
         LOG_FIRST(4, "d3d12: descriptor ring wrapped within a frame");
         f.srv = 0;
+        ResetRing();
     }
     uint32_t i = uint32_t(frame_ % kFrames) * per + f.srv;
     f.srv += n;
@@ -1555,7 +1573,7 @@ float D3D12Backend::RenderTargetShift(const State& s, const DrawShaders& sh) con
 }
 
 ID3D12PipelineState* D3D12Backend::EnsurePipeline(const PsoKey& k, ID3DBlob* vs, ID3DBlob* ps) {
-    uint64_t h = Hash(&k, sizeof(k));
+    uint64_t h = FastHash(&k, sizeof(k));
     auto it = psos_.find(h);
     if (it != psos_.end()) return it->second.Get();
     D3D12_INPUT_ELEMENT_DESC el[16];
@@ -1715,8 +1733,16 @@ void FillTextureView(const Tex& tx, const TextureDesc& d, D3D12_SHADER_RESOURCE_
 
 // a P8 texture's palette: its colours, their address (part of the texture's key) and their hash, all 0 without one
 struct StagePalette {
-    uint32_t colours[256] = {};
+    const uint32_t* colours = nullptr;  // 256, zero past the palette's size
     uint32_t va = 0;
+    uint64_t hash = 0;
+};
+
+// the colours last read at a palette address and their hash: a draw compares the guest's bytes with them instead of
+// copying and hashing the whole palette for every stage it binds. Render thread only; elements stay put.
+struct PaletteCopy {
+    uint32_t colours[256] = {};
+    size_t bytes = 0;
     uint64_t hash = 0;
 };
 
@@ -1730,9 +1756,18 @@ void ReadStagePalette(const State& s, int stage, const TextureDesc& d, StagePale
     uint32_t header = s.palettes[size_t(stage)];
     palette.va = mem::VirtualFromPhysical(kernel::R32(header + kPaletteData));
     uint32_t size_code = kernel::R32(header + kPaletteCommon) >> kPaletteSizeShift;
-    size_t bytes = (std::size(palette.colours) >> size_code) * sizeof(uint32_t);
-    std::memcpy(palette.colours, kernel::HostPtr(palette.va), bytes);
-    palette.hash = Hash(palette.colours, sizeof(palette.colours));
+    static std::unordered_map<uint32_t, PaletteCopy> copies;
+    PaletteCopy& c = copies[palette.va];
+    size_t bytes = (std::size(c.colours) >> size_code) * sizeof(uint32_t);
+    const void* now = kernel::HostPtr(palette.va);
+    if (c.bytes != bytes || std::memcmp(c.colours, now, bytes)) {
+        std::memset(c.colours, 0, sizeof(c.colours));
+        std::memcpy(c.colours, now, bytes);
+        c.bytes = bytes;
+        c.hash = Hash(c.colours, sizeof(c.colours));
+    }
+    palette.colours = c.colours;
+    palette.hash = c.hash;
 }
 
 // a texture in guest memory: made again when its layout changed, uploaded again when its bytes did
@@ -1903,7 +1938,7 @@ uint32_t D3D12Backend::EnsureStageSamplers(const State& s, const DrawTextures& s
     D3D12_SAMPLER_DESC sd[4];
     uint32_t aniso = app::Get().aniso;
     for (int i = 0; i < 4; i++) sd[i] = StageSampler(s, i, stages, clamp, aniso);
-    uint64_t key = Hash(sd, sizeof(sd));
+    uint64_t key = FastHash(sd, sizeof(sd));
     auto it = samplers_.find(key);
     if (it != samplers_.end()) return it->second;
     if (smp_used_ + 4 > kSamplerCount) {
@@ -2252,8 +2287,8 @@ void FillLightConstants(const State& s, const FixedKey& fk, DrawConstants& c) {
 
 void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const PsoKey& k, const DrawTextures& stages,
                                    GuestExtent size, DrawConstants& c) {
-    Alloc vc = Upload(sizeof(s.vsc), 256);
-    std::memcpy(vc.cpu, s.vsc.data(), sizeof(s.vsc));
+    Alloc vc = Upload(s.vsc.bytes(), 256);
+    std::memcpy(vc.cpu, s.vsc.data(), s.vsc.bytes());
     Alloc dc = Upload(sizeof(DrawConstants), 256);
     FillSurfaceConstants(s, size, c);
     // points: host pixels per console pixel, also keeps them off the far edge pull out of screen passes
@@ -2381,14 +2416,28 @@ bool UnitTexcoords(const Assembled& a) {
 
 // a stage without a texture gets a null view of its kind; the samplers read the views after
 void D3D12Backend::SetTextureViewsAndSamplers(const State& s, const Assembled& a, DrawTextures& stages) {
-    uint32_t slot = AllocSrvSlots(4);
+    SrvTableKey key;
+    std::memset(&key, 0, sizeof(key));
     for (int i = 0; i < 4; i++) {
         D3D12_SHADER_RESOURCE_VIEW_DESC& sv = stages.sv[i];
         if (!stages.res[i]) {
             sv.ViewDimension = NullViewDimension(stages.info[i].kind);
             sv.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
         }
-        dev_->CreateShaderResourceView(stages.res[i], &sv, Cpu(srv_heap_.Get(), slot + i, srv_inc_));
+        key.res[i] = stages.res[i];
+        std::memcpy(&key.sv[i], &sv, sizeof(sv));
+    }
+    // creating views goes through the driver: a quarter of the render thread when every draw made its own four
+    uint64_t h = FastHash(&key, sizeof(key));
+    auto it = srv_tables_.find(h);
+    uint32_t slot;
+    if (it != srv_tables_.end() && !std::memcmp(&it->second.key, &key, sizeof(key))) {
+        slot = it->second.slot;
+    } else {
+        slot = AllocSrvSlots(4);
+        for (int i = 0; i < 4; i++)
+            dev_->CreateShaderResourceView(stages.res[i], &stages.sv[i], Cpu(srv_heap_.Get(), slot + i, srv_inc_));
+        srv_tables_[h] = {key, slot};
     }
     cl_->SetGraphicsRootDescriptorTable(2, Gpu(srv_heap_.Get(), slot, srv_inc_));
     uint32_t samplers = EnsureStageSamplers(s, stages, UnitTexcoords(a));
@@ -2564,7 +2613,7 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     if (!BindStageTexturesAndTargets(s, stages)) return;
     PixelKey pk = MakePixelKey(s, stages.info);
     pk.quad = sh.quad;
-    sh.pkey = Hash(&pk, sizeof(pk));
+    sh.pkey = FastHash(&pk, sizeof(pk));
     EnsurePixelShader(pk, sh);
     if (!sh.vs_code || !sh.ps_code) return;
 
@@ -2980,6 +3029,7 @@ void D3D12Backend::ResetFrame() {
     f.garbage.clear();
     f.used = 0;
     f.srv = 0;
+    ResetRing();
     cl_->Reset(f.alloc.Get(), nullptr);
     Begin();
 }

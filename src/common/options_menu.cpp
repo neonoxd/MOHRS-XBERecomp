@@ -1,5 +1,6 @@
 #include "common/options_menu.h"
 
+#include <cstdlib>
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -296,6 +297,9 @@ void MenuScreen(X86Context& ctx, uint8_t* base, GuestFunction original) {
     uint32_t esp = ctx.esp;
     uint32_t name = R32(esp + 4);
     bool ours = EqualNoCase(kernel::ReadCString(name, 64), menu::kScreen);
+    // MOHRS_MENU_TRACE: every screen the game makes, by package name (test runs)
+    static const bool trace = std::getenv("MOHRS_MENU_TRACE") != nullptr;
+    if (trace) LOGR("menu trace: screen %s", kernel::ReadCString(name, 64).c_str());
     if (ours) W32(esp + 4, Text("HUD.fng"));
     original(ctx, base);
     if (ours) W32(esp + 4, name);

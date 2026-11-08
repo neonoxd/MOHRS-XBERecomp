@@ -588,6 +588,27 @@ uint64_t Hash(const void* p, size_t n, uint64_t h) {
     return mix(seed ^ k0, uint64_t(n) ^ k1);
 }
 
+uint64_t FastHash(const void* p, size_t n, uint64_t h) {
+    // Hash's chain waits on each multiply: four chains of 16 bytes run side by side, the tail goes through Hash
+    constexpr uint64_t k0 = 0x9E3779B97F4A7C15ull, k1 = 0xE7037ED1A0B428DBull, k2 = 0x8EBC6AF09C88C6E3ull,
+                       k3 = 0x589965CC75374CC3ull;
+    auto mix = [](uint64_t a, uint64_t b) {
+        unsigned __int128 r = static_cast<unsigned __int128>(a) * b;
+        return uint64_t(r) ^ uint64_t(r >> 64);
+    };
+    const uint8_t* b = static_cast<const uint8_t*>(p);
+    if (n < 64) return Hash(p, n, h);
+    uint64_t s[4] = {h ^ k0, h ^ k1, h ^ k2, h ^ k3};
+    size_t i = 0;
+    for (; i + 64 <= n; i += 64) {
+        uint64_t x[8];
+        std::memcpy(x, b + i, 64);
+        for (int l = 0; l < 4; l++) s[l] = mix(x[2 * l] ^ k1, x[2 * l + 1] ^ s[l]) ^ (s[l] << 29 | s[l] >> 35);
+    }
+    uint64_t seed = mix(s[0] ^ k2, s[1] ^ k3) ^ mix(s[2] ^ k0, s[3] ^ k1);
+    return Hash(b + i, n - i, seed ^ uint64_t(n));
+}
+
 namespace {
 
 // D3DTOP and D3DTA values PixelKey::ff holds

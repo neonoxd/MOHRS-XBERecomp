@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "core/log.h"
+#include "core/snapshot.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -199,6 +200,27 @@ public:
         return n;
     }
 
+    void Write(snapshot::Writer& w) const {
+        for (const auto* m : {&free_, &used_}) {
+            w.Pod(uint64_t(m->size()));
+            for (auto& [a, n] : *m) {
+                w.Pod(a);
+                w.Pod(n);
+            }
+        }
+    }
+
+    void Read(snapshot::Reader& r) {
+        for (auto* m : {&free_, &used_}) {
+            m->clear();
+            uint64_t count = r.Pod<uint64_t>();
+            for (uint64_t i = 0; i < count && r.ok; i++) {
+                uint32_t a = r.Pod<uint32_t>();
+                (*m)[a] = r.Pod<uint32_t>();
+            }
+        }
+    }
+
 private:
     void Take(uint32_t a, uint32_t size) {
         Remove(a, size);
@@ -224,7 +246,7 @@ static void EnsureRanges() {
     if (g_ranges_ready) return;
     g_ranges_ready = true;
     g_contig.Init(kContiguousBase + kKernelDataSize, kPhysicalSize - kKernelDataSize);
-    g_system.Init(kSystemBase, kSystemSize);
+    g_system.Init(kSystemBase, kSystemSize - kThreadBlocksSize);
     g_stacks.Init(kStackBase, kStackSize);
     g_user.Init(kUserLow, kUserHigh - kUserLow);
     Commit(kKernelDataBase, kKernelDataSize);
@@ -371,10 +393,19 @@ uint32_t AllocSystem(uint32_t size, uint32_t align) {
     EnsureRanges();
     size = (size + 15) & ~15u;
     if (!size) size = 16;
-    uint32_t a = g_system.Alloc(size, std::max<uint32_t>(align, 16), kSystemBase, kSystemBase + kSystemSize - 1, false);
+    uint32_t a = g_system.Alloc(size, std::max<uint32_t>(align, 16), kSystemBase, kThreadBlocks - 1, false);
     if (!a) return 0;
     Commit(a, size);
     std::memset(g_base + a, 0, size);
+    return a;
+}
+
+uint32_t AllocThreadBlocks(uint32_t index) {
+    if (index >= kThreadBlocksSize / kThreadBlockSize) return 0;
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    uint32_t a = kThreadBlocks + index * kThreadBlockSize;
+    if (!Commit(a, kThreadBlockSize)) return 0;
+    std::memset(g_base + a, 0, kThreadBlockSize);
     return a;
 }
 
@@ -435,6 +466,179 @@ Stats Query() {
     s.system_used = uint32_t(g_system.Used() / kPage);
     uint64_t used = vc + s.contiguous_used + s.system_used;
     s.available_pages = used >= s.total_pages ? 0 : uint32_t(s.total_pages - used);
+    return s;
+}
+
+// quick save (core/snapshot.h)
+
+namespace {
+
+std::vector<snapshot::Range> g_kept;
+
+struct SavedMemory : snapshot::Part {
+    std::vector<uint8_t> committed;
+    Ranges contig, system, stacks, user;
+    std::map<uint32_t, uint32_t> stack_tops;
+    std::map<uint32_t, Reservation> reserved;
+    std::vector<snapshot::Range> runs;  // the committed runs in bytes, physical memory first
+    std::vector<uint8_t> bytes;
+    std::vector<snapshot::Range> kept;  // the host's own memory when saved
+
+    bool Prepare(const snapshot::RestoreInfo&, std::string& why) override {
+        // the host's own memory stays where it is: the save's allocators must have it in the same place
+        if (KeptOnRestore() != kept) {
+            why = "the host's own guest memory is elsewhere in this run";
+            return false;
+        }
+        return true;
+    }
+
+    void Write(snapshot::Writer& w) const override {
+        w.Vec(committed);
+        for (const Ranges* r : {&contig, &system, &stacks, &user}) r->Write(w);
+        w.Pod(uint64_t(stack_tops.size()));
+        for (auto& [top, a] : stack_tops) {
+            w.Pod(top);
+            w.Pod(a);
+        }
+        w.Pod(uint64_t(reserved.size()));
+        for (auto& [a, res] : reserved) {
+            w.Pod(a);
+            w.Pod(res.size);
+            w.Pod(res.protect);
+            w.Vec(res.commit);
+        }
+        w.Vec(kept);
+        w.Vec(runs);
+        // page by page, a zero page as its flag alone
+        static const uint8_t zero[kPage] = {};
+        for (size_t at = 0; at < bytes.size(); at += kPage) {
+            bool empty = std::memcmp(bytes.data() + at, zero, kPage) == 0;
+            w.Pod(uint8_t(empty ? 0 : 1));
+            if (!empty) w.Bytes(bytes.data() + at, kPage);
+        }
+    }
+
+    void Restore(const snapshot::RestoreInfo& info) override {
+        std::lock_guard<std::recursive_mutex> lock(g_lock);
+        // the pages the save had committed and no others
+        for (uint32_t page = 0; page < 0x100000;) {
+            uint8_t want = committed[page];
+            if (want == g_committed[page]) {
+                page++;
+                continue;
+            }
+            uint32_t first = page;
+            while (page < 0x100000 && committed[page] == want && g_committed[page] != want) page++;
+            if (want) Commit(first << 12, (page - first) << 12);
+            else Decommit(first << 12, (page - first) << 12);
+        }
+        g_contig = contig;
+        g_system = system;
+        g_stacks = stacks;
+        g_user = user;
+        g_stack_tops = stack_tops;
+        g_reserved = reserved;
+        size_t at = 0;
+        for (const snapshot::Range& run : runs) {
+            const uint8_t* from = bytes.data() + at;
+            at += run.size;
+            uint32_t va = run.va, end = run.va + run.size;
+            while (va < end) {
+                // past a kept range over va, else copy up to the next one
+                uint64_t past = va, next = end;
+                for (const snapshot::Range& k : info.keep) {
+                    uint64_t ke = uint64_t(k.va) + k.size;
+                    if (ke <= va) continue;
+                    if (k.va <= va) past = std::max<uint64_t>(past, std::min<uint64_t>(ke, end));
+                    else next = std::min<uint64_t>(next, k.va);
+                }
+                if (past > va) {
+                    va = uint32_t(past);
+                    continue;
+                }
+                std::memcpy(g_base + va, from + (va - run.va), size_t(next - va));
+                va = uint32_t(next);
+            }
+        }
+    }
+};
+
+}  // namespace
+
+void KeepOnRestore(uint32_t va, uint32_t size) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    g_kept.push_back({va, size});
+}
+
+std::vector<snapshot::Range> KeptOnRestore() {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    return g_kept;
+}
+
+snapshot::PartRef ReadMemory(snapshot::Reader& r) {
+    auto s = std::make_unique<SavedMemory>();
+    r.Vec(s->committed);
+    if (s->committed.size() != g_committed.size()) r.ok = false;
+    for (Ranges* x : {&s->contig, &s->system, &s->stacks, &s->user}) x->Read(r);
+    uint64_t n = r.Pod<uint64_t>();
+    for (uint64_t i = 0; i < n && r.ok; i++) {
+        uint32_t top = r.Pod<uint32_t>();
+        s->stack_tops[top] = r.Pod<uint32_t>();
+    }
+    n = r.Pod<uint64_t>();
+    for (uint64_t i = 0; i < n && r.ok; i++) {
+        uint32_t a = r.Pod<uint32_t>();
+        Reservation res;
+        r.Pod(res.size);
+        r.Pod(res.protect);
+        r.Vec(res.commit);
+        s->reserved[a] = std::move(res);
+    }
+    r.Vec(s->kept);
+    r.Vec(s->runs);
+    size_t total = 0;
+    for (const snapshot::Range& run : s->runs) total += run.size;
+    if (!r.ok || total % kPage || total > (size_t(1) << 32)) {
+        r.ok = false;
+        return nullptr;
+    }
+    s->bytes.assign(total, 0);
+    for (size_t at = 0; at < total && r.ok; at += kPage)
+        if (r.Pod<uint8_t>()) r.Bytes(s->bytes.data() + at, kPage);
+    if (!r.ok) return nullptr;
+    return s;
+}
+
+snapshot::PartRef SaveMemory() {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    auto s = std::make_unique<SavedMemory>();
+    s->kept = g_kept;
+    s->committed = g_committed;
+    s->contig = g_contig;
+    s->system = g_system;
+    s->stacks = g_stacks;
+    s->user = g_user;
+    s->stack_tops = g_stack_tops;
+    s->reserved = g_reserved;
+    s->runs.push_back({kContiguousBase, kPhysicalSize});  // the write combined view shows the same memory
+    for (uint32_t page = 0; page < 0x100000;) {
+        if (!g_committed[page]) {
+            page++;
+            continue;
+        }
+        uint32_t first = page;
+        while (page < 0x100000 && g_committed[page]) page++;
+        s->runs.push_back({first << 12, (page - first) << 12});
+    }
+    size_t total = 0;
+    for (const snapshot::Range& run : s->runs) total += run.size;
+    s->bytes.resize(total);
+    size_t at = 0;
+    for (const snapshot::Range& run : s->runs) {
+        std::memcpy(s->bytes.data() + at, g_base + run.va, run.size);
+        at += run.size;
+    }
     return s;
 }
 

@@ -24,6 +24,7 @@
 
 #include "core/diag.h"
 #include "core/log.h"
+#include "core/snapshot.h"
 #include "gpu/backend.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
@@ -61,7 +62,7 @@ struct Batch {
 };
 
 // the plain data in State, around its shader pointers and the resource headers (sent as copies); of the transforms only
-// view, projection, texture and world are drawn with
+// view, projection, texture and world are drawn with. simple and vsc, the biggest, go by their Tracked marks instead.
 struct Range {
     size_t off, len;
 };
@@ -69,9 +70,9 @@ size_t At(const State& s, const void* p) { return size_t(static_cast<const uint8
 std::vector<Range> StateRanges() {
     static const State s;
     return {
-        {At(s, &s.simple), At(s, &s.textures) - At(s, &s.simple)},
+        {At(s, &s.rs), At(s, &s.textures) - At(s, &s.rs)},
         {At(s, &s.index_buffer), At(s, &s.vs) - At(s, &s.index_buffer)},
-        {At(s, &s.vsc), At(s, &s.rt) - At(s, &s.vsc)},
+        {At(s, &s.psc), At(s, &s.rt) - At(s, &s.psc)},
         {At(s, &s.scissor_count), At(s, &s.transforms) - At(s, &s.scissor_count)},
         {At(s, &s.transforms[2]), 2 * sizeof(s.transforms[0])},
         {At(s, &s.transforms[16]), 4 * sizeof(s.transforms[0])},
@@ -99,6 +100,8 @@ class Threaded final : public Backend {
 public:
     explicit Threaded(std::unique_ptr<Backend> inner) : inner_(std::move(inner)), ranges_(StateRanges()) {
         ring_ = mem::AllocSystem(kHeaderRing, 64);
+        // the copies are the host's: a quick load leaves them as the header cache knows them
+        if (ring_) mem::KeepOnRestore(ring_, kHeaderRing);
         cur_ = NewBatch();
         std::thread([this] { Run(); }).detach();
     }
@@ -285,7 +288,7 @@ private:
         const uint32_t type = kernel::R32(header) & 0x70000;  // 0 vertex, 0x10000 index, 0x30000 palette
         uint8_t now[kHeaderBytes] = {};
         std::memcpy(now, kernel::HostPtr(header), type < 0x20000 || type == 0x30000 ? 12 : kHeaderBytes);
-        Recent<HeaderCopy>& r = recent_headers_[(header >> 3) & 63];
+        Recent<HeaderCopy>& r = recent_headers_[RecentSlot(header)];
         HeaderCopy& c = r.key == header ? *r.value : headers_[header];
         r = {header, &c};
         if (c.made && !std::memcmp(c.bytes, now, kHeaderBytes) && ring_pos_ - c.made < kHeaderRing / 2) return c.at;
@@ -315,6 +318,16 @@ private:
         for (const Range& r : ranges_)
             for (size_t off = r.off, end = r.off + r.len; off < end; off += 64)
                 Delta(reinterpret_cast<const uint8_t*>(&sent_) + off, now + off, std::min<size_t>(64, end - off));
+        auto marked = [&](const auto& now_array, const auto& sent_array) {
+            now_array.TakeMarked([&](size_t i, size_t n) {
+                const uint8_t* from = reinterpret_cast<const uint8_t*>(&now_array[i]);
+                const uint8_t* to = reinterpret_cast<const uint8_t*>(&sent_array[i]);
+                size_t bytes = n * sizeof(now_array[0]);
+                for (size_t off = 0; off < bytes; off += 64) Delta(to + off, from + off, std::min<size_t>(64, bytes - off));
+            });
+        };
+        marked(s.simple, sent_.simple);
+        marked(s.vsc, sent_.vsc);
         std::array<uint32_t, 4> textures;
         for (size_t i = 0; i < 4; i++) textures[i] = Header(s.textures[i]);
         Delta(&sent_.textures, &textures, sizeof(textures));
@@ -348,7 +361,7 @@ private:
     // resources by guest header: the batch that last read them
     void Use(uint32_t header) {
         if (!header) return;
-        Recent<uint64_t>& r = recent_uses_[(header >> 3) & 63];
+        Recent<uint64_t>& r = recent_uses_[RecentSlot(header)];
         if (r.key != header) r = {header, &last_use_[header]};
         *r.value = cur_->id;
     }
@@ -462,8 +475,11 @@ private:
         uint32_t key = 0;
         T* value = nullptr;
     };
-    std::array<Recent<HeaderCopy>, 64> recent_headers_{};
-    std::array<Recent<uint64_t>, 64> recent_uses_{};
+    // a frame binds a few hundred headers: enough slots that they rarely evict each other
+    static constexpr uint32_t kRecentBits = 10;
+    static uint32_t RecentSlot(uint32_t header) { return (header * 0x9E3779B1u) >> (32 - kRecentBits); }
+    std::array<Recent<HeaderCopy>, 1u << kRecentBits> recent_headers_{};
+    std::array<Recent<uint64_t>, 1u << kRecentBits> recent_uses_{};
     uint32_t ring_ = 0;
     uint64_t ring_pos_ = 0;
     Batch* cur_ = nullptr;

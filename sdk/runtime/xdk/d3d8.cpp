@@ -10,6 +10,7 @@
 
 #include "app/app.h"
 #include "core/diag.h"
+#include "core/snapshot.h"
 #include "gpu/backend.h"
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
@@ -115,6 +116,9 @@ uint32_t g_buffer_count = 2;
 uint32_t g_depth = 0;
 uint32_t g_scratch_push = 0, g_scratch_size = 0;
 uint32_t g_walk = 0;  // first scratch command not read yet
+// the host's own guest memory, kept here for a quick load to put back (core/snapshot.h)
+uint32_t g_vblank_info = 0;  // what VerticalBlank hands the title's callback
+std::array<uint32_t, 4> g_switch_headers{};  // SwitchTexture's header for each stage
 
 uint32_t Dev(uint32_t off) { return R32(kDevice + off); }
 void SetDev(uint32_t off, uint32_t v) { W32(kDevice + off, v); }
@@ -212,8 +216,8 @@ void UpdateViewportConstants() {
     g_state.zscale = ZScale(g_state.zs);
     float hw = v.w * 0.5f, hh = v.h * 0.5f;
     if (!g_own_constants) {
-        g_state.vsc[58] = {hw, -hh, (v.max_z - v.min_z) * g_state.zscale, 0};
-        g_state.vsc[59] = {v.x + g_state.ss_offset_x + hw, v.y + g_state.ss_offset_y + hh, v.min_z * g_state.zscale, 0};
+        g_state.vsc.set(58, {hw, -hh, (v.max_z - v.min_z) * g_state.zscale, 0});
+        g_state.vsc.set(59, {v.x + g_state.ss_offset_x + hw, v.y + g_state.ss_offset_y + hh, v.min_z * g_state.zscale, 0});
     }
     // the viewport as the library's SetViewport stores it, for inlined readers
     if (XDK_CDevice_Viewport != xdk::kUnknown) {
@@ -293,17 +297,19 @@ constexpr bool kVBlank = XDK_CDevice_VBlankCount != xdk::kUnknown && XDK_CDevice
 // what the library's vertical blank interrupt leaves for the title: count, event, callback
 void VerticalBlank(X86Context& ctx) {
     using clock = std::chrono::steady_clock;
-    uint32_t info = mem::AllocSystem(12), shown = 0;
+    uint32_t shown = 0;
     auto next = clock::now();
     for (;;) {
         next = std::max(next + std::chrono::microseconds(16667), clock::now());
         std::this_thread::sleep_until(next);
+        GuestScope guest;  // held while the world is stopped (core/snapshot.h)
         uint32_t count = Dev(XDK_CDevice_VBlankCount) + 1, swaps = Dev(kDevSwapCount);
         SetDev(XDK_CDevice_VBlankCount, count);
         ObjectRef event = FromPointer(kDevice + XDK_CDevice_VBlankEvent);
         SetEvent(*event);
         if (uint32_t callback = Dev(XDK_CDevice_VBlankCallback)) {
             // blank count, swaps shown, 1 when this blank showed one
+            uint32_t info = g_vblank_info;
             W32(info, count);
             W32(info + 4, swaps);
             W32(info + 8, swaps != shown);
@@ -359,6 +365,8 @@ HLE_STDCALL(Direct3D_CreateDevice, 6) {
         SetDev(XDK_CDevice_VBlankEvent, 0x00040000);
         SetDev(XDK_CDevice_VBlankEvent + 4, 1);
         static bool started = false;
+        // made here, on the title's thread: at the same place in every run
+        if (!g_vblank_info) g_vblank_info = mem::AllocSystem(12);
         if (!started) StartHostThread("vertical blank", VerticalBlank);
         started = true;
     }
@@ -667,7 +675,7 @@ HLE_STDCALL(D3DDevice_SetScreenSpaceOffset, 2) {
 
 HLE_FASTCALL(D3DDevice_SetRenderState_Simple, 0) {
     uint32_t method = a[0] & 0x1FFC, value = a[1];
-    g_state.simple[method >> 2] = value;
+    g_state.simple.set(method >> 2, value);
     return 0;
 }
 
@@ -675,7 +683,7 @@ HLE_STDCALL(D3DDevice_SetRenderStateNotInline, 2) {
     uint32_t rs = a[0], v = a[1];
     if (rs < gpu::kRsDeferredFirst) {
         uint32_t method = R32(kSimpleEncode + rs * 4) & 0x1FFC;
-        g_state.simple[method >> 2] = v;
+        g_state.simple.set(method >> 2, v);
         W32(kRenderState + rs * 4, v);  // titles read their states back from the library's table
     } else if (rs < gpu::kRsMax) {
         SetComplex(rs, v);
@@ -807,10 +815,9 @@ HLE_STDCALL(D3DDevice_SetPalette, 2) {
 // bound through a header of the stage's own holding the bound texture's fields with the new data and format.
 HLE_FASTCALL(D3DDevice_SwitchTexture, 1) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
-    static uint32_t headers[4];
     // texture methods from 0x1B00, 0x40 per stage
     uint32_t stage = (((a[0] & 0x1FFC) - 0x1B00) >> 6) & 3, cur = g_state.textures[stage];
-    uint32_t& h = headers[stage];
+    uint32_t& h = g_switch_headers[stage];
     if (!h) h = mem::AllocSystem(20);
     if (cur && cur != h) std::memcpy(HostPtr(h), HostPtr(cur), 20);
     W32(h + 4, a[1]);
@@ -911,7 +918,7 @@ HLE_STDCALL(D3DDevice_SetVertexShader, 1) {
             g_state.vs = it->second;
             // constants declared with the shader load when it is selected
             for (auto& [reg, v] : it->second->constants)
-                if (reg < 192) g_state.vsc[reg] = v;
+                if (reg < 192) g_state.vsc.set(reg, v);
         } else {
             LOG_FIRST(8, "d3d: SetVertexShader with unknown handle %08X", h);
         }
@@ -921,25 +928,25 @@ HLE_STDCALL(D3DDevice_SetVertexShader, 1) {
 
 HLE_FASTCALL(D3DDevice_SetVertexShaderConstant1Fast, 0) {
     uint32_t reg = a[0];
-    if (reg < 192) std::memcpy(g_state.vsc[reg].data(), HostPtr(a[1]), 16);
+    if (reg < 192) std::memcpy(g_state.vsc.edit(reg).data(), HostPtr(a[1]), 16);
     return 0;
 }
 
 HLE_FASTCALL(D3DDevice_SetVertexShaderConstant1, 0) {
     uint32_t reg = a[0];
-    if (reg < 192) std::memcpy(g_state.vsc[reg].data(), HostPtr(a[1]), 16);
+    if (reg < 192) std::memcpy(g_state.vsc.edit(reg).data(), HostPtr(a[1]), 16);
     return 0;
 }
 
 HLE_FASTCALL(D3DDevice_SetVertexShaderConstant4, 0) {
     uint32_t reg = a[0], src = a[1];
-    for (uint32_t i = 0; i < 4 && reg + i < 192; i++) std::memcpy(g_state.vsc[reg + i].data(), HostPtr(src + i * 16), 16);
+    for (uint32_t i = 0; i < 4 && reg + i < 192; i++) std::memcpy(g_state.vsc.edit(reg + i).data(), HostPtr(src + i * 16), 16);
     return 0;
 }
 
 HLE_FASTCALL(D3DDevice_SetVertexShaderConstantNotInlineFast, 1) {
     uint32_t reg = a[0], src = a[1], dwords = a[2];
-    for (uint32_t i = 0; i < dwords / 4 && reg + i < 192; i++) std::memcpy(g_state.vsc[reg + i].data(), HostPtr(src + i * 16), 16);
+    for (uint32_t i = 0; i < dwords / 4 && reg + i < 192; i++) std::memcpy(g_state.vsc.edit(reg + i).data(), HostPtr(src + i * 16), 16);
     return 0;
 }
 
@@ -1120,7 +1127,7 @@ HLE_STDCALL(D3DDevice_SetPixelShader, 1) {
     }
     // the definition loads the combiner state like the XDK pushes it
     const uint32_t* d = g_state.ps->def;
-    auto put = [&](uint32_t method, uint32_t v) { g_state.simple[method >> 2] = v; };
+    auto put = [&](uint32_t method, uint32_t v) { g_state.simple.set(method >> 2, v); };
     for (int i = 0; i < 8; i++) {
         put(gpu::kMPsAlphaInputs + i * 4, d[0 + i]);
         put(gpu::kMPsConstant0 + i * 4, d[10 + i]);
@@ -1227,7 +1234,7 @@ std::vector<float> g_im_vertices;       // every slot per vertex
 // at a physical address in the first 16 MB
 void ApplyVisibilityMethod(uint32_t m, uint32_t v) {
     constexpr uint32_t kReportAddressMask = 0xFFFFFF;
-    if (m == gpu::kMCountEnable) g_state.simple[gpu::kMCountEnable >> 2] = v;
+    if (m == gpu::kMCountEnable) g_state.simple.set(gpu::kMCountEnable >> 2, v);
     if (!g_backend) return;
     if (m == gpu::kMClearReport) g_backend->ClearReport();
     if (m == gpu::kMGetReport) g_backend->GetReport(mem::VirtualFromPhysical(v & kReportAddressMask));
@@ -1333,7 +1340,7 @@ bool ApplyConstant(uint32_t m, uint32_t v) {
     }
     if (m < kConstantData || m >= kConstantDataEnd) return false;
     if (g_constant_register < kConstantRegisters) {
-        std::memcpy(&g_state.vsc[g_constant_register][g_constant_component], &v, 4);
+        std::memcpy(&g_state.vsc.edit(g_constant_register)[g_constant_component], &v, 4);
     }
     if (++g_constant_component == 4) {
         g_constant_component = 0;
@@ -1414,7 +1421,7 @@ static void RunCommands(uint32_t begin, uint32_t end) {
             } else if ((m >= kArrayOffsets && m < kArrayFormatsEnd) || (m >= kArrayDraws && m < kInlineArray)) {
                 LOG_FIRST(16, "d3d: pushed commands draw from vertex arrays (method %04X), which is not run", m);
             } else if (!ApplyConstant(m, v) && !ApplyImmediate(m, v) && m >> 2 < g_state.simple.size()) {
-                g_state.simple[m >> 2] = v;
+                g_state.simple.set(m >> 2, v);
             }
         }
     }
@@ -1492,4 +1499,270 @@ HLE_STDCALL(D3DDevice_End, 0) {
     EndPrimitive();
     SetDev(XDK_CDevice_Flags, Dev(XDK_CDevice_Flags) & ~0x1800u);
     return 0;
+}
+
+// quick save (core/snapshot.h): the device's host state, taken and put back at a frame's start with the world stopped
+
+namespace {
+
+using VsRef = std::shared_ptr<gpu::VertexShader>;
+using PsRef = std::shared_ptr<gpu::PixelShader>;
+
+// State's plain fields, the same list writing and reading; the tracked arrays and shaders go apart
+template <typename IO>
+void StateFields(IO& io, gpu::State& s) {
+    io.Pod(s.rs);
+    io.Pod(s.tss);
+    io.Pod(s.textures);
+    io.Pod(s.palettes);
+    io.Pod(s.streams);
+    io.Pod(s.index_buffer);
+    io.Pod(s.index_data);
+    io.Pod(s.base_vertex);
+    io.Pod(s.vs_handle);
+    io.Pod(s.psc);
+    io.Pod(s.viewport);
+    io.Pod(s.rt);
+    io.Pod(s.zs);
+    io.Pod(s.scissor_count);
+    io.Pod(s.scissors);
+    io.Pod(s.transforms);
+    io.Pod(s.material);
+    io.Pod(s.lights);
+    io.Pod(s.light_enable);
+    io.Pod(s.ss_offset_x);
+    io.Pod(s.ss_offset_y);
+    io.Pod(s.zscale);
+}
+
+struct VsConstant {
+    uint32_t reg;
+    std::array<float, 4> v;
+};
+
+void WriteShader(snapshot::Writer& w, const gpu::VertexShader& vs) {
+    w.Pod(vs.handle);
+    w.Vec(vs.decl);
+    w.Vec(vs.program);
+    w.Pod(vs.program_type);
+    w.Pod(vs.hash);
+    w.Pod(vs.inputs);
+    w.Pod(vs.stream_stride);
+    std::vector<VsConstant> c;
+    for (auto& [reg, v] : vs.constants) c.push_back({reg, v});
+    w.Vec(c);
+}
+
+VsRef ReadShader(snapshot::Reader& r) {
+    auto vs = std::make_shared<gpu::VertexShader>();
+    r.Pod(vs->handle);
+    r.Vec(vs->decl);
+    r.Vec(vs->program);
+    r.Pod(vs->program_type);
+    r.Pod(vs->hash);
+    r.Pod(vs->inputs);
+    r.Pod(vs->stream_stride);
+    std::vector<VsConstant> c;
+    r.Vec(c);
+    for (const VsConstant& k : c) vs->constants.push_back({k.reg, k.v});
+    return vs;
+}
+
+// shared objects written once each, by their place in a list (0 for none)
+template <typename T>
+struct Pool {
+    std::vector<std::shared_ptr<T>> list;
+    std::unordered_map<const T*, uint32_t> index;
+    uint32_t Add(const std::shared_ptr<T>& p) {
+        if (!p) return 0;
+        auto [it, fresh] = index.emplace(p.get(), uint32_t(list.size() + 1));
+        if (fresh) list.push_back(p);
+        return it->second;
+    }
+};
+
+struct SavedDevice : snapshot::Part {
+    gpu::State state;
+    std::unordered_map<uint32_t, VsRef> vs;
+    std::unordered_map<uint32_t, PsRef> ps;
+    std::array<uint32_t, 3> buffers{};
+    uint32_t buffer_count = 0, depth = 0, scratch_push = 0, scratch_size = 0, walk = 0;
+    bool own_constants = false;
+    std::array<uint32_t, kProgramSlots * kInstructionDwords> program_memory{};
+    std::map<uint64_t, VsRef> selected;
+    uint32_t push_begin = 0, im_prim = 0, im_mask = 0, constant_register = 0, constant_component = 0;
+    // the host's own guest memory the device made as it went: put back where the save's allocators have it
+    uint32_t vblank_info = 0, up_ring = 0, up_pos = 0, up_header = 0;
+    std::array<uint32_t, 4> switch_headers{};
+
+    void Restore(const snapshot::RestoreInfo&) override {
+        std::lock_guard<std::recursive_mutex> lock(g_lock);
+        g_state = state;
+        // the renderer's copy is sent every array again, as at device creation
+        g_state.simple.MarkAll();
+        g_state.vsc.MarkAll();
+        g_vs = vs;
+        g_ps = ps;
+        g_buffers = buffers;
+        g_buffer_count = buffer_count;
+        g_depth = depth;
+        g_scratch_push = scratch_push;
+        g_scratch_size = scratch_size;
+        g_walk = walk;
+        g_own_constants = own_constants;
+        g_program_memory = program_memory;
+        g_selected = selected;
+        g_push_begin = push_begin;
+        g_im_prim = im_prim;
+        g_im_mask = im_mask;
+        g_im_vertices.clear();
+        g_constant_register = constant_register;
+        g_constant_component = constant_component;
+        if (vblank_info) g_vblank_info = vblank_info;
+        g_up_ring = up_ring;
+        g_up_pos = up_pos;
+        g_up_header = up_header;
+        g_up_fence[0] = g_up_fence[1] = 0;  // drained: nothing reads the ring
+        g_switch_headers = switch_headers;
+        // textures and surfaces are compared with the bytes put back, whatever their locks said
+        gpu::MarkAllDirty();
+    }
+
+    void Write(snapshot::Writer& w) const override {
+        w.Pod(uint32_t(sizeof(gpu::State)));
+        Pool<gpu::VertexShader> vss;
+        Pool<gpu::PixelShader> pss;
+        uint32_t state_vs = vss.Add(state.vs), state_ps = pss.Add(state.ps);
+        std::vector<std::array<uint32_t, 2>> vs_by_handle, ps_by_handle;
+        for (auto& [h, p] : vs) vs_by_handle.push_back({h, vss.Add(p)});
+        for (auto& [h, p] : ps) ps_by_handle.push_back({h, pss.Add(p)});
+        std::vector<std::pair<uint64_t, uint32_t>> sel;
+        for (auto& [k, p] : selected) sel.push_back({k, vss.Add(p)});
+        w.Pod(uint64_t(vss.list.size()));
+        for (const VsRef& p : vss.list) WriteShader(w, *p);
+        w.Pod(uint64_t(pss.list.size()));
+        for (const PsRef& p : pss.list) w.Pod(*p);
+        w.Vec(vs_by_handle);
+        w.Vec(ps_by_handle);
+        w.Pod(uint64_t(sel.size()));
+        for (auto& [k, i] : sel) {
+            w.Pod(k);
+            w.Pod(i);
+        }
+        gpu::State& s = const_cast<gpu::State&>(state);
+        StateFields(w, s);
+        w.Bytes(state.simple.data(), state.simple.bytes());
+        w.Bytes(state.vsc.data(), state.vsc.bytes());
+        w.Pod(state_vs);
+        w.Pod(state_ps);
+        w.Pod(buffers);
+        w.Pod(buffer_count);
+        w.Pod(depth);
+        w.Pod(scratch_push);
+        w.Pod(scratch_size);
+        w.Pod(walk);
+        w.Pod(uint8_t(own_constants));
+        w.Pod(program_memory);
+        w.Pod(push_begin);
+        w.Pod(im_prim);
+        w.Pod(im_mask);
+        w.Pod(constant_register);
+        w.Pod(constant_component);
+        w.Pod(vblank_info);
+        w.Pod(up_ring);
+        w.Pod(up_pos);
+        w.Pod(up_header);
+        w.Pod(switch_headers);
+    }
+};
+
+}  // namespace
+
+void d3d::Drain() {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    if (g_backend) g_backend->Flush();
+}
+
+snapshot::PartRef d3d::ReadDevice(snapshot::Reader& r) {
+    auto s = std::make_unique<SavedDevice>();
+    r.Expect(uint32_t(sizeof(gpu::State)));
+    std::vector<VsRef> vss;
+    std::vector<PsRef> pss;
+    uint64_t n = r.Pod<uint64_t>();
+    for (uint64_t i = 0; i < n && r.ok && i < 65536; i++) vss.push_back(ReadShader(r));
+    n = r.Pod<uint64_t>();
+    for (uint64_t i = 0; i < n && r.ok && i < 65536; i++) {
+        auto p = std::make_shared<gpu::PixelShader>();
+        r.Pod(*p);
+        pss.push_back(p);
+    }
+    auto vs_at = [&](uint32_t i) { return i && i <= vss.size() ? vss[i - 1] : nullptr; };
+    auto ps_at = [&](uint32_t i) { return i && i <= pss.size() ? pss[i - 1] : nullptr; };
+    std::vector<std::array<uint32_t, 2>> vs_by_handle, ps_by_handle;
+    r.Vec(vs_by_handle);
+    r.Vec(ps_by_handle);
+    for (auto& [h, i] : vs_by_handle) s->vs[h] = vs_at(i);
+    for (auto& [h, i] : ps_by_handle) s->ps[h] = ps_at(i);
+    n = r.Pod<uint64_t>();
+    for (uint64_t i = 0; i < n && r.ok; i++) {
+        uint64_t k = r.Pod<uint64_t>();
+        s->selected[k] = vs_at(r.Pod<uint32_t>());
+    }
+    StateFields(r, s->state);
+    std::vector<uint32_t> simple(s->state.simple.size());
+    r.Bytes(simple.data(), s->state.simple.bytes());
+    for (size_t i = 0; i < simple.size(); i++) s->state.simple.set(i, simple[i]);
+    std::vector<std::array<float, 4>> vsc(s->state.vsc.size());
+    r.Bytes(vsc.data(), s->state.vsc.bytes());
+    for (size_t i = 0; i < vsc.size(); i++) s->state.vsc.set(i, vsc[i]);
+    s->state.vs = vs_at(r.Pod<uint32_t>());
+    s->state.ps = ps_at(r.Pod<uint32_t>());
+    r.Pod(s->buffers);
+    r.Pod(s->buffer_count);
+    r.Pod(s->depth);
+    r.Pod(s->scratch_push);
+    r.Pod(s->scratch_size);
+    r.Pod(s->walk);
+    s->own_constants = r.Pod<uint8_t>() != 0;
+    r.Pod(s->program_memory);
+    r.Pod(s->push_begin);
+    r.Pod(s->im_prim);
+    r.Pod(s->im_mask);
+    r.Pod(s->constant_register);
+    r.Pod(s->constant_component);
+    r.Pod(s->vblank_info);
+    r.Pod(s->up_ring);
+    r.Pod(s->up_pos);
+    r.Pod(s->up_header);
+    r.Pod(s->switch_headers);
+    if (!r.ok) return nullptr;
+    return s;
+}
+
+snapshot::PartRef d3d::SaveDevice() {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    auto s = std::make_unique<SavedDevice>();
+    s->state = g_state;
+    s->vs = g_vs;
+    s->ps = g_ps;
+    s->buffers = g_buffers;
+    s->buffer_count = g_buffer_count;
+    s->depth = g_depth;
+    s->scratch_push = g_scratch_push;
+    s->scratch_size = g_scratch_size;
+    s->walk = g_walk;
+    s->own_constants = g_own_constants;
+    s->program_memory = g_program_memory;
+    s->selected = g_selected;
+    s->push_begin = g_push_begin;
+    s->im_prim = g_im_prim;
+    s->im_mask = g_im_mask;
+    s->constant_register = g_constant_register;
+    s->constant_component = g_constant_component;
+    s->vblank_info = g_vblank_info;
+    s->up_ring = g_up_ring;
+    s->up_pos = g_up_pos;
+    s->up_header = g_up_header;
+    s->switch_headers = g_switch_headers;
+    return s;
 }

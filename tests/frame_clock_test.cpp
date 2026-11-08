@@ -35,6 +35,70 @@ int main() {
     game::TickRemainder timer;
     Check(timer.Advance(0.5f) == 0 && timer.Advance(0.5f) == 1, "two half ticks must produce one whole tick");
     Check(timer.Advance(0) == 0 && timer.Advance(-1) == 0, "paused timers must not advance");
+    // Soldier AI goal timers (0x243C0): counter += whole ticks each brain update; past the period the goal is
+    // re-scored and the counter restarts. The console's 30 FPS gave 2 a frame, the 60 FPS mode 1.
+    // fps 0: the 60 FPS mode's exact one-tick frames; 30: the console's two-tick frames; others: unlocked
+    auto goal_scores = [](int fps, int period, bool truncate) {
+        game::FrameClock clock;
+        game::KeyedTickRemainder brains;
+        clock.Advance(0);
+        int counter = 0, scores = 0;
+        int frames = fps == 0 ? 600 : fps * 10;
+        for (int frame = 1; frame <= frames; frame++) {
+            float delta = fps == 0 ? 1.0f : fps == 30 ? 2.0f : clock.Advance(int64_t(frame) * 1000000000 / fps);
+            counter += truncate ? int(delta) : int(brains.Advance(0x12345678, delta));
+            if (counter > period) { counter = 0; scores++; }
+        }
+        return scores;
+    };
+    for (int period : {1, 10, 60}) {
+        int at60 = goal_scores(0, period, true);
+        Check(goal_scores(0, period, false) == at60, "the 60 FPS mode must be unchanged");
+        Check(goal_scores(144, period, true) == 0, "the original truncation must be what stalls goals above 60 FPS");
+        for (int fps : {60, 120, 144, 240, 1000}) {
+            int scores = goal_scores(fps, period, false);
+            Check(std::abs(scores - at60) <= 1, "goal re-scoring must keep the 60 FPS rate at any frame rate");
+        }
+        std::printf("goal period %d: %d re-scores in 10 s at 30 FPS, %d at 60 and above\n", period,
+                    goal_scores(30, period, true), at60);
+    }
+    // FEng menus (0x11DD20 in-game, 0xF68A0 save/profile popup): (int)(dt * 20) units, 1,200 a second at 30/60 FPS.
+    // Truncation gives 8 per frame at 144 FPS (4% slow) and nothing at all above 1,200 FPS.
+    for (int fps : {60, 144, 1000, 3000, 5000}) {
+        game::FrameClock clock;
+        game::TickRemainder menu;
+        clock.Advance(0);
+        uint32_t units = 0, truncated = 0;
+        for (int frame = 1; frame <= fps * 10; frame++) {
+            float delta = clock.Advance(int64_t(frame) * 1000000000 / fps);
+            units += menu.Advance(delta * 20);
+            truncated += uint32_t(delta * 20);
+        }
+        Check(units >= 11999 && units <= 12000, "menus must get 1,200 FEng units a second at any frame rate");
+        if (fps >= 3000) Check(truncated == 0, "the original truncation must be what freezes menus above 1,200 FPS");
+        std::printf("%d FPS: menus get %u FEng units in 10 s (truncated: %u)\n", fps, units, truncated);
+    }
+    game::KeyedTickRemainder brains;
+    Check(brains.Advance(1, 0.75f) == 0 && brains.Advance(2, 0.75f) == 0, "brains keep separate fractions");
+    Check(brains.Advance(1, 0.5f) == 1 && brains.Advance(2, 0.1f) == 0, "each brain must carry its own remainder");
+    Check(brains.Advance(3, -1) == 0, "a negative delta must not advance a brain");
+    // Threat memory (0x223A0): a priority of 2.0 decayed by 0.01 per 30 FPS frame lasts 200 frames + 1.
+    for (int fps : {30, 60, 120, 144, 240, 1000}) {
+        game::FrameClock clock;
+        clock.Advance(0);
+        float threat = 2.0f;
+        int frame = 0;
+        while (threat >= 0 && frame < fps * 60) {
+            frame++;
+            float delta = fps == 30 ? 2.0f : clock.Advance(int64_t(frame) * 1000000000 / fps);
+            threat -= game::PerConsoleFrame(0.01f, delta);
+        }
+        double seconds = double(frame) / fps;
+        Check(std::abs(seconds - 201.0 / 30) < 0.05, "threat memory must last as long as at 30 FPS");
+        std::printf("%d FPS: threat memory lasts %.3f s\n", fps, seconds);
+    }
+    Check(game::PerConsoleFrame(0.01f, 2) == 0.01f, "a 30 FPS frame must decay by the original step");
+    Check(game::PerConsoleFrame(0.01f, -1) == 0, "a negative delta must not decay");
     for (int fps : {30, 60, 120, 144, 240, 1000}) {
         game::LoadingAnimationClock animation;
         Check(animation.Sample(123000000) == 0, "loading animation must start at phase zero");

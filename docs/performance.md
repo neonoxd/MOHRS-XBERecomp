@@ -47,6 +47,49 @@ logged errors; this did not exercise a two-controller session.
 Local raw logs: `re/baseline_1440_fov90.txt`, `re/packed_1440_fov90.txt`, `re/final_240_1440.txt`.
 The full per-run logs and binaries are retained under `re/fps-probes/`.
 
+## Per-draw overhead on both threads, 2026-11-04
+
+At 1440p in the same 1_3 opening, after the packed-vertex change, both threads were saturated: the render thread was
+busy for 2.0 of each 2.3 ms frame and the title thread waited only about 0.1 ms for it. The GPU was not the
+limit. A sampling profile of a release build with line tables showed host overhead per draw, not game code:
+
+| Cost per draw, render thread | Share | Change |
+|---|---:|---|
+| Four `CreateShaderResourceView` calls into the driver | 24% | Tables reused within a frame, keyed by resources and views |
+| Hashing: a 1 KB palette copy and hash per P8 stage, keys, texture checks | 15% | Palettes compared with a cached copy; four-lane `FastHash` for in-process keys |
+| A locked map lookup of the render target's lock epoch | 4% | Skipped while no surface or texture was locked |
+| An atomic exchange in `app::Widescreen` per HUD call | 3% | Plain load first |
+
+On the title thread, `Threaded::SendState` compared about 13 KB of state against the copy last sent, on every draw
+(24%). The two largest arrays, the 8 KB of simple render states and the 3 KB of vertex shader constants, are now
+`gpu::Tracked`: writes go through `set()`/`edit()`, which mark 64-byte pieces, and only marked pieces are compared
+and sent. Writing one without marking it does not compile. The header lookup caches in front of their maps grew from 64
+to 1,024 hashed slots.
+
+`gpu::Hash` is unchanged because texture pack names depend on it. `FastHash` values are only used within one run.
+
+Same scene and the same 957 draws per frame, mean of the one-second reports at 6-34.5 seconds, `XBE_PERF=1`:
+
+| Metric | Before (3 runs) | After |
+|---|---:|---:|
+| FPS | 436-450 | 552 |
+| Render thread draw time per frame | 1.94-2.00 ms | 1.32 ms |
+| Render thread idle per frame | 0.10 ms | 0.33 ms |
+| Title thread recording per frame | 0.64-0.68 ms | 0.43 ms |
+
+The title thread is now the limit. Its largest remaining host costs are `SendState` (17%), mostly the ranges still
+compared in full, and `Threaded::Header` (9%), the pointer chase to header copies in a map. Immediate-mode `End`, which
+replays the pushed vertices, accounts for 11%. The rest is recompiled game code. A 60 FPS 720p comparison of both
+builds 22 seconds into 1_3 showed the same scene, HUD and textures, and neither log has errors. `tests/state_tracked_test.cpp` checks the marking:
+
+```powershell
+cmd /c "tools\dev.bat clang++ -std=c++20 -O2 -Isdk/runtime tests/state_tracked_test.cpp -o re/state_tracked_test.exe"
+& re/state_tracked_test.exe
+```
+
+`tools/fps_probe.ps1 -Build profile` runs another build folder, such as a release configuration with
+`-gline-tables-only` for profiling. `-Visible` shows the window for `tools/screenshot.ps1`.
+
 ## Reproduce
 
 Ask before launching probes while the user may be using the PC. The script creates isolated settings and saves,

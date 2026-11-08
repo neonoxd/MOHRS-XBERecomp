@@ -5,6 +5,7 @@
 #include <ctime>
 
 #include "app/app.h"
+#include "core/snapshot.h"
 #include "kernel/crypto.h"
 #include "kernel/exports.h"
 #include "xbe/xbe.h"
@@ -67,11 +68,8 @@ void PutSystemTime(uint32_t va, uint64_t t) {
     W32(va + 4, uint32_t(t >> 32));
 }
 
-uint64_t InterruptTime() {
-    using namespace std::chrono;
-    static const auto start = steady_clock::now();
-    return uint64_t(duration_cast<nanoseconds>(steady_clock::now() - start).count() / 100);
-}
+// the guest clocks run from GuestClockNs, which a quick load puts back to the save's moment
+uint64_t InterruptTime() { return uint64_t(GuestClockNs() / 100); }
 
 }  // namespace
 
@@ -104,10 +102,8 @@ void InitKernelData() {
     W32(DataAddress(157), 10000);  // 1 ms in 100 ns units
     // the start of the clock
     std::thread([] {
-        auto start = std::chrono::steady_clock::now();
         for (;;) {
-            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-            W32(g_tick_count_va, uint32_t(ms));
+            W32(g_tick_count_va, uint32_t(GuestClockNs() / 1000000));
             PutSystemTime(DataAddress(120), InterruptTime());
             PutSystemTime(DataAddress(154), uint64_t(Now100ns()));
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -236,9 +232,7 @@ KERNEL_EXPORT(228, NtSetSystemTime, 2) {
 constexpr uint64_t kPerfFrequency = 3375000;
 
 KERNEL_EXPORT(126, KeQueryPerformanceCounter, 0) {
-    using namespace std::chrono;
-    static const auto start = steady_clock::now();
-    uint64_t ns = uint64_t(duration_cast<nanoseconds>(steady_clock::now() - start).count());
+    uint64_t ns = uint64_t(GuestClockNs());
     uint64_t v = ns / 1000000000ull * kPerfFrequency + ns % 1000000000ull * kPerfFrequency / 1000000000ull;
     ctx.edx = uint32_t(v >> 32);
     return uint32_t(v);
@@ -250,6 +244,7 @@ KERNEL_EXPORT(127, KeQueryPerformanceFrequency, 0) {
 }
 
 KERNEL_EXPORT(151, KeStallExecutionProcessor, 1) {
+    BlockScope blocked;
     auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(a[0]);
     while (std::chrono::steady_clock::now() < until) std::this_thread::yield();
     return 0;
@@ -266,12 +261,16 @@ KERNEL_EXPORT(99, KeDelayExecutionThread, 3) {
     };
     SuspendPoint();
     if (interval == 0) {
+        BlockScope blocked;
         std::this_thread::yield();
         return kSuccess;
     }
     while (now() < deadline) {
         int64_t left = deadline - now();
-        std::this_thread::sleep_for(std::chrono::nanoseconds(std::min<int64_t>(left, 2000000)));
+        {
+            BlockScope blocked;  // the world may stop while it sleeps
+            std::this_thread::sleep_for(std::chrono::nanoseconds(std::min<int64_t>(left, 2000000)));
+        }
         if (alertable && t && RunApcs(*t)) return kUserApc;
     }
     return kSuccess;
@@ -841,6 +840,7 @@ KERNEL_EXPORT(92, KeAlertResumeThread, 1) { return kimpl_KeResumeThread(ctx, a);
 
 KERNEL_EXPORT(238, NtYieldExecution, 0) {
     SuspendPoint();
+    BlockScope blocked;
     std::this_thread::yield();
     return kSuccess;
 }

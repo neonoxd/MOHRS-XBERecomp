@@ -360,9 +360,55 @@ call = "MissionTicks"
 at = 0xA4CEC
 call = "MenuTicks"
 
+# In-game menus (post-mission screens) and the save/profile popup also truncate dt * 20 FEng units to an integer,
+# zero above 1,200 FPS: whole units with the fraction kept, after the cvttss2si, before push eax.
+[[hook]]
+at = 0x11DDCB
+call = "MenuTicks"
+
+# the in-game menu's modal loop (end-of-mission screens, the save prompt) passes the frame's dt * 20 the same way
+[[hook]]
+at = 0x11DC48
+call = "MenuTicks"
+
+[[hook]]
+at = 0xF68D6
+call = "PopupTicks"
+
 [[hook]]
 at = 0xFABB4
 call = "MessageTicks"
+
+# Quick load (docs/quick-save.md): the resource loader's worker takes its slot (ebx) from the table at [0x399758] once,
+# at its start; a load puts back a table that the saving run allocated elsewhere. Re-read it at the top of each pass.
+[[hook]]
+at = 0x162E70
+call = "LoaderSlot"
+
+# Development (MOHRS_NATIVE_TRACE): the script interpreter's native call, call dword [eax+edx]
+[[hook]]
+at = 0x497F3
+call = "TraceNative"
+
+# The player's end-of-step floor ray in 0xDA7D0 (docs/frame-timing.md): keep the collision world before the call,
+# cast again beside a miss at cmp edi, 1
+[[hook]]
+at = 0xDAC19
+call = "FloorRayWorld"
+
+[[hook]]
+at = 0xDAC2A
+call = "FloorRayRetry"
+
+# Soldier AI brain (docs/frame-timing.md): goal timers get whole ticks with the fraction kept per brain, after
+# cvttss2si eax,[esp+4] in 0x197C0; threat memory decays by elapsed time, after its 0.01 load in 0x223A0.
+[[hook]]
+at = 0x197C6
+call = "BrainTicks"
+
+[[hook]]
+at = 0x223A8
+call = "ThreatDecay"
 
 # Loading medal/stars: reset on texture initialization, replace float phase after the draw-counter conversion.
 [[hook]]

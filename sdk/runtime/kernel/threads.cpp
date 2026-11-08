@@ -31,8 +31,15 @@ void SetupGuestBlocks(Thread& t, uint32_t stack_size, uint32_t tls_size) {
     tls_size = (tls_size + 3) & ~3u;
     t.stack_top = mem::AllocStack(stack_size + tls_size + 0x1000);
     t.stack_size = stack_size;
-    t.kpcr = mem::AllocSystem(kKpcrSize, 64);
-    t.ethread = mem::AllocSystem(kEthreadSize, 64);
+    // ids go up by 4 from 0x10 and are never reused
+    static_assert(kKpcrSize + kEthreadSize <= mem::kThreadBlockSize);
+    if (uint32_t slot = mem::AllocThreadBlocks((t.id - 0x10) / 4)) {
+        t.kpcr = slot;
+        t.ethread = slot + kKpcrSize;
+    } else {
+        t.kpcr = mem::AllocSystem(kKpcrSize, 64);
+        t.ethread = mem::AllocSystem(kEthreadSize, 64);
+    }
     // TLS sits at the top of the stack: StackBase + tls_index * 4 must equal TlsData
     t.tls = t.stack_top - tls_size;
     uint32_t k = t.kpcr;
@@ -171,11 +178,13 @@ void StartThread(ThreadRef t) {
         }
         LOGI("thread %X starts at %08X (%08X, %08X)", t->id, si.system_routine ? si.system_routine : si.start_routine,
              si.start_routine, si.start_context);
+        EnterGuest();
         uint32_t code;
         if (si.system_routine)
             code = CallGuest(ctx, si.system_routine, {si.start_routine, si.start_context});
         else
             code = CallGuest(ctx, si.start_routine, {si.start_context});
+        LeaveGuest();
         LOGI("thread %X returned %08X", t->id, code);
         MarkExited(*t, code);
         Unregister(t.get());
@@ -183,11 +192,22 @@ void StartThread(ThreadRef t) {
     });
 }
 
+static std::vector<ThreadRef> g_host_threads;  // under g_threads_lock, never end
+
+std::vector<ThreadRef> HostThreads() {
+    std::lock_guard<std::mutex> lock(g_threads_lock);
+    return g_host_threads;
+}
+
 void StartHostThread(const char* name, std::function<void(X86Context&)> fn) {
     auto t = std::make_shared<Thread>();
     t->id = g_next_id.fetch_add(4);
     SetupGuestBlocks(*t, 0x20000, 0x100);
     Bind(t, t->ethread);
+    {
+        std::lock_guard<std::mutex> lock(g_threads_lock);
+        g_host_threads.push_back(t);
+    }
     std::string n = name;
     Spawn([t, fn, n] {
         t_current = t;
@@ -200,6 +220,7 @@ void StartHostThread(const char* name, std::function<void(X86Context&)> fn) {
 }
 
 void ExitThread(uint32_t code) {
+    LeaveGuest();
     Thread* t = Current();
     if (t) {
         LOGI("thread %X exits with %08X", t->id, code);
@@ -229,6 +250,7 @@ uint32_t Suspend(Thread& t) {
 void SuspendPoint() {
     Thread* t = Current();
     if (!t || t->suspend.load() <= 0) return;
+    BlockScope blocked;
     std::unique_lock<std::mutex> lock(t->apc_lock);
     t->resume_cv.wait(lock, [&] { return t->suspend.load() <= 0; });
 }

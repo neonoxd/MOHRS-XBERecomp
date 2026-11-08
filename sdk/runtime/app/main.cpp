@@ -228,11 +228,8 @@ void Pace() {
     // refresh
     constexpr uint32_t kRefreshMargin = 3;
     if (cap == kFpsCapRefresh) cap = RefreshRate() > kRefreshMargin ? RefreshRate() - kRefreshMargin : 0;
+    if (!cap || cap > kMaxFps) cap = kMaxFps;
     auto now = clock::now();
-    if (!cap) {
-        next = now;
-        return;
-    }
     auto period = std::chrono::nanoseconds(1000000000ull / cap);
     next += period;
     if (next < now - period) next = now;

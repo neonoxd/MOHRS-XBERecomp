@@ -37,5 +37,8 @@ struct Action {
 };
 const Action* Actions(size_t* count);
 void LoadBindings();  // after the settings load
+// keys bound outside the pad, held while the game window has the focus
+enum class Hotkey { QuickSave, QuickLoad };
+bool HotkeyHeld(Hotkey key);
 
 }  // namespace input

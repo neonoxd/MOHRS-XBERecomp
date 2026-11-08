@@ -39,6 +39,13 @@ uint32_t AllocContiguous(uint32_t size, uint32_t lowest, uint32_t highest, uint3
 void FreeContiguous(uint32_t va);
 uint32_t AllocationSize(uint32_t va);  // any allocator, 0 if unknown
 
+// a guest thread's blocks (KPCR, ETHREAD) at a fixed place by its index, the top of system memory, so other system
+// allocations never move them: a quick save loads only where every thread's blocks are where they were. 0 past the end.
+constexpr uint32_t kThreadBlockSize = 0x800;
+constexpr uint32_t kThreadBlocksSize = 0x100000;
+constexpr uint32_t kThreadBlocks = kSystemBase + kSystemSize - kThreadBlocksSize;
+uint32_t AllocThreadBlocks(uint32_t index);
+
 uint32_t AllocSystem(uint32_t size, uint32_t align = 16);
 void FreeSystem(uint32_t va);
 

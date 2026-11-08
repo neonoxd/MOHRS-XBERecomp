@@ -52,6 +52,8 @@ struct Target {
     int button;
 };
 constexpr int kWalk = -3;
+constexpr int kQuickSave = -4;  // keys of their own, outside the pad (src/common/quick_save.cpp)
+constexpr int kQuickLoad = -5;
 constexpr int kFirstButtonBit = 8;
 constexpr int kStart = 12;
 constexpr int kFirstMoveKey = 16;
@@ -85,6 +87,8 @@ constexpr Target kActions[] = {
     {{"look_down", "Down"}, 21},
     {{"look_left", "Left"}, 22},
     {{"look_right", "Right"}, 23},
+    {{"quick_save", "F5"}, kQuickSave},
+    {{"quick_load", "F9"}, kQuickLoad},
 };
 constexpr size_t kCount = std::size(kActions);
 struct Name {
@@ -231,6 +235,7 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
     };
     for (size_t i = 0; i < kCount; i++) {
         int b = kActions[i].button;
+        if (b == kQuickSave || b == kQuickLoad) continue;
         if (!std::any_of(binds[i].begin(), binds[i].end(), pressed)) continue;
         held.used = true;
         if (b == kWalk) {
@@ -402,6 +407,16 @@ const Action* Actions(size_t* count) {
     }();
     *count = kCount;
     return list.data();
+}
+
+bool HotkeyHeld(Hotkey key) {
+    if (!Active()) return false;
+    int button = key == Hotkey::QuickSave ? kQuickSave : kQuickLoad;
+    std::lock_guard lock(g_bind_lock);
+    for (size_t i = 0; i < kCount; i++)
+        if (kActions[i].button == button)
+            return std::any_of(g_binds[i].begin(), g_binds[i].end(), [](int vk) { return !Wheel(vk) && Down(vk); });
+    return false;
 }
 
 void LoadBindings() {

@@ -8,7 +8,7 @@ screen drawn with the game's own menu art, laid out like the HUD Options screen:
 | Display Mode | Fullscreen, Borderless, Windowed (applied on confirm) | `display_mode` |
 | Render Scale | 50% to 200% of the output height | `render_percent` |
 | Frame Rate | 30 FPS, 60 FPS, Unlocked | `fps60`, `unlocked_fps` |
-| FPS Limit | Monitor, 30 to 480, Off | `fps_cap` (1 is Monitor, 0 Off) |
+| FPS Limit | Monitor, 30 to 480, Off | `fps_cap` (1 is Monitor, 0 Off; Off and anything higher stop at 2400) |
 | VSync | On, Off | `vsync` |
 | Field of View | 45 to 140 in steps of 5 (70 is the original view) | `fov` |
 | Widescreen | On, Off | `widescreen` |

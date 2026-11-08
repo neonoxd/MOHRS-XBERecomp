@@ -2,6 +2,7 @@
 #include <chrono>
 
 #include "core/input.h"
+#include "core/snapshot.h"
 #include "xdk/hle.h"
 #include "xdk/layout.h"
 
@@ -162,4 +163,40 @@ X86_FUNC(GUEST(XLaunchNewImageA)) {
     }
     LOGW("xapi: launch of %s refused, it is not recompiled", path.c_str());
     Return(ctx, 2, 2);  // ERROR_FILE_NOT_FOUND
+}
+
+// quick save (core/snapshot.h): the title's controller handles are guest memory the library made
+
+namespace {
+
+struct SavedHandle {
+    uint32_t h;
+    Handle handle;
+};
+
+struct SavedPads : snapshot::Part {
+    std::vector<SavedHandle> handles;
+
+    void Restore(const snapshot::RestoreInfo&) override {
+        std::lock_guard<std::mutex> lock(g_ports_lock);
+        g_handles.clear();
+        for (const SavedHandle& s : handles) g_handles[s.h] = s.handle;
+    }
+    void Write(snapshot::Writer& w) const override { w.Vec(handles); }
+};
+
+}  // namespace
+
+snapshot::PartRef xapi::SavePads() {
+    std::lock_guard<std::mutex> lock(g_ports_lock);
+    auto s = std::make_unique<SavedPads>();
+    for (auto& [h, handle] : g_handles) s->handles.push_back({h, handle});
+    return s;
+}
+
+snapshot::PartRef xapi::ReadPads(snapshot::Reader& r) {
+    auto s = std::make_unique<SavedPads>();
+    r.Vec(s->handles);
+    if (!r.ok) return nullptr;
+    return s;
 }

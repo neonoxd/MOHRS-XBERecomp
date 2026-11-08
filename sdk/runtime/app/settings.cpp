@@ -127,7 +127,8 @@ bool Widescreen() {
     static std::atomic<bool> wide{true};
     const Settings& s = Get();
     uint64_t k = uint64_t(s.width) << 32 | s.height;
-    if (key.exchange(k) != k) {
+    // a plain load first: the locked exchange on every call showed up in the render thread's profile
+    if (key.load(std::memory_order_relaxed) != k && key.exchange(k) != k) {
         Mode m = Output();
         wide = m.width * 2 >= m.height * 3;  // 3:2 or wider
     }

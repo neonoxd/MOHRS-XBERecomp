@@ -16,6 +16,7 @@
 #include "common/controller_routing.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "common/quick_save.h"
 #include "common/software_cursor.h"
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
@@ -73,6 +74,7 @@ void FpsCounter(double fps) {
 
 void Ui(double fps) {
     FpsCounter(fps);
+    QuickSaveUi();
     cursor::Draw();
 }
 

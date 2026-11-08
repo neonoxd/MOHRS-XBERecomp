@@ -13,7 +13,7 @@ from disasm import load
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def audit(image, config, frame_end, expected, scan):
+def audit(image, config, frame_end, expected, scan, brain, menus, floor, scripts, entities):
     base, data, sections = load(str(ROOT / "assets/xbe" / image))
     text = (ROOT / "config" / config).read_text()
     hooks = {}
@@ -48,11 +48,74 @@ def audit(image, config, frame_end, expected, scan):
     assert hooks.get(wrap) == ("AnimEventFirstScan", False), f"{image}: missing AnimEventFirstScan at {wrap:X}"
     jump = rf'at = 0x{wrap:X}\ncall = "AnimEventFirstScan"\non_true = 0x{forward:X}'
     assert re.search(jump, text), f"{image}: AnimEventFirstScan must jump to {forward:X}"
-    print(f"{image}: 9 frame deltas, both wait compares, 3 timer hooks, 4 cosmetic animation hooks and the animation "
-          "event scan verified")
+    # soldier AI brain: cvttss2si eax,[esp+4] right before the goal tick hook; movss xmm2,[0.01] before the decay
+    # hook, in a function that ends in ret 4 (its delta argument)
+    ticks, decay = brain
+    assert data[ticks - 6 - base:ticks - base] == bytes.fromhex("f30f2c442404"), f"{image}: expected cvttss2si eax"
+    assert hooks.get(ticks) == ("BrainTicks", False), f"{image}: missing BrainTicks at {ticks:X}"
+    assert data[decay - 8 - base:decay - 4 - base] == bytes.fromhex("f30f1015"), f"{image}: expected movss xmm2"
+    constant = struct.unpack_from("<I", data, decay - 4 - base)[0]
+    assert struct.unpack_from("<f", data, constant - base)[0] == struct.unpack("<f", struct.pack("<f", 0.01))[0],         f"{image}: threat decay constant"
+    assert data[decay - base:decay - base + 3] == bytes.fromhex("0f57c9"), f"{image}: expected xorps xmm1,xmm1"
+    assert hooks.get(decay) == ("ThreatDecay", False), f"{image}: missing ThreatDecay at {decay:X}"
+    # in-game menu and save/profile popup: dt * 20 in xmm0, cvttss2si eax right before the hook at push eax
+    for va, name, convert in menus:
+        convert = bytes.fromhex(convert)
+        assert data[va - len(convert) - base:va - base] == convert, f"{image}: expected cvttss2si eax before {va:X}"
+        assert data[va - base] == 0x50, f"{image}: expected push eax at {va:X}"
+        assert hooks.get(va) == (name, False), f"{image}: missing {name} at {va:X}"
+    # the player's floor ray: lea eax,[esp+hit+4]; push eax; lea ecx,[esp+segment+8]; push ecx | mov ecx,edi;
+    # call [edx+0x24] ... cmp edi,1, with the segment, hit record and flag helpers called just before
+    world, retry, (ray, segment, hit), helpers = floor
+    assert data[world - base:world - base + 5] == bytes.fromhex("8bcfff5224"), f"{image}: expected the ray cast"
+    assert data[retry - base:retry - base + 3] == bytes.fromhex("83ff01"), f"{image}: expected cmp edi,1"
+    lea = data[world - 13 - base:world - base]
+    assert lea[:3] == bytes.fromhex("8d4424") and lea[3] == hit + 4 and lea[4] == 0x50, f"{image}: hit record offset"
+    assert lea[5:8] == bytes.fromhex("8d8c24") and struct.unpack_from("<I", lea, 8)[0] == segment + 8 and         lea[12] == 0x51, f"{image}: ray segment offset"
+    # the input the segment is built from: lea eax,[esp+ray] (start, end 0x10 on) shortly before
+    assert bytes.fromhex("8d8424") + struct.pack("<I", ray) in data[world - 0xC0 - base:world - base],         f"{image}: ray input offset"
+    calls = set()
+    for at in range(world - 0x50 - base, retry + 0x80 - base):
+        if data[at] == 0xE8:
+            calls.add((base + at + 5 + struct.unpack_from("<i", data, at + 1)[0]) & 0xFFFFFFFF)
+    assert set(helpers) <= calls, f"{image}: floor ray helpers {[hex(h) for h in set(helpers) - calls]} not called"
+    assert hooks.get(world) == ("FloorRayWorld", False), f"{image}: missing FloorRayWorld at {world:X}"
+    assert hooks.get(retry) == ("FloorRayRetry", False), f"{image}: missing FloorRayRetry at {retry:X}"
+    # the script system's frame update, overridden in src/<game>/hooks.cpp: movss xmm1,[esp+4] (its time), then
+    # push 0x100 / call (scripts) and push 0x400 / call (messages)
+    update, caller = scripts
+    assert data[update - base:update - base + 6] == bytes.fromhex("f30f104c2404"), f"{image}: script update prologue"
+    assert data[update + 0x19 - base:update + 0x1F - base] == bytes.fromhex("680001000" "0e8"), f"{image}: script runs"
+    assert data[update + 0x23 - base:update + 0x29 - base] == bytes.fromhex("6800040000e8"), f"{image}: messages"
+    target = (caller + 5 + struct.unpack_from("<i", data, caller + 1 - base)[0]) & 0xFFFFFFFF
+    assert data[caller - base] == 0xE8 and target == update, f"{image}: the gameplay frame must call {update:X}"
+    source = (ROOT / "src" / ("game" if image == "default.xbe" else "coop") / "hooks.cpp").read_text()
+    assert f"X86_FUNC(sub_{update:08X})" in source and "ScriptFrame" in source, f"{image}: script update override"
+    # the entity manager's update, overridden too: movss xmm2,[esp+4]; xorps; sub esp,0x14; ucomiss (zero time)
+    manager, manager_call = entities
+    assert data[manager - base:manager - base + 15] == bytes.fromhex("f30f105424040f57c983ec140f2ed1"),         f"{image}: entity manager prologue"
+    target = (manager_call + 5 + struct.unpack_from("<i", data, manager_call + 1 - base)[0]) & 0xFFFFFFFF
+    assert data[manager_call - base] == 0xE8 and target == manager, f"{image}: the gameplay frame must call {manager:X}"
+    assert f"X86_FUNC(sub_{manager:08X})" in source and "EntityStep" in source, f"{image}: entity manager override"
+    print(f"{image}: 9 frame deltas, both wait compares, 3 timer hooks, 4 cosmetic animation hooks, the animation "
+          "event scan, 2 AI brain hooks, 3 menu unit hooks, the floor ray retry, the script update and the entity manager verified")
+
+
+def audit_loader():
+    # quick load: the resource loader worker (0x162E30) takes its slot from [0x399758] into ebx once; LoaderSlot
+    # re-reads it at the top of its loop (cmp dword [ebx],0), where its index is at [esp+0x24]
+    base, data, _ = load(str(ROOT / "assets/xbe/default.xbe"))
+    text = (ROOT / "config/game.toml").read_text()
+    assert data[0x162E30 - base:0x162E36 - base] == bytes.fromhex("8b1558973900"), "loader worker prologue"
+    assert data[0x162E3A - base:0x162E44 - base] == bytes.fromhex("8b5c241869dbb8000000"), "loader slot index"
+    assert data[0x162E70 - base:0x162E73 - base] == bytes.fromhex("833b00"), "loader loop head"
+    assert data[0x16314F - base:0x163155 - base] == bytes.fromhex("0f841bfdffff"), "loader loop back edge"
+    assert 'at = 0x162E70\ncall = "LoaderSlot"' in text, "missing LoaderSlot"
+    print("default.xbe: the loader worker's slot hook verified")
 
 
 if __name__ == "__main__":
+    audit_loader()
     audit("default.xbe", "game.toml", 0x13A90, [
         (0x13AAF, "FrameWaitEax", "83f802"), (0x13ACA, "FrameWaitEcx", "83f902"),
         (0xA4C32, "MissionTicks", "506a00"), (0xA4CEC, "MenuTicks", "50"),
@@ -61,7 +124,9 @@ if __name__ == "__main__":
         (0xFD3DC, "LoadingAnimation", "f30f2ac04083f821"),
         (0xF6B74, "ResetPopupAnimation", "c7461400000000"),
         (0xF6C5A, "PopupAnimation", "f30f2ac04083f821"),
-    ], (0x6FB01, 0x6FB74, 0x6FB0D))
+    ], (0x6FB01, 0x6FB74, 0x6FB0D), (0x197C6, 0x223A8),
+        [(0x11DDCB, "MenuTicks", "f30f2c44240c"), (0x11DC48, "MenuTicks", "f30f2c442428"), (0xF68D6, "PopupTicks", "f30f2cc0")],
+        (0xDAC19, 0xDAC2A, (0x80, 0xC0, 0x40), (0x144C30, 0x142910, 0x142AB0, 0x7A8A0)), (0x4C0F0, 0xA4B52), (0xFAB00, 0xA4C7B))
     audit("moh3rdc.xbe", "coop.toml", 0x13AE0, [
         (0x13AFF, "FrameWaitEax", "83f802"), (0x13B1A, "FrameWaitEcx", "83f902"),
         (0x98C88, "MissionTicks", "506a00"), (0x98D94, "MenuTicks", "50"),
@@ -70,4 +135,6 @@ if __name__ == "__main__":
         (0xF5EEC, "LoadingAnimation", "f30f2ac04083f821"),
         (0xEF594, "ResetPopupAnimation", "c7461400000000"),
         (0xEF67A, "PopupAnimation", "f30f2ac04083f821"),
-    ], (0x62541, 0x625B4, 0x6254D))
+    ], (0x62541, 0x625B4, 0x6254D), (0x19056, 0x21F58),
+        [(0x11823D, "MenuTicks", "f30f2c442410"), (0x118078, "MenuTicks", "f30f2c442428"), (0xEF2F6, "PopupTicks", "f30f2cc0")],
+        (0xD1581, 0xD1592, (0x90, 0xE0, 0x50), (0x13DF00, 0x13BBE0, 0x13BD80, 0x6D290)), (0x4F220, 0x98B07), (0xF35D0, 0x98CB9))

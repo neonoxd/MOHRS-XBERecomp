@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <xaudio2.h>
 
+#include <cstdlib>
 #include <thread>
 #include <vector>
 
@@ -36,6 +37,8 @@ void StartOutput(std::function<void(float*, uint32_t)> render) {
             LOGE("audio: XAudio2 unavailable (%08X), no sound", unsigned(hr));
             return;
         }
+        // XBE_MUTE: silent output for test runs; the mixer still runs at the same pace
+        if (std::getenv("XBE_MUTE")) master->SetVolume(0.0f);
         voice->Start();
         constexpr uint32_t kFrames = kRate / 100;
         constexpr uint32_t kMinQueued = 3;

@@ -1,6 +1,7 @@
 #include "gpu/texture.h"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <cstring>
 #include <mutex>
@@ -257,6 +258,8 @@ float DepthTexel(uint32_t fmt, const uint8_t* p) {
 std::mutex g_dirty_lock;
 std::unordered_map<uint32_t, uint64_t> g_dirty;
 uint64_t g_epoch = 1;
+// moves on every lock of anything but a vertex or index buffer, after its epoch is in g_dirty
+std::atomic<uint64_t> g_surface_generation{1};
 
 }  // namespace
 
@@ -428,14 +431,33 @@ void SurfaceSize(const Surface& s, uint32_t& w, uint32_t& h) {
 void MarkDirty(uint32_t res) {
     if (!res) return;
     uint32_t data = mem::VirtualFromPhysical(kernel::R32(res + 4));
-    std::lock_guard<std::mutex> lock(g_dirty_lock);
-    g_dirty[data] = ++g_epoch;
+    {
+        std::lock_guard<std::mutex> lock(g_dirty_lock);
+        g_dirty[data] = ++g_epoch;
+    }
+    // D3DCOMMON_TYPE: 0 vertex buffer, 0x10000 index buffer; their locks come many times a frame
+    uint32_t type = kernel::R32(res) & 0x70000;
+    if (type > 0x10000) g_surface_generation.fetch_add(1, std::memory_order_release);
+}
+
+uint64_t SurfaceDirtyGeneration() { return g_surface_generation.load(std::memory_order_acquire); }
+
+namespace {
+uint64_t g_all_dirty = 0;  // an epoch every resource has at least, from MarkAllDirty
+}
+
+void MarkAllDirty() {
+    {
+        std::lock_guard<std::mutex> lock(g_dirty_lock);
+        g_all_dirty = ++g_epoch;
+    }
+    g_surface_generation.fetch_add(1, std::memory_order_release);
 }
 
 uint64_t DirtyEpoch(uint32_t data) {
     std::lock_guard<std::mutex> lock(g_dirty_lock);
     auto it = g_dirty.find(data);
-    return it == g_dirty.end() ? 0 : it->second;
+    return std::max(it == g_dirty.end() ? 0 : it->second, g_all_dirty);
 }
 
 bool CopySurfaceMemory(const Surface& src, const Surface& dst, uint32_t count, uint32_t rects, uint32_t points) {
@@ -551,12 +573,12 @@ void ApplyPixelConstants(State& s, uint32_t first, uint32_t count) {
     auto mine = [&](uint32_t m) { return m >= first && m < first + count && m < 8; };
     for (uint32_t i = 0; i < 8; i++) {
         uint32_t m0 = (c0map >> (i * 4)) & 0xF, m1 = (c1map >> (i * 4)) & 0xF;
-        if (mine(m0)) s.simple[(kMPsConstant0 >> 2) + i] = PackColor(s.psc[m0]);
-        if (mine(m1)) s.simple[(kMPsConstant1 >> 2) + i] = PackColor(s.psc[m1]);
+        if (mine(m0)) s.simple.set((kMPsConstant0 >> 2) + i, PackColor(s.psc[m0]));
+        if (mine(m1)) s.simple.set((kMPsConstant1 >> 2) + i, PackColor(s.psc[m1]));
     }
     uint32_t f0 = fmap & 0xF, f1 = (fmap >> 4) & 0xF;
-    if (mine(f0)) s.simple[kMPsFinalConstant0 >> 2] = PackColor(s.psc[f0]);
-    if (mine(f1)) s.simple[kMPsFinalConstant1 >> 2] = PackColor(s.psc[f1]);
+    if (mine(f0)) s.simple.set(kMPsFinalConstant0 >> 2, PackColor(s.psc[f0]));
+    if (mine(f1)) s.simple.set(kMPsFinalConstant1 >> 2, PackColor(s.psc[f1]));
 }
 
 }  // namespace gpu
