@@ -31,6 +31,30 @@ void ThreatDecay(X86Context& ctx);
 // messages, condition polls counted in frames (0x2E0C0) and frame queues (0x511B0); the console ran it at 30 Hz.
 // ScriptFrame is false on frames between two console frames, else it sets the time since the last run.
 bool ScriptFrame(X86Context& ctx);
+// The player's view shake and recoil update (default 0xD6700, co-op 0xCB440; thiscall (yaw offset*, pitch offset*,
+// time), ret 0xC), called each frame on foot and on a mounted gun. Each call adds a random jolt to the view offsets at
+// +0x284/+0x288, which persist, and steps a mounted gun's firing shake by a fixed amount: more frames, more jolts
+// and a faster build-up. ShakeFrame is false between two console frames of that player, else it sets the time since
+// its last run.
+bool ShakeFrame(X86Context& ctx);
+// A mounted gun's firing kick in the player update (default 0xDDA3F..0xDDC23, co-op 0xD75F5..0xD7848; player in ESI,
+// time at [EBP+8]) moves the gun, or the seat of a gun that has one (1_11's boat turret), along its axis by
+// 0.006 or 0.02 times an oscillator, added to its present place each frame, then steps the oscillator (+-1, one a tick)
+// in time. At 30 FPS the oscillator flips each frame and the gun only twitches; at more frames it ramps and the
+// additions pile up into a swing many times as large. MountedKickSkip is true (skip the block) between two console
+// frames of that player; MountedKickStep, after the oscillator's step * time, sets XMM0 to step * the run's time.
+bool MountedKickSkip(const X86Context& ctx);
+void MountedKickStep(X86Context& ctx, float step);
+// Particle velocity damping (docs/frame-timing.md): both particle updates (default 0xA7ED0 / 0xABD10, co-op 0x9C110 /
+// 0xA0690) compute keep = 1 - drag once and apply v = v * keep + acceleration * seconds to every particle each frame,
+// so more frames damp harder and particles barely leave their emitter. Raises keep to the frame's console frames
+// (seconds * 30), so a 30 FPS frame keeps the console's factor.
+void ParticleDrag(float& keep, float seconds);
+// A weapon's muzzle puff (default 0xE2CF0, co-op 0xDAE10, fastcall weapon) spawns a 0.54 s effect every frame while
+// the weapon's flash is on. Above 30 FPS the puffs can fill the 128-emitter pool (0xB0120), where an effect that needs
+// ten free slots silently fails to spawn (1_1's floor-fire burst, a level-script spawn, failed at 60 FPS). True at most
+// once per console frame (1/30 s) per weapon.
+bool MuzzlePuffFrame(uint32_t weapon);
 // The entity manager's update (default 0xFAB00, co-op 0xF35D0; thiscall, its time at [esp+4], ret 4) only runs a
 // zero-length physics step and skips the post-step updates when a step is under 1/64 tick. Slow motion (0xA4F30 scales
 // the frame's time) at high frame rates goes below that, so nothing moved (1_1's ending). EntityStep is false while

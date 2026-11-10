@@ -683,9 +683,52 @@ private:
         uint32_t slot;
     };
     std::unordered_map<uint64_t, SrvTable> srv_tables_;
-    void ResetRing() { srv_tables_.clear(); }
+    struct {
+        SrvTableKey key{};
+        uint32_t slot = 0;
+        uint64_t gen = ~0ull;
+    } last_srv_;
+    void ResetRing() {
+        srv_tables_.clear();
+        srv_gen_++;
+    }
     std::unordered_map<uint64_t, Target> targets_;
     std::unordered_map<uint32_t, uint64_t> target_used_;  // target address to the frame it was last used
+    // EnsureTarget's last answer for a colour and a depth surface: draws bind the same targets two map lookups and two
+    // map writes at a time, twice each. Valid while targets_ is as it was (targets_gen_ counts its changes).
+    struct TargetMemo {
+        Surface s{};
+        uint64_t alt = 0, gen = ~0ull, frame = ~0ull;
+        uint32_t data = 0;
+        Target* t = nullptr;
+    };
+    TargetMemo target_memo_[2];
+    uint64_t targets_gen_ = 0;
+    // The command list's state as the draw path last set it: consecutive draws mostly set the same pipeline, tables,
+    // viewport, scissor, blend factor, stencil reference and topology, and each call goes through the driver.
+    // Forgotten when a list starts and wherever other code sets them (blits, the UI).
+    struct ClState {
+        ID3D12PipelineState* pso = nullptr;
+        uint64_t srv = ~0ull, smp = ~0ull;
+        D3D12_VIEWPORT vp{-1, -1, -1, -1, -1, -1};
+        D3D12_RECT sc{-1, -1, -1, -1};
+        float bf[4] = {-1, -1, -1, -1};
+        uint32_t sref = ~0u;
+        int topo = -1;
+    };
+    ClState cls_;
+    void ForgetClState() { cls_ = {}; }
+    // the last lookups of EnsurePipeline and EnsureStageSamplers, before the hash and the map
+    struct {
+        PsoKey key{};
+        ID3D12PipelineState* pso = nullptr;
+    } last_pso_;
+    struct {
+        D3D12_SAMPLER_DESC sd[4]{};
+        uint32_t base = 0;
+        uint64_t gen = ~0ull;
+    } last_smp_;
+    uint64_t samplers_gen_ = 0, srv_gen_ = 0;
     std::unordered_map<uint64_t, Tex> textures_;  // by data address, a P8 texture's with its palette's above
     std::unordered_map<uint64_t, Tex> pack_textures_;  // texture pack images by key, kept for the run
     std::unordered_map<uint64_t, ComPtr<ID3D12PipelineState>> blit_psos_;
@@ -924,6 +967,7 @@ void D3D12Backend::Begin() {
     cl_->SetDescriptorHeaps(2, heaps);
     cl_->SetGraphicsRootSignature(root_.Get());
     bound_rt_ = bound_ds_ = nullptr;
+    ForgetClState();
 }
 
 void D3D12Backend::Submit(bool wait) {
@@ -957,6 +1001,7 @@ void D3D12Backend::SetFullViewport(uint32_t w, uint32_t h) {
     D3D12_RECT scissor{0, 0, LONG(w), LONG(h)};
     cl_->RSSetViewports(1, &vp);
     cl_->RSSetScissorRects(1, &scissor);
+    ForgetClState();
 }
 
 // one w x h colour target for a Blit, the draw's bound targets forgotten
@@ -1020,6 +1065,7 @@ void D3D12Backend::ReleaseTarget(std::unordered_map<uint64_t, Target>::iterator 
     CurrentFrame().garbage.push_back(it->second.res);
     if (it->second.fb) CurrentFrame().garbage.push_back(it->second.fb);
     targets_.erase(it);
+    targets_gen_++;
 }
 
 // the host texture of a new target, at render scale or the extension's
@@ -1111,9 +1157,20 @@ Target* D3D12Backend::EnsureTarget(const Surface& s, bool depth) {
     if (!s.header) return nullptr;
     uint64_t alt = 0;
     if (ext_ && !ext_->TargetKey(s, depth, alt)) return nullptr;
+    TargetMemo& m = target_memo_[depth];
+    if (m.gen == targets_gen_ && m.alt == alt && !std::memcmp(&m.s, &s, sizeof s)) {
+        if (m.frame != frame_) {
+            target_used_[m.data] = frame_;
+            m.frame = frame_;
+        }
+        return m.t;
+    }
     TargetSlot slot = FindTargetSlot(s, depth, alt);
     target_used_[slot.data] = frame_;
-    if (slot.sized) return &slot.it->second;
+    if (slot.sized) {
+        m = {s, alt, targets_gen_, frame_, slot.data, &slot.it->second};
+        return &slot.it->second;
+    }
     if (slot.it != targets_.end()) ReleaseTarget(slot.it);
     Target t;
     t.depth = depth;
@@ -1129,6 +1186,7 @@ Target* D3D12Backend::EnsureTarget(const Surface& s, bool depth) {
     t.epoch = DirtyEpoch(slot.data);
     t.sig = MemSig(slot.data, t.bytes);
     auto& ref = targets_[slot.key] = std::move(t);
+    targets_gen_++;
     return &ref;
 }
 
@@ -1303,6 +1361,7 @@ uint32_t D3D12Backend::EnsureBlitSamplers() {
     if (it == samplers_.end()) {
         if (smp_used_ + 4 > kSamplerCount) {
             samplers_.clear();
+            samplers_gen_++;
             smp_used_ = 0;
         }
         si = smp_used_;
@@ -1333,6 +1392,7 @@ void D3D12Backend::DrawFullScreen(ID3D12PipelineState* pso, D3D12_GPU_VIRTUAL_AD
     cl_->SetGraphicsRootDescriptorTable(3, Gpu(smp_heap_.Get(), si, smp_inc_));
     cl_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     cl_->DrawInstanced(3, 1, 0, 0);
+    ForgetClState();
 }
 
 void D3D12Backend::Blit(ID3D12Resource* src, DXGI_FORMAT fmt, const float uvrect[4], const BlitOptions& o) {
@@ -1460,6 +1520,7 @@ void D3D12Backend::Pass(const char* hlsl, const char* entry, DXGI_FORMAT rtv, D3
     if (blend >= 0) {
         float f[4] = {blend, blend, blend, blend};
         cl_->OMSetBlendFactor(f);
+        ForgetClState();
     }
     DrawFullScreen(pso, cb.gpu, slot);
     bound_rt_ = bound_ds_ = nullptr;
@@ -1573,9 +1634,13 @@ float D3D12Backend::RenderTargetShift(const State& s, const DrawShaders& sh) con
 }
 
 ID3D12PipelineState* D3D12Backend::EnsurePipeline(const PsoKey& k, ID3DBlob* vs, ID3DBlob* ps) {
+    if (last_pso_.pso && !std::memcmp(&last_pso_.key, &k, sizeof(k))) return last_pso_.pso;
     uint64_t h = FastHash(&k, sizeof(k));
     auto it = psos_.find(h);
-    if (it != psos_.end()) return it->second.Get();
+    if (it != psos_.end()) {
+        last_pso_.key = k;
+        return last_pso_.pso = it->second.Get();
+    }
     D3D12_INPUT_ELEMENT_DESC el[16];
     uint32_t n = FillInputLayout(k, el);
     D3D12_GRAPHICS_PIPELINE_STATE_DESC d{};
@@ -1938,18 +2003,26 @@ uint32_t D3D12Backend::EnsureStageSamplers(const State& s, const DrawTextures& s
     D3D12_SAMPLER_DESC sd[4];
     uint32_t aniso = app::Get().aniso;
     for (int i = 0; i < 4; i++) sd[i] = StageSampler(s, i, stages, clamp, aniso);
+    if (last_smp_.gen == samplers_gen_ && !std::memcmp(last_smp_.sd, sd, sizeof(sd))) return last_smp_.base;
     uint64_t key = FastHash(sd, sizeof(sd));
     auto it = samplers_.find(key);
-    if (it != samplers_.end()) return it->second;
+    if (it != samplers_.end()) {
+        std::memcpy(last_smp_.sd, sd, sizeof(sd));
+        last_smp_.gen = samplers_gen_;
+        return last_smp_.base = it->second;
+    }
     if (smp_used_ + 4 > kSamplerCount) {
         samplers_.clear();
+        samplers_gen_++;
         smp_used_ = 0;
     }
     uint32_t base = smp_used_;
     smp_used_ += 4;
     for (int i = 0; i < 4; i++) dev_->CreateSampler(&sd[i], Cpu(smp_heap_.Get(), base + i, smp_inc_));
     samplers_[key] = base;
-    return base;
+    std::memcpy(last_smp_.sd, sd, sizeof(sd));
+    last_smp_.gen = samplers_gen_;
+    return last_smp_.base = base;
 }
 
 uint32_t SimpleState(const State& s, uint32_t method) {
@@ -2428,20 +2501,35 @@ void D3D12Backend::SetTextureViewsAndSamplers(const State& s, const Assembled& a
         std::memcpy(&key.sv[i], &sv, sizeof(sv));
     }
     // creating views goes through the driver: a quarter of the render thread when every draw made its own four
-    uint64_t h = FastHash(&key, sizeof(key));
-    auto it = srv_tables_.find(h);
     uint32_t slot;
-    if (it != srv_tables_.end() && !std::memcmp(&it->second.key, &key, sizeof(key))) {
-        slot = it->second.slot;
+    if (last_srv_.gen == srv_gen_ && !std::memcmp(&last_srv_.key, &key, sizeof(key))) {
+        slot = last_srv_.slot;
     } else {
-        slot = AllocSrvSlots(4);
-        for (int i = 0; i < 4; i++)
-            dev_->CreateShaderResourceView(stages.res[i], &stages.sv[i], Cpu(srv_heap_.Get(), slot + i, srv_inc_));
-        srv_tables_[h] = {key, slot};
+        uint64_t h = FastHash(&key, sizeof(key));
+        auto it = srv_tables_.find(h);
+        if (it != srv_tables_.end() && !std::memcmp(&it->second.key, &key, sizeof(key))) {
+            slot = it->second.slot;
+        } else {
+            slot = AllocSrvSlots(4);
+            for (int i = 0; i < 4; i++)
+                dev_->CreateShaderResourceView(stages.res[i], &stages.sv[i], Cpu(srv_heap_.Get(), slot + i, srv_inc_));
+            srv_tables_[h] = {key, slot};
+        }
+        last_srv_.key = key;
+        last_srv_.slot = slot;
+        last_srv_.gen = srv_gen_;
     }
-    cl_->SetGraphicsRootDescriptorTable(2, Gpu(srv_heap_.Get(), slot, srv_inc_));
+    D3D12_GPU_DESCRIPTOR_HANDLE views = Gpu(srv_heap_.Get(), slot, srv_inc_);
+    if (views.ptr != cls_.srv) {
+        cl_->SetGraphicsRootDescriptorTable(2, views);
+        cls_.srv = views.ptr;
+    }
     uint32_t samplers = EnsureStageSamplers(s, stages, UnitTexcoords(a));
-    cl_->SetGraphicsRootDescriptorTable(3, Gpu(smp_heap_.Get(), samplers, smp_inc_));
+    D3D12_GPU_DESCRIPTOR_HANDLE smp = Gpu(smp_heap_.Get(), samplers, smp_inc_);
+    if (smp.ptr != cls_.smp) {
+        cl_->SetGraphicsRootDescriptorTable(3, smp);
+        cls_.smp = smp.ptr;
+    }
 }
 
 // viewport covers the target, the guest viewport is in the shader; scissor clips to it
@@ -2449,7 +2537,10 @@ void D3D12Backend::SetViewportScissor(const State& s, uint32_t gw) {
     float W = float(bound_rt_ ? bound_rt_->w : bound_ds_->w);
     float H = float(bound_rt_ ? bound_rt_->h : bound_ds_->h);
     D3D12_VIEWPORT vp{0, 0, W, H, 0, 1};
-    cl_->RSSetViewports(1, &vp);
+    if (std::memcmp(&vp, &cls_.vp, sizeof vp)) {
+        cl_->RSSetViewports(1, &vp);
+        cls_.vp = vp;
+    }
     float sc = W / gw;
     LONG x0 = LONG(s.viewport.x * sc);
     LONG y0 = LONG(s.viewport.y * sc);
@@ -2463,14 +2554,24 @@ void D3D12Backend::SetViewportScissor(const State& s, uint32_t gw) {
     }
     D3D12_RECT rect{std::clamp<LONG>(x0, 0, LONG(W)), std::clamp<LONG>(y0, 0, LONG(H)),
                     std::clamp<LONG>(x1, 0, LONG(W)), std::clamp<LONG>(y1, 0, LONG(H))};
-    cl_->RSSetScissorRects(1, &rect);
+    if (std::memcmp(&rect, &cls_.sc, sizeof rect)) {
+        cl_->RSSetScissorRects(1, &rect);
+        cls_.sc = rect;
+    }
 }
 
 void D3D12Backend::SetBlendFactorStencilRef(const State& s) {
     float bf[4];
     Color(SimpleState(s, kMBlendColor), bf);
-    cl_->OMSetBlendFactor(bf);
-    cl_->OMSetStencilRef(SimpleState(s, kMStencilRef) & 0xFF);
+    if (std::memcmp(bf, cls_.bf, sizeof bf)) {
+        cl_->OMSetBlendFactor(bf);
+        std::memcpy(cls_.bf, bf, sizeof bf);
+    }
+    uint32_t sref = SimpleState(s, kMStencilRef) & 0xFF;
+    if (sref != cls_.sref) {
+        cl_->OMSetStencilRef(sref);
+        cls_.sref = sref;
+    }
 }
 
 D3D_PRIMITIVE_TOPOLOGY PrimitiveTopology(const Assembled& a) {
@@ -2494,7 +2595,11 @@ void D3D12Backend::UploadVertexBuffers(const Assembled& a) {
 
 void D3D12Backend::DrawGeometry(const Assembled& a) {
     UploadVertexBuffers(a);
-    cl_->IASetPrimitiveTopology(PrimitiveTopology(a));
+    D3D_PRIMITIVE_TOPOLOGY topo = PrimitiveTopology(a);
+    if (int(topo) != cls_.topo) {
+        cl_->IASetPrimitiveTopology(topo);
+        cls_.topo = int(topo);
+    }
     if (a.index_count) {
         uint32_t ibytes = a.index_count * (a.index16 ? 2 : 4);
         Alloc ib = Upload(ibytes, 4);
@@ -2622,7 +2727,10 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     BuildPipelineKey(s, a, sh.vh, sh.ph, k);
     ID3D12PipelineState* pso = EnsurePipeline(k, sh.vs_code, sh.ps_code);
     if (!pso) return;
-    cl_->SetPipelineState(pso);
+    if (pso != cls_.pso) {
+        cl_->SetPipelineState(pso);
+        cls_.pso = pso;
+    }
 
     // constants
     GuestExtent size;
@@ -2804,6 +2912,7 @@ void D3D12Backend::CopyByDraw(const Target& src_t, ID3D12Resource* src_res, D3D1
         if (scissor.right <= scissor.left || scissor.bottom <= scissor.top) continue;
         cl_->RSSetViewports(1, &vp);
         cl_->RSSetScissorRects(1, &scissor);
+        ForgetClState();
         float uv[4] = {r.x0 / src_t.gw, r.y0 / src_t.gh, (r.x1 - r.x0) / src_t.gw, (r.y1 - r.y0) / src_t.gh};
         uint32_t taps = uint32_t(std::ceil(std::max(src_scale / dst_scale, 1.0f) - kTapsSlack));
         float mul = 1 / dst_t.range;
@@ -2973,6 +3082,7 @@ void D3D12Backend::BlitFrame(Target& t) {
     D3D12_RECT scissor{0, 0, LONG(bb_w_), LONG(bb_h_)};
     cl_->RSSetViewports(1, &vp);
     cl_->RSSetScissorRects(1, &scissor);
+    ForgetClState();
     Transition(t.res.Get(), t.state, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     Blit(t.res.Get(), t.fmt, uv, {.gamma = gamma_});
 }
@@ -2987,6 +3097,7 @@ void D3D12Backend::RenderUi() {
     ID3D12DescriptorHeap* uh[] = {ui_heap_.Get()};
     cl_->SetDescriptorHeaps(1, uh);
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cl_.Get());
+    ForgetClState();
 }
 
 void D3D12Backend::DrawFrame(Target* t, uint32_t bi) {
@@ -3138,6 +3249,7 @@ void D3D12Backend::ApplySettings() {
         Flush();
         for (auto& [key, tg] : targets_) (tg.depth ? free_dsv_ : free_rtv_).push_back(tg.view);
         targets_.clear();
+        targets_gen_++;
         scale_ = want;
         if (ext_) ext_->Reset(*this);
         bound_rt_ = bound_ds_ = nullptr;

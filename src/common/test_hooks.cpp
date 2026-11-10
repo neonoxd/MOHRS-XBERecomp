@@ -125,7 +125,7 @@ void TraceAnimStart(const X86Context& ctx) {
     uint32_t table = R32(ctx.esp + 8);
     char hex[16];
     std::snprintf(hex, sizeof hex, "%08X", table);
-    if (!std::strstr(v, hex)) return;
+    if (std::strcmp(v, "all") && !std::strstr(v, hex)) return;  // "all": every start
     lines++;
     std::string up;
     for (uint32_t at = ctx.esp, n = 0; at < ctx.esp + 0x600 && n < 14; at += 4) {
@@ -136,7 +136,9 @@ void TraceAnimStart(const X86Context& ctx) {
         up += s;
         n++;
     }
-    LOGR("anim start: channel %08X table %08X from%s", ctx.ecx, table, up.c_str());
+    // the controller being updated: 0x69BD0 keeps a stack of them at 0x269CE8, count at 0x269D68
+    uint32_t depth = R32(0x269D68), controller = depth && depth < 32 ? R32(0x269CE8 + (depth - 1) * 4) : 0;
+    LOGR("anim start: channel %08X table %08X controller %08X from%s", ctx.ecx, table, controller, up.c_str());
 }
 
 void TraceGraphSet(const X86Context& ctx) {
@@ -388,6 +390,8 @@ void ProbePad(input::Pad& pad) {
         if (w == "lookright") pad.rx = 24000;
         if (w == "crouch") pad.analog[2] = 255;  // X
         if (w == "jump") pad.analog[0] = 255;  // A
+        if (w == "fire") pad.analog[7] = 255;  // right trigger
+        if (w == "crash") *static_cast<volatile int*>(nullptr) = 0;  // tests the crash log
         if (w == "capture" && !p.captured) {
             p.captured = true;
             gpu::g_capture = true;

@@ -52,7 +52,9 @@ void Init(const std::string& dir, const std::string& prefix, bool append) {
 const std::string& Path() { return g_path; }
 
 void Write(Level lv, const char* fmt, ...) {
-    if (!kVerbose && lv < Level::Error) return;
+    // XBE_LOG_INFO: a release build also writes info and warnings (such as the one-time notes on draws it skips)
+    static const bool info = std::getenv("XBE_LOG_INFO") != nullptr;
+    if (!kVerbose && lv < (info ? Level::Info : Level::Error)) return;
     char msg[4096];
     va_list ap;
     va_start(ap, fmt);

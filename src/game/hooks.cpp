@@ -9,6 +9,7 @@
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
 #include "kernel/kernel.h"
+#include "xdk/d3d8.h"
 #include "xdk/hle.h"
 
 using kernel::R32;
@@ -48,6 +49,36 @@ X86_EXTERN_FUNC(__imp__sub_000FAB00);
 X86_FUNC(sub_000FAB00) {
     if (game::EntityStep(ctx)) __imp__sub_000FAB00(ctx, base);
     else kernel::Return(ctx, ctx.eax, 1);
+}
+
+// the player's view shake and recoil update (docs/frame-timing.md): at the console's 30 Hz in the 60 FPS and unlocked
+// modes
+X86_EXTERN_FUNC(__imp__sub_000D6700);
+X86_FUNC(sub_000D6700) {
+    if (game::ShakeFrame(ctx)) __imp__sub_000D6700(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 3);
+}
+
+// the game's vertex helper, stdcall (position, color, uv): SetVertexDataColor(3), SetVertexData2f(9) and
+// SetVertexData4f(-1), one call each per vertex of every effect (38 callers); here the values go to the primitive
+// directly (docs/performance.md)
+X86_FUNC(sub_0017E4C0) {
+    (void)base;
+    uint32_t pos = kernel::R32(ctx.esp + 4), color = kernel::R32(ctx.esp + 8);
+    d3d::ImmediateColor(3, kernel::R32(color));
+    uint32_t uv = kernel::R32(ctx.esp + 12);
+    float t[4] = {kernel::G<float>(uv), kernel::G<float>(uv + 4), 0, 1};
+    d3d::ImmediateData(9, t);
+    float v[4] = {kernel::G<float>(pos), kernel::G<float>(pos + 4), kernel::G<float>(pos + 8), kernel::G<float>(pos + 12)};
+    d3d::ImmediateData(0, v);
+    kernel::Return(ctx, ctx.eax, 3);
+}
+
+// a weapon's muzzle puff, fastcall (weapon): at most once per console frame above 30 FPS (docs/frame-timing.md)
+X86_EXTERN_FUNC(__imp__sub_000E2CF0);
+X86_FUNC(sub_000E2CF0) {
+    if (game::MuzzlePuffFrame(ctx.ecx)) __imp__sub_000E2CF0(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 0);
 }
 
 // the config's GetString(key, buffer, size), which reads data\game.cfg; true when the key exists
@@ -104,6 +135,12 @@ void ResetPopupAnimation(X86Context&, uint8_t*) { game::ResetPopupAnimation(); }
 void PopupAnimation(X86Context& ctx, uint8_t*) { game::PopupAnimation(ctx); }
 // [[hook]] 0x6FB74, the animation event scan's loop wrap branch; true goes to its forward scan at 0x6FB0D
 bool AnimEventFirstScan(X86Context& ctx, uint8_t*) { return game::AnimEventFirstScan(ctx); }
+// [[hook]] 0xDDA3F, a mounted gun's firing kick; true goes past it to 0xDDC23. 0xDDB92: the oscillator's step in XMM3
+bool MountedKick(X86Context& ctx, uint8_t*) { return game::MountedKickSkip(ctx); }
+void MountedKickStep(X86Context& ctx, uint8_t*) { game::MountedKickStep(ctx, ctx.xmm[3].f[0]); }
+// [[hook]]s after keep = 1 - drag in the particle updates: 0xA7F16 (keep XMM7, seconds XMM3), 0xABD70 (XMM1, XMM0)
+void ParticleDragTimed(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[7].f[0], ctx.xmm[3].f[0]); }
+void ParticleDragPooled(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[1].f[0], ctx.xmm[0].f[0]); }
 
 // an entity's animation event listener (vtable 0x1E84F0 slot 1): dialogue lines start here (opcode 0xCAF0)
 X86_EXTERN_FUNC(__imp__sub_000CF780);

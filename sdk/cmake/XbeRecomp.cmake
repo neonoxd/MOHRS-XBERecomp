@@ -133,10 +133,11 @@ function(add_xbe_image target xbe config partitions game_dir)
     target_include_directories(${target}_code PRIVATE ${XBE_SDK_DIR}/runtime ${GEN})
     target_include_directories(${target}_code SYSTEM PRIVATE ${XBE_SDK_DIR}/runtime/cpu/freestanding)
     target_compile_definitions(${target}_code PRIVATE X86_GAME_CODE)
+    # line tables: a crash dump names the game functions and lines (as runtime/app/game_code.cpp compiles it)
     target_compile_options(${target}_code PRIVATE -fms-compatibility-version=19.40 -O2 -fno-strict-aliasing -nostdinc
-        -nostdinc++ -w)
+        -nostdinc++ -w -gline-tables-only)
     target_link_libraries(${target}_code PRIVATE ${target})
-    target_link_options(${target}_code PRIVATE -fuse-ld=lld -Wl,/noentry,/nodefaultlib,/opt:noicf
+    target_link_options(${target}_code PRIVATE -fuse-ld=lld -g -Wl,/noentry,/nodefaultlib,/opt:noicf
         -Wl,/def:${GEN}/exports.def)
     # a stamp from an earlier build on the executable's first start would outrank this DLL
     add_custom_command(TARGET ${target}_code POST_BUILD

@@ -157,6 +157,9 @@ D3DDevice_SetTextureState_ColorKeyColor              = 0x1B70E0
 D3DDevice_SetTextureState_TexCoordIndex              = 0x1B6F20
 D3DDevice_SetTile                                    = 0x1B5EC0
 D3DDevice_SetTransform                               = 0x1B4CA0
+D3DDevice_SetVertexData2f                            = 0x1BB5D0  # (register, a, b): method 0x1880 + register * 8
+D3DDevice_SetVertexData4f                            = 0x1BB610  # (register or -1, a, b, c, d): 0x1A00 + register * 16, -1 0x1518
+D3DDevice_SetVertexDataColor                         = 0x1BB670  # (register, color): 0x1940 + register * 4, red and blue swapped
 D3DDevice_SetVertexShader                            = 0x1B9C10
 D3DDevice_SetVertexShaderConstant1                   = 0x1B95E0
 D3DDevice_SetVertexShaderConstant1Fast               = 0
@@ -421,3 +424,29 @@ call = "PopupAnimation"
 at = 0x625B4
 call = "AnimEventFirstScan"
 on_true = 0x6254D
+
+# A mounted gun's firing kick adds an oscillator times 0.006 (gun) or 0.02 (seat) to the gun's place each frame,
+# so more frames pile it up into a violent shake (docs/frame-timing.md): run it once per console frame, skipping
+# it in between, with the time since its last run in the oscillator's step.
+[[hook]]
+at = 0xD75F5
+call = "MountedKick"
+on_true = 0xD7848
+
+[[hook]]
+at = 0xD774D
+call = "MountedKickSeatStep"
+
+[[hook]]
+at = 0xD77BC
+call = "MountedKickStep"
+
+# Particle velocity damping (docs/frame-timing.md): keep = 1 - drag is applied once per frame in both particle
+# updates; raise it to the frame's console frames right after it is computed.
+[[hook]]
+at = 0x9C156
+call = "ParticleDragTimed"
+
+[[hook]]
+at = 0xA06E0
+call = "ParticleDragPooled"

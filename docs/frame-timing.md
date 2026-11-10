@@ -50,8 +50,14 @@ The handover's earlier inference that interpolation is required was too strong. 
 | Player floor ray result, hook at cmp edi, 1 | 0xDAC2A | 0xD1592 |
 | Script system frame update, function override | 0x4C0F0 | 0x4F220 |
 | Entity manager update, function override | 0xFAB00 | 0xF35D0 |
+| Player view shake and recoil update, function override | 0xD6700 | 0xCB440 |
+| Mounted gun firing kick block, skip hook to its end | 0xDDA3F -> 0xDDC23 | 0xD75F5 -> 0xD7848 |
+| Its oscillator steps (time), hook after MULSS by [EBP+8] | 0xDDB92 | 0xD774D, 0xD77BC |
 | Animation event scan | 0x6FA30 | 0x62470 |
 | Its loop wrap branch, hook jumping to the forward scan | 0x6FB74 -> 0x6FB0D | 0x625B4 -> 0x6254D |
+| Timed particle update (0xA7ED0 / 0x9C110), hook after keep = 1 - drag | 0xA7F16 | 0x9C156 |
+| Pooled particle update (0xABD10 / 0xA0690), hook after keep = 1 - drag | 0xABD70 | 0xA06E0 |
+| Weapon muzzle puff spawn, function override | 0xE2CF0 | 0xDAE10 |
 
 There are nine callers of frame end in each image. Each converts EAX with `cvtsi2ss xmm0,eax`, multiplies it by
 the saved PAL/NTSC scale and stores the global float delta. `FrameDelta` runs **after the conversion**, on all
@@ -144,6 +150,28 @@ runs 30 times a second at any frame rate and the timer wheel still gets every ti
 cadence (13 requests in about 10 s) is the same at 30, 60 and 144 FPS. `MOHRS_SCRIPT_EVERY_FRAME` restores the old
 per-frame update for comparison. The 60 FPS and unlocked modes use it; the original 30 FPS mode is untouched.
 
+The player's view shake and recoil update (`0xD6700`, co-op `0xCB440`; thiscall, yaw and pitch offset pointers and
+the time, `ret 0xC`) is called each frame on foot (`0xE0AE9` / `0xD8A19`) and on a mounted gun (`0xDC90C` /
+`0xD614C`). It advances two shake slots (`+0xD58`, `+0xD7C`; started by script natives through `0xD5F70`) in time,
+but each call also adds a random jolt to the view offsets at `+0x284`/`+0x288`, which persist from frame to frame,
+and while a mounted gun fires (`+0xD4C` bit 0x40) steps that gun's shake level `+0xDA8` by a fixed amount. So the
+view shook as many times as there were frames and a mounted gun's shake built up in frames: at the start of 1_1,
+unlocked at about 700 FPS, the offsets moved 25 times as far a second as at 30 FPS and reached twice the size.
+`ShakeFrame` runs it once per two-tick console frame of each player with the time since that player's last run, as
+`ScriptFrame` does; the same shake then moved 0.55 a second against 0.58 at 30 FPS. `MOHRS_SHAKE_EVERY_FRAME` restores
+the old per-frame update. The 60 FPS and unlocked modes use it.
+
+That was not the 1_11 boat turret's violent shake. While a mounted gun fires, the player update (`0xDB530`, co-op
+`0xD4BF0`) moves the gun along its axis by 0.006 times an oscillator, or for a gun with a seat (player `+0xD46` bit 8,
+the 1_11 turret) the seat matrix `+0xEE0` (co-op `+0xFC0`) by 0.02 times it, added to where it is each frame. The
+oscillator (`0x27465C`, step `0x201F0C`, limit `0x201F08`; co-op also a seat one at player `+0xE78`) moves by its
+step of 1 a tick and flips at +-1. At 30 FPS a frame is two ticks, so it flips each frame and the seat twitches
++-0.02; at more frames it ramps and the additions pile up: unlocked the seat swung 0.15 at about 15 Hz, the turret
+and view with it. `MountedKick` skips the block between two console frames of each player and `MountedKickStep`
+gives its oscillator steps exactly two ticks a console frame (less would miss a flip and let the seat drift). The
+seat then moves 0.67 a second at about 1,000 FPS against 0.60 at 30 FPS, flipping +-0.02 each console frame.
+`MOHRS_SHAKE_EVERY_FRAME` restores this one too.
+
 The entity manager (`0xFAB00`, co-op `0xF35D0`) steps physics in steps of at most one tick, but when its first step
 is shorter than 1/64 tick (`0x1EAA2C`) it only runs a zero-length step and returns before the post-step and attached
 entity updates: nothing moves that frame. Above 3,840 FPS every frame was that short. Slow motion makes it happen at
@@ -154,6 +182,27 @@ slow motion ended (144 FPS stayed just above it, 30 and 60 far above). `EntitySt
 such steps over and runs the manager once the carried time reaches 1/64 tick, with all of it. With it the pause at 240
 and about 1,100 FPS moves as at 144: the player drifts and seven aircraft move during it, the plane in view. The
 60 FPS and unlocked modes use it; the original 30 FPS mode is untouched.
+
+Two of the three particle classes move their particles in a per-frame callback: the timed class (vtable `0x1E5E78`,
+update `0xA8810`, particle callback `0xA7ED0`; co-op `0x9C110`) and the pooled class (vtable `0x1E61E8`, `0xACC10` ->
+`0xABD10`; co-op `0xA0690`). Both compute `keep = 1 - drag` from the effect definition and apply
+`v = v * keep + acceleration * seconds` once a frame, so the damping was applied as many times as there were frames:
+at 240 FPS a particle lost speed eight times as fast as on the console and barely left its emitter. `ParticleDrag`,
+hooked right after the subtraction (keep in XMM7 / XMM1, the frame's seconds in XMM3 / XMM0), raises keep to the
+frame's console frames (`seconds * 30`), so a 30 FPS frame keeps the console's factor. The stateless class
+(`0x1E6460`, update `0xB2AF0`, draw `0xB1110`) computes its particles from their age and needs nothing.
+`MOHRS_PARTICLE_DRAG_EVERY_FRAME` restores the old damping. Not yet checked in a scene that uses these classes.
+
+Effects come from a fixed pool of 128 emitters (`0xB0120`, in use at `0x270E10`); an effect whose definition has
+priority 0 is only created while more than nine are free, and otherwise its spawn (`0xB55B0`) returns nothing. A
+weapon's muzzle puff (`0xE2CF0`, co-op `0xDAE10`, from the weapon update `0xE3330`) spawns a 0.54-second emitter
+every frame while the weapon's flash flag (`+0x340` bit 0x20) is set. At 30 FPS a firing weapon keeps about 16
+alive; at 240 FPS about 130, more than the whole pool. In 1_1 the floor-fire burst in the room with the extinguisher
+(hash `0xC4DE5EC2`: spawned by a level or object script through native `0x43830`, stopped by `0x38B90` ten ticks
+later, about eleven flames lasting 5.6 s) spawned at 30 FPS; above it the fires never appeared and a 60 FPS run logged
+a failed spawn of that effect. A fire spawned at 30 FPS stays when switching to unlocked. `MuzzlePuffFrame` lets each
+weapon spawn its puff at most once per console frame (1/30 s of real time). `MOHRS_PUFF_EVERY_FRAME` restores the old
+spawning. With it the floor fires appear in that room unlocked (played by hand: its fires need the player's actions).
 
 Profile checking and save-game prompts share another medal/star renderer (`0xF6C30`, co-op `0xEF650`),
 used by the `MemoryCardPopup.fng` hierarchy. It loads the same `data\loading\medal.xsh` texture and uses the
@@ -186,11 +235,11 @@ Development switches for test runs (environment variables): `MOHRS_TIMING=0.1` r
 `MOHRS_ENTITY_DUMP=<seconds>[:<radius>]` lists the entities near the player once; `MOHRS_CONTACT_TRACE` logs each
 object the player's contact handler (`0xDEFA0`) sees; `MOHRS_STEP_TRACE=x,y,radius` logs every movement step
 (`0xE0E50`) and collision resolve (`0xD8260`) near a point. The last two override game functions, so the DLL must
-be relinked after the executable for them to take effect. `MOHRS_ANIM_TRACE=<event tables>` logs the animation
-channels playing them and who starts them; `MOHRS_GRAPH_TRACE` logs animation graph state requests (`0x6A120`,
+be relinked after the executable for them to take effect. `MOHRS_ANIM_TRACE=<event tables>` (or `all`) logs the
+animation channels playing them and who starts them; `MOHRS_GRAPH_TRACE` logs animation graph state requests (`0x6A120`,
 `0xCE030`); `MOHRS_NATIVE_TRACE=find|<owner>` logs a script's native calls; `MOHRS_MESSAGE_TRACE` logs posted script
 messages (`0x4ADB0`); `MOHRS_WATCH=<from>-<to>:<addr>:<bytes>,...` sums each dword's changes over a window
-(`MOHRS_SERIES=<addr>:<n>` prints floats every frame of it); `MOHRS_DUMP=<addr>:<bytes>` dumps memory with
+(`MOHRS_SERIES=<addr>:<n>,...` prints floats every frame of it); `MOHRS_DUMP=<addr>:<bytes>` dumps memory with
 `MOHRS_ENTITY_DUMP`. `XBE_MUTE` silences the game's sound output.
 
 `tools/fps_probe.ps1` creates an isolated run folder under `re/fps-probes`, copies the release executables/DLLs

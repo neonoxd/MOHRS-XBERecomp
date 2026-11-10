@@ -47,7 +47,7 @@ struct Image {
 // as CMakePresets.json and CMakeLists.txt compile it for build.bat
 constexpr wchar_t kClangFlags[] =
     L"-target x86_64-pc-windows-msvc -fms-compatibility-version=19.40 -std=c++20 -O2 -march=x86-64-v2 "
-    L"-fno-strict-aliasing -DNDEBUG -DX86_GAME_CODE -nostdinc -nostdinc++ -w";
+    L"-fno-strict-aliasing -DNDEBUG -DX86_GAME_CODE -nostdinc -nostdinc++ -w -gline-tables-only";
 constexpr wchar_t kLinkFlags[] = L"/dll /noentry /nodefaultlib /machine:x64 /opt:noicf";
 constexpr uint64_t kJobMemory = 512ull << 20;  // a compiler's peak on the biggest file is about half of this
 constexpr uint64_t kDiskNeeded = 1ull << 30;    // both images' sources, objects and DLLs, with room to spare
@@ -386,6 +386,8 @@ bool Link(const Target& target, Processes& run) {
     fs::path work = WorkDir(image);
     std::wstring command = Quote(CompilerDir() / "lld-link.exe") + L" " + kLinkFlags + L" /def:exports.def";
     command += L" /implib:code.lib /out:" + Quote(CodeDll(image));
+    // line tables in <exe>_code.pdb beside it: a crash dump names the game functions and lines (<exe>.pdb is the exe's)
+    command += L" /debug /pdb:" + Quote(ExeDir() / (image.exe + L"_code.pdb"));
     command += L" " + Quote(CompilerDir() / (image.exe + L".lib")) + L" x86_func_mapping.obj";
     for (uint32_t i = 0; i < PartitionCount(image); i++) command += L" x86_recomp." + std::to_wstring(i) + L".obj";
     std::wstring dll = CodeDll(image).filename().wstring();

@@ -1,4 +1,4 @@
-// The Direct3D 12 backend on a thread of its own. The title's render thread records each call with what the console
+﻿// The Direct3D 12 backend on a thread of its own. The title's render thread records each call with what the console
 // takes at call time (state changes, resource headers, indices, rects) and goes on; vertex, texture and surface memory
 // are read when the draw runs, as the console's GPU reads them after the call returns. The XDK's fences, busy checks
 // and locks wait for that.
@@ -69,15 +69,12 @@ struct Range {
 size_t At(const State& s, const void* p) { return size_t(static_cast<const uint8_t*>(p) - reinterpret_cast<const uint8_t*>(&s)); }
 std::vector<Range> StateRanges() {
     static const State s;
+    // the small fields between the tracked arrays, compared on every draw
     return {
-        {At(s, &s.rs), At(s, &s.textures) - At(s, &s.rs)},
         {At(s, &s.index_buffer), At(s, &s.vs) - At(s, &s.index_buffer)},
-        {At(s, &s.psc), At(s, &s.rt) - At(s, &s.psc)},
-        {At(s, &s.scissor_count), At(s, &s.transforms) - At(s, &s.scissor_count)},
-        {At(s, &s.transforms[2]), 2 * sizeof(s.transforms[0])},
-        {At(s, &s.transforms[16]), 4 * sizeof(s.transforms[0])},
-        {At(s, &s.transforms[256]), sizeof(s.transforms[0])},
-        {At(s, &s.material), sizeof(State) - At(s, &s.material)},
+        {At(s, &s.viewport), sizeof(s.viewport)},
+        {At(s, &s.scissor_count), sizeof(s.scissor_count)},
+        {At(s, &s.light_enable), sizeof(State) - At(s, &s.light_enable)},
     };
 }
 
@@ -130,11 +127,11 @@ public:
             c.data = Put(indices, size_t(count) * 2);
         }
         cur_->cmds.push_back(c);
-        for (uint32_t tex : s.textures) Use(tex);
-        for (uint32_t pal : s.palettes) Use(pal);
-        for (const auto& st : s.streams) Use(st.vb);
-        Use(s.rt.header);
-        Use(s.zs.header);
+        for (size_t i = 0; i < 4; i++) UseSlot(kSlotTexture + i, s.textures[i]);
+        for (size_t i = 0; i < 4; i++) UseSlot(kSlotPalette + i, s.palettes[i]);
+        for (size_t i = 0; i < s.streams.size(); i++) UseSlot(kSlotStream + i, s.streams[i].vb);
+        UseSlot(kSlotTarget, s.rt.header);
+        UseSlot(kSlotDepth, s.zs.header);
         Written(s.rt);
         if (cur_->cmds.size() >= kBatchCommands) Submit();
         if (diag::Perf()) g_perf_capture_ns.fetch_add(Ns(t), std::memory_order_relaxed);
@@ -227,12 +224,11 @@ public:
     bool FencePending(uint32_t fence) override { return fence > done_.load(); }
     void WaitFence(uint32_t fence) override { Wait(fence, WaitFor::Fence, "fence"); }
     bool Busy(uint32_t resource) override {
-        auto it = last_use_.find(resource);
-        return it != last_use_.end() && it->second > done_.load();
+        uint64_t use = LastUse(resource);
+        return use && use > done_.load();
     }
     void WaitResource(uint32_t resource) override {
-        auto it = last_use_.find(resource);
-        if (it != last_use_.end()) Wait(it->second, WaitFor::Resource, "resource");
+        if (uint64_t use = LastUse(resource)) Wait(use, WaitFor::Resource, "resource");
     }
 
 private:
@@ -282,20 +278,34 @@ private:
 
     // A header as it is now. The console's push buffer takes a texture's format and address, and a surface's or vertex
     // buffer's address, when they are set; the title points the same header elsewhere before the GPU gets there.
-    uint32_t Header(uint32_t header) {
-        if (!header || !ring_) return header;
+    // A header's bytes now, copied into the ring the render thread reads: a binding of a draw keeps the copy it was
+    // given while the header's bytes stay the same (SlotHeader), anything else is copied again. (A map of copies by
+    // header missed its cache on ~11,000 headers in a few frames: two of them were a sixth of the title's thread.)
+    static void Read(uint32_t header, uint8_t (&now)[kHeaderBytes]) {
         // vertex buffer, index buffer and palette headers are 12 bytes: reading 20 can run off the end of the heap
         const uint32_t type = kernel::R32(header) & 0x70000;  // 0 vertex, 0x10000 index, 0x30000 palette
-        uint8_t now[kHeaderBytes] = {};
+        std::memset(now, 0, kHeaderBytes);
         std::memcpy(now, kernel::HostPtr(header), type < 0x20000 || type == 0x30000 ? 12 : kHeaderBytes);
-        Recent<HeaderCopy>& r = recent_headers_[RecentSlot(header)];
-        HeaderCopy& c = r.key == header ? *r.value : headers_[header];
-        r = {header, &c};
-        if (c.made && !std::memcmp(c.bytes, now, kHeaderBytes) && ring_pos_ - c.made < kHeaderRing / 2) return c.at;
-        c.at = Scratch(now, kHeaderBytes);
-        c.made = ring_pos_;
-        std::memcpy(c.bytes, now, kHeaderBytes);
-        return c.at;
+    }
+    uint32_t Header(uint32_t header) {
+        if (!header || !ring_) return header;
+        uint8_t now[kHeaderBytes];
+        Read(header, now);
+        return Scratch(now, kHeaderBytes);
+    }
+    uint32_t SlotHeader(size_t slot, uint32_t header) {
+        if (!header || !ring_) return header;
+        SlotCopy& s = slots_[slot];
+        uint8_t now[kHeaderBytes];
+        Read(header, now);
+        // a copy is renewed after half a ring, long after the render thread read it
+        if (s.header == header && ring_pos_ - s.made < kHeaderRing / 2 && !std::memcmp(s.bytes, now, kHeaderBytes))
+            return s.at;
+        s.header = header;
+        s.made = ring_pos_;
+        s.at = Scratch(now, kHeaderBytes);
+        std::memcpy(s.bytes, now, kHeaderBytes);
+        return s.at;
     }
 
     // a field of the render thread's State, when it differs from what was sent
@@ -328,18 +338,25 @@ private:
         };
         marked(s.simple, sent_.simple);
         marked(s.vsc, sent_.vsc);
+        marked(s.rs, sent_.rs);
+        marked(s.tss, sent_.tss);
+        marked(s.psc, sent_.psc);
+        marked(s.scissors, sent_.scissors);
+        marked(s.transforms, sent_.transforms);
+        marked(s.material, sent_.material);
+        marked(s.lights, sent_.lights);
         std::array<uint32_t, 4> textures;
-        for (size_t i = 0; i < 4; i++) textures[i] = Header(s.textures[i]);
+        for (size_t i = 0; i < 4; i++) textures[i] = SlotHeader(kSlotTexture + i, s.textures[i]);
         Delta(&sent_.textures, &textures, sizeof(textures));
         std::array<uint32_t, 4> palettes;
-        for (size_t i = 0; i < 4; i++) palettes[i] = Header(s.palettes[i]);
+        for (size_t i = 0; i < 4; i++) palettes[i] = SlotHeader(kSlotPalette + i, s.palettes[i]);
         Delta(&sent_.palettes, &palettes, sizeof(palettes));
         auto streams = s.streams;
-        for (auto& st : streams) st.vb = Header(st.vb);
+        for (size_t i = 0; i < streams.size(); i++) streams[i].vb = SlotHeader(kSlotStream + i, streams[i].vb);
         Delta(&sent_.streams, &streams, sizeof(streams));
         Surface rt = s.rt, zs = s.zs;
-        rt.header = Header(rt.header);
-        zs.header = Header(zs.header);
+        rt.header = SlotHeader(kSlotTarget, rt.header);
+        zs.header = SlotHeader(kSlotDepth, zs.header);
         Delta(&sent_.rt, &rt, sizeof(rt));
         Delta(&sent_.zs, &zs, sizeof(zs));
         if (s.vs.get() != sent_.vs.get()) {
@@ -359,11 +376,41 @@ private:
     }
 
     // resources by guest header: the batch that last read them
+    // The resources each batch reads, for the title's rare questions about one (a lock, IsBusy): a list per batch in
+    // flight instead of a map updated on every binding of every draw.
     void Use(uint32_t header) {
+        if (header) CurUses().push_back(header);
+    }
+    void UseSlot(size_t slot, uint32_t header) {
         if (!header) return;
-        Recent<uint64_t>& r = recent_uses_[RecentSlot(header)];
-        if (r.key != header) r = {header, &last_use_[header]};
-        *r.value = cur_->id;
+        SlotUse& r = slot_uses_[slot];
+        if (r.header == header && r.batch == cur_->id) return;  // already listed for this batch
+        r = {header, cur_->id};
+        CurUses().push_back(header);
+    }
+    std::vector<uint32_t>& CurUses() {
+        if (uses_.empty() || uses_.back().id != cur_->id) {
+            // lists of finished batches are reused
+            uint64_t done = done_.load();
+            while (!uses_.empty() && uses_.front().id <= done) {
+                spare_.push_back(std::move(uses_.front().headers));
+                spare_.back().clear();
+                uses_.pop_front();
+            }
+            uses_.push_back({cur_->id, {}});
+            if (!spare_.empty()) {
+                uses_.back().headers = std::move(spare_.back());
+                spare_.pop_back();
+            }
+        }
+        return uses_.back().headers;
+    }
+    // the last batch that read a resource, 0 if none still in flight read it
+    uint64_t LastUse(uint32_t header) {
+        uint64_t done = done_.load();
+        for (auto it = uses_.rbegin(); it != uses_.rend() && it->id > done; ++it)
+            if (std::find(it->headers.begin(), it->headers.end(), header) != it->headers.end()) return it->id;
+        return 0;
     }
     void Written(const Surface& s) {
         if (s.header) written_.insert(mem::VirtualFromPhysical(s.data));
@@ -463,28 +510,31 @@ private:
     std::vector<Range> ranges_;
 
     // the title's thread
-    struct HeaderCopy {
-        uint32_t at = 0;
-        uint64_t made = 0;  // ring_pos_ after it was written
-        uint8_t bytes[kHeaderBytes];
+
+    // a draw's bindings: four textures and palettes, the streams, the render target and depth
+    static constexpr size_t kSlotTexture = 0, kSlotPalette = 4, kSlotStream = 8, kSlotTarget = 24, kSlotDepth = 25,
+                            kSlots = 26;
+    struct SlotCopy {
+        uint32_t header = 0, at = 0;
+        uint64_t made = 0;
+        uint8_t bytes[kHeaderBytes] = {};
     };
-    std::unordered_map<uint32_t, HeaderCopy> headers_;
-    // the last few lookups, in front of the maps (their elements stay put)
-    template <typename T>
-    struct Recent {
-        uint32_t key = 0;
-        T* value = nullptr;
+    std::array<SlotCopy, kSlots> slots_{};
+    struct SlotUse {
+        uint32_t header = 0;
+        uint64_t batch = 0;
     };
-    // a frame binds a few hundred headers: enough slots that they rarely evict each other
-    static constexpr uint32_t kRecentBits = 10;
-    static uint32_t RecentSlot(uint32_t header) { return (header * 0x9E3779B1u) >> (32 - kRecentBits); }
-    std::array<Recent<HeaderCopy>, 1u << kRecentBits> recent_headers_{};
-    std::array<Recent<uint64_t>, 1u << kRecentBits> recent_uses_{};
+    std::array<SlotUse, kSlots> slot_uses_{};
     uint32_t ring_ = 0;
     uint64_t ring_pos_ = 0;
     Batch* cur_ = nullptr;
     State sent_;  // the state as the render thread will have it
-    std::unordered_map<uint32_t, uint64_t> last_use_;
+    struct UseList {
+        uint64_t id = 0;
+        std::vector<uint32_t> headers;
+    };
+    std::deque<UseList> uses_;
+    std::vector<std::vector<uint32_t>> spare_;
     std::unordered_set<uint32_t> written_;  // surfaces drawn since their last read-back, by data address
     std::unordered_set<uint64_t> logged_;   // perf diagnostic: read-backs named once, by address and kind
     uint64_t next_id_ = 0, last_present_ = 0;

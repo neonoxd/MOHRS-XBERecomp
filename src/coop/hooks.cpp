@@ -9,6 +9,7 @@
 #include "common/test_hooks.h"
 #include "common/widescreen.h"
 #include "kernel/kernel.h"
+#include "xdk/d3d8.h"
 #include "xdk/hle.h"
 
 using kernel::R32;
@@ -31,6 +32,26 @@ X86_EXTERN_FUNC(__imp__sub_000F35D0);
 X86_FUNC(sub_000F35D0) {
     if (game::EntityStep(ctx)) __imp__sub_000F35D0(ctx, base);
     else kernel::Return(ctx, ctx.eax, 1);
+}
+
+// the player's view shake and recoil update, default.xbe's 0xD6700: at the console's 30 Hz in the 60 FPS and
+// unlocked modes
+X86_EXTERN_FUNC(__imp__sub_000CB440);
+X86_FUNC(sub_000CB440) {
+    if (game::ShakeFrame(ctx)) __imp__sub_000CB440(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 3);
+}
+
+// the game's vertex helper, stdcall (position, color): SetVertexDataColor(3) and
+// SetVertexData4f(-1), one call each per vertex of every effect (38 callers); here the values go to the primitive
+// directly (docs/performance.md)
+X86_FUNC(sub_001776C0) {
+    (void)base;
+    uint32_t pos = kernel::R32(ctx.esp + 4), color = kernel::R32(ctx.esp + 8);
+    d3d::ImmediateColor(3, kernel::R32(color));
+    float v[4] = {kernel::G<float>(pos), kernel::G<float>(pos + 4), kernel::G<float>(pos + 8), kernel::G<float>(pos + 12)};
+    d3d::ImmediateData(0, v);
+    kernel::Return(ctx, ctx.eax, 2);
 }
 
 // the game state's SetCurrentLevel(mission, level), which the boot calls at 0x125E3 and 0x125FD
@@ -92,6 +113,21 @@ void ResetPopupAnimation(X86Context&, uint8_t*) { game::ResetPopupAnimation(); }
 void PopupAnimation(X86Context& ctx, uint8_t*) { game::PopupAnimation(ctx); }
 // [[hook]] 0x625B4, the animation event scan's loop wrap branch; true goes to its forward scan at 0x6254D
 bool AnimEventFirstScan(X86Context& ctx, uint8_t*) { return game::AnimEventFirstScan(ctx); }
+// [[hook]] 0xD75F5, a mounted gun's firing kick; true goes past it to 0xD7848. Its seat oscillator steps at 0xD774D
+// (step at player +0xE7C), the shared one at 0xD77BC (step in XMM2)
+bool MountedKick(X86Context& ctx, uint8_t*) { return game::MountedKickSkip(ctx); }
+void MountedKickSeatStep(X86Context& ctx, uint8_t*) { game::MountedKickStep(ctx, kernel::G<float>(ctx.esi + 0xE7C)); }
+void MountedKickStep(X86Context& ctx, uint8_t*) { game::MountedKickStep(ctx, ctx.xmm[2].f[0]); }
+// [[hook]]s after keep = 1 - drag in the particle updates: 0x9C156 (keep XMM7, seconds XMM3), 0xA06E0 (XMM1, XMM0)
+void ParticleDragTimed(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[7].f[0], ctx.xmm[3].f[0]); }
+void ParticleDragPooled(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[1].f[0], ctx.xmm[0].f[0]); }
+
+// a weapon's muzzle puff, fastcall (weapon): at most once per console frame above 30 FPS (docs/frame-timing.md)
+X86_EXTERN_FUNC(__imp__sub_000DAE10);
+X86_FUNC(sub_000DAE10) {
+    if (game::MuzzlePuffFrame(ctx.ecx)) __imp__sub_000DAE10(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 0);
+}
 
 // PC Options in the options menus (src/common/options_menu.h), the bytes of default.xbe's: SetText 0x131D10 (0x138A40),
 // RunScript 0x131600 (0x138330), the menu sound 0x11DC90 (0x123C10)

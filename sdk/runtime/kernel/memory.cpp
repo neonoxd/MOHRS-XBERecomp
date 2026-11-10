@@ -75,6 +75,21 @@ bool Init() {
 // page commit map, one byte per 4 KB page
 static std::vector<uint8_t> g_committed(0x100000, 0);
 
+std::vector<std::pair<uint32_t, uint32_t>> CommittedRanges() {
+    // a crash may come with the lock held: the map is read as it is
+    std::vector<std::pair<uint32_t, uint32_t>> out{{kContiguousBase, kPhysicalSize}};
+    for (size_t page = 0; page < g_committed.size();) {
+        if (!g_committed[page]) {
+            page++;
+            continue;
+        }
+        size_t first = page;
+        while (page < g_committed.size() && g_committed[page]) page++;
+        out.push_back({uint32_t(first << 12), uint32_t((page - first) << 12)});
+    }
+    return out;
+}
+
 bool Commit(uint32_t va, uint32_t size) {
     if (!size || InPhysical(va)) return true;
     uint32_t first = va & ~(kPage - 1);

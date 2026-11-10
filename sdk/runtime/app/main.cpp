@@ -12,7 +12,10 @@
 #include <algorithm>
 #include <chrono>
 #include <csignal>
+#include <cstdio>
+#include <cstring>
 #include <cwchar>
+#include <string>
 #include <thread>
 
 #include <imgui.h>
@@ -24,6 +27,7 @@
 #include "gpu/backend.h"
 #include "image_symbols.h"
 #include "kernel/kernel.h"
+#include "kernel/memory.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -36,17 +40,109 @@ constexpr UINT kApplyDisplay = WM_APP + 1, kOpenWindow = WM_APP + 2;
 bool g_mode_changed = false;
 bool g_apply_posted = false;  // a display apply is waiting in the queue or running
 
+// A host code address as module!symbol+offset. The game code DLL has no symbols in a release, but it exports each
+// recompiled function as __imp__sub_<guest address>: the nearest export below names the game function.
+std::string HostFrame(DWORD64 pc) {
+    HMODULE module = nullptr;
+    char text[512];
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            reinterpret_cast<LPCWSTR>(pc), &module)) {
+        std::snprintf(text, sizeof text, "%016llX", (unsigned long long)pc);
+        return text;
+    }
+    char path[MAX_PATH] = {};
+    GetModuleFileNameA(module, path, MAX_PATH);
+    const char* name = std::strrchr(path, '\\') ? std::strrchr(path, '\\') + 1 : path;
+    auto* base = reinterpret_cast<const uint8_t*>(module);
+    uint64_t rva = pc - reinterpret_cast<DWORD64>(module);
+    auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(base);
+    auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(base + dos->e_lfanew);
+    const IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+    if (dir.Size && module != GetModuleHandleW(nullptr)) {
+        auto* ex = reinterpret_cast<const IMAGE_EXPORT_DIRECTORY*>(base + dir.VirtualAddress);
+        auto* names = reinterpret_cast<const DWORD*>(base + ex->AddressOfNames);
+        auto* ordinals = reinterpret_cast<const WORD*>(base + ex->AddressOfNameOrdinals);
+        auto* functions = reinterpret_cast<const DWORD*>(base + ex->AddressOfFunctions);
+        const char* best = nullptr;
+        DWORD best_rva = 0;
+        for (DWORD i = 0; i < ex->NumberOfNames; i++) {
+            DWORD f = functions[ordinals[i]];
+            if (f <= rva && f >= best_rva && std::strncmp(reinterpret_cast<const char*>(base + names[i]), "__imp__sub_", 11) == 0) {
+                best_rva = f;
+                best = reinterpret_cast<const char*>(base + names[i]);
+            }
+        }
+        if (best) {
+            std::snprintf(text, sizeof text, "%s!%s+0x%llX (game code %s)", name, best, (unsigned long long)(rva - best_rva), best + 11);
+            return text;
+        }
+    }
+    char buf[sizeof(SYMBOL_INFO) + 256] = {};
+    auto* sym = reinterpret_cast<SYMBOL_INFO*>(buf);
+    sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+    sym->MaxNameLen = 255;
+    DWORD64 disp = 0;
+    if (SymFromAddr(GetCurrentProcess(), pc, &disp, sym))
+        std::snprintf(text, sizeof text, "%s!%s+0x%llX", name, sym->Name, (unsigned long long)disp);
+    else
+        std::snprintf(text, sizeof text, "%s+0x%llX", name, (unsigned long long)rva);
+    return text;
+}
+
+// the host call stack of a crash, from its context
+void LogHostStack(const CONTEXT& at) {
+    static bool symbols = SymInitialize(GetCurrentProcess(), nullptr, TRUE);
+    (void)symbols;
+    CONTEXT c = at;
+    for (int i = 0; i < 32 && c.Rip; i++) {
+        LOGE("  host %2d %s", i, HostFrame(c.Rip).c_str());
+        DWORD64 image = 0;
+        PRUNTIME_FUNCTION f = RtlLookupFunctionEntry(c.Rip, &image, nullptr);
+        if (!f) {  // a leaf function: its return address is on top of the stack
+            c.Rip = *reinterpret_cast<DWORD64*>(c.Rsp);
+            c.Rsp += 8;
+            continue;
+        }
+        void* handler = nullptr;
+        DWORD64 frame = 0;
+        RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, c.Rip, f, &c, &handler, &frame, nullptr);
+    }
+}
+
+// the guest's committed memory for the dump, added range by range
+struct DumpRanges {
+    std::vector<std::pair<uint32_t, uint32_t>> ranges;
+    size_t next = 0;
+};
+BOOL CALLBACK AddGuestMemory(PVOID param, const PMINIDUMP_CALLBACK_INPUT in, PMINIDUMP_CALLBACK_OUTPUT out) {
+    auto* d = static_cast<DumpRanges*>(param);
+    if (!in || !out) return TRUE;
+    if (in->CallbackType != MemoryCallback) return TRUE;
+    if (d->next >= d->ranges.size()) {
+        out->MemorySize = 0;
+        return FALSE;
+    }
+    auto [va, size] = d->ranges[d->next++];
+    out->MemoryBase = reinterpret_cast<ULONG64>(kernel::g_base) + va;
+    out->MemorySize = size;
+    return TRUE;
+}
+
 // crash dump in CrashDumps beside the exe
 LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
-    // the dump holds no guest memory: the guest registers and return addresses go to the log
+    // the log gets both call stacks; the dump also holds the guest's memory (tools/crash_report.ps1 reads it)
     if (kernel::Thread* t = kernel::Current(); e && t && t->ctx) {
         auto* r = e->ExceptionRecord;
         LOGE("exception %08lX at %p on guest thread %X", r->ExceptionCode, r->ExceptionAddress, t->id);
         if (r->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && r->NumberParameters >= 2) {
             uint64_t va = r->ExceptionInformation[1], g = uint64_t(reinterpret_cast<uintptr_t>(kernel::g_base));
-            LOGE("  %s %llX, guest %08llX", r->ExceptionInformation[0] ? "write" : "read", (unsigned long long)va,
-                 (unsigned long long)(va - g));
+            if (va >= g && va - g < (1ull << 32))
+                LOGE("  %s %llX, guest %08llX", r->ExceptionInformation[0] ? "write" : "read", (unsigned long long)va,
+                     (unsigned long long)(va - g));
+            else
+                LOGE("  %s %llX, outside guest memory", r->ExceptionInformation[0] ? "write" : "read", (unsigned long long)va);
         }
+        if (e->ContextRecord) LogHostStack(*e->ContextRecord);
         kernel::LogGuestStack(*t->ctx, 256);
     }
     auto dir = ExeDir() / "CrashDumps";
@@ -57,13 +153,25 @@ LONG WINAPI WriteCrashDump(EXCEPTION_POINTERS* e) {
     swprintf(name, 64, L"%ls.%04u.%02u.%02u_%02u.%02u.%02u.dmp", kGame.name, t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute,
              t.wSecond);
     HANDLE f = CreateFileW((dir / name).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    logx::Flush();
     if (f == INVALID_HANDLE_VALUE) return EXCEPTION_CONTINUE_SEARCH;
     MINIDUMP_EXCEPTION_INFORMATION info{GetCurrentThreadId(), e, FALSE};
+    // where the guest is, for the report: its memory at base + guest address, the crashed thread's registers
+    char comment[256];
+    kernel::Thread* crashed = kernel::Current();
+    std::snprintf(comment, sizeof comment, "guest base %p; guest thread %X, X86Context at %p", static_cast<void*>(kernel::g_base),
+                  crashed ? crashed->id : 0, crashed ? static_cast<void*>(crashed->ctx) : nullptr);
+    MINIDUMP_USER_STREAM stream{CommentStreamA, ULONG(std::strlen(comment) + 1), comment};
+    MINIDUMP_USER_STREAM_INFORMATION streams{1, &stream};
+    DumpRanges guest;
+    if (kernel::g_base) guest.ranges = mem::CommittedRanges();
+    MINIDUMP_CALLBACK_INFORMATION callback{AddGuestMemory, &guest};
     MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), f,
                       MINIDUMP_TYPE(MiniDumpWithDataSegs | MiniDumpWithHandleData | MiniDumpWithThreadInfo |
                                     MiniDumpWithUnloadedModules | MiniDumpWithIndirectlyReferencedMemory),
-                      e ? &info : nullptr, nullptr, nullptr);
+                      e ? &info : nullptr, &streams, &callback);
     CloseHandle(f);
+    LOGE("crash dump: %ls, with %zu guest memory ranges", name, guest.ranges.size());
     logx::Flush();
     return EXCEPTION_CONTINUE_SEARCH;
 }

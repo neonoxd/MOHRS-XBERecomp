@@ -1,5 +1,7 @@
 #include "common/quick_save.h"
 
+#include "gpu/backend.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -45,10 +47,11 @@ const char* Explain(snapshot::Result r, bool load) {
     return "";
 }
 
-// MOHRS_QUICKSAVE_PROBE="12:save,20:load,30:load": seconds after the first gameplay frame, for runs without input
+// MOHRS_QUICKSAVE_PROBE="12:save,20:load,30:load": seconds after the first gameplay frame, for runs without input;
+// "21:capture" captures a frame (XBE_CAPTURE_DIR) at a time measured from the same moment as the load
 struct Step {
     double at;
-    bool load;
+    char what;  // s save, l load, c capture
 };
 
 std::vector<Step> ProbeSteps() {
@@ -59,7 +62,7 @@ std::vector<Step> ProbeSteps() {
         char what[8] = {};
         int used = 0;
         if (std::sscanf(p, " %lf:%7[a-z]%n", &at, what, &used) != 2) break;
-        out.push_back({at, std::string(what) == "load"});
+        out.push_back({at, what[0]});
         p += used;
         if (*p == ',') p++;
     }
@@ -79,7 +82,8 @@ void QuickSaveFrame(X86Context& ctx, const void* site) {
     save_held = save_now;
     load_held = load_now;
     if (!steps.empty() && std::chrono::duration<double>(Clock::now() - first).count() >= steps.front().at) {
-        (steps.front().load ? load : save) = true;
+        if (steps.front().what == 'c') gpu::g_capture = true;
+        else (steps.front().what == 'l' ? load : save) = true;
         steps.erase(steps.begin());
     }
     // a load waits, a frame at a time, until the game's other threads are parked where they were at the save

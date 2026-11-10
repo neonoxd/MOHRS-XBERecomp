@@ -16,8 +16,9 @@ param(
     [ValidatePattern('^[A-Za-z0-9_-]+$')][string]$Build = "release",
     # a normal window, for tools/screenshot.ps1 (it brings the window to the front)
     [switch]$Visible,
-    # quick saves and loads at seconds after the first gameplay frame, as "15:save,25:load" (docs/quick-save.md)
-    [ValidatePattern('^$|^[0-9.]+:(save|load)(,[0-9.]+:(save|load))*$')][string]$QuickSave = "",
+    # quick saves, loads and frame captures (XBE_CAPTURE_DIR) at seconds after the first gameplay frame, as
+    # "15:save,25:load,30:capture" (docs/quick-save.md)
+    [ValidatePattern('^$|^[0-9.]+:(save|load|capture)(,[0-9.]+:(save|load|capture))*$')][string]$QuickSave = "",
     # an earlier probe's folder: its quicksave\ is copied in, so this run can load what that one saved
     [string]$QuickSaveFrom = "",
     # the original 30 FPS mode instead of the 60 FPS one (without -Unlocked)
@@ -29,7 +30,11 @@ param(
     # load a quick save made by another build of the executable (XBE_SNAPSHOT_ANY_BUILD)
     [switch]$AnyBuild,
     # game sound on (XBE_MUTE is set otherwise)
-    [switch]$Sound
+    [switch]$Sound,
+    # play cutscenes (skipped otherwise)
+    [switch]$Cutscenes,
+    # copy the release folder's profiles (hdd\E\UDATA) in: the game then boots to its menus, ignoring -Level
+    [switch]$Profiles
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot
@@ -50,6 +55,12 @@ foreach ($name in $images) {
     Copy-Item -LiteralPath (Join-Path $root "out\build\$Build\$name") -Destination $dir
 }
 Get-ChildItem -LiteralPath $dir -Filter '*.dll' | ForEach-Object { $_.LastWriteTime = Get-Date }
+if ($Profiles) {
+    $udata = Join-Path $root 'out\build\release\hdd\E\UDATA'
+    if (-not (Test-Path -LiteralPath $udata)) { throw "No profiles to copy: $udata" }
+    New-Item -ItemType Directory -Path (Join-Path $dir 'hdd\E') -Force | Out-Null
+    Copy-Item -LiteralPath $udata -Destination (Join-Path $dir 'hdd\E') -Recurse
+}
 if ($QuickSaveFrom) {
     $saves = Join-Path $QuickSaveFrom 'quicksave'
     if (-not (Test-Path -LiteralPath $saves)) { throw "No quicksave folder in $QuickSaveFrom" }
@@ -68,7 +79,7 @@ unlocked_fps = $flag
 fps_counter = true
 fov = $Fov
 skip_intros = true
-skip_cutscenes = true
+skip_cutscenes = $(if ($Cutscenes) { 'false' } else { 'true' })
 "@ | Set-Content -LiteralPath (Join-Path $dir 'settings.toml') -Encoding ascii
 $oldLevel = $env:MOHRS_START_LEVEL
 $oldTiming = $env:MOHRS_TIMING

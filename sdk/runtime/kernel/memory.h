@@ -1,5 +1,7 @@
 #pragma once
 #include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace mem {
 
@@ -25,6 +27,8 @@ uint8_t* Base();
 bool Commit(uint32_t va, uint32_t size);
 void Decommit(uint32_t va, uint32_t size);
 bool IsCommitted(uint32_t va);
+// every committed guest range, the physical memory first (crash dumps take them)
+std::vector<std::pair<uint32_t, uint32_t>> CommittedRanges();
 
 // user virtual space, NTSTATUS results
 uint32_t AllocateVirtual(uint32_t& base, uint32_t& size, uint32_t type, uint32_t protect);

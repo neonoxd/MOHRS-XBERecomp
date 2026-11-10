@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -159,15 +160,15 @@ struct Surface {
     uint32_t data = 0, format = 0, size = 0;
 };
 
-// An array the title thread writes through set() or edit(), each write marking its 64 byte piece: the render
-// thread's copy (render_thread.cpp) is sent the marked pieces instead of comparing the whole array on every draw.
-// Reads are as std::array's. A new array is all marked.
+// An array the title thread writes through set(), update() or edit(), each write marking the 64 byte pieces of its
+// element: the render thread's copy (render_thread.cpp) is sent the marked pieces instead of comparing the whole array
+// on every draw. Reads are as std::array's. A new array is all marked. Elements of any size: one that straddles pieces
+// is sent whole when either is marked.
 template <typename T, size_t N>
 class Tracked {
 public:
     static constexpr size_t kPiece = 64;
     static constexpr size_t kPieces = (sizeof(T) * N + kPiece - 1) / kPiece;
-    static_assert(kPiece % sizeof(T) == 0, "an element may not straddle two pieces");
 
     const T& operator[](size_t i) const { return v_[i]; }
     const T* data() const { return v_.data(); }
@@ -176,6 +177,10 @@ public:
     void set(size_t i, const T& x) {
         v_[i] = x;
         Mark(i);
+    }
+    // set, marked only when the value differs: for writers that copy everything again on every draw
+    void update(size_t i, const T& x) {
+        if (std::memcmp(&v_[i], &x, sizeof(T))) set(i, x);
     }
     T& edit(size_t i) {
         Mark(i);
@@ -186,7 +191,6 @@ public:
     // f(first element, count) for each run of marked pieces, the marks cleared
     template <typename F>
     void TakeMarked(F&& f) const {
-        constexpr size_t per = kPiece / sizeof(T);
         for (size_t w = 0; w < marks_.size(); w++) {
             uint64_t m = marks_[w];
             marks_[w] = 0;
@@ -194,9 +198,11 @@ public:
                 unsigned b = unsigned(__builtin_ctzll(m));
                 uint64_t rest = m >> b;
                 unsigned len = ~rest ? unsigned(__builtin_ctzll(~rest)) : 64 - b;
-                size_t first = (w * 64 + b) * per;
+                size_t first_piece = w * 64 + b, end_piece = first_piece + len;
+                size_t first = first_piece * kPiece / sizeof(T);
+                size_t end = std::min((end_piece * kPiece + sizeof(T) - 1) / sizeof(T), N);
                 if (first >= N) break;
-                f(first, std::min(size_t(len) * per, N - first));
+                f(first, end - first);
                 if (b + len >= 64) break;
                 m &= ~(((1ull << len) - 1) << b);
             }
@@ -205,8 +211,8 @@ public:
 
 private:
     void Mark(size_t i) const {
-        size_t p = i * sizeof(T) / kPiece;
-        marks_[p >> 6] |= 1ull << (p & 63);
+        size_t p0 = i * sizeof(T) / kPiece, p1 = ((i + 1) * sizeof(T) - 1) / kPiece;
+        for (size_t p = p0; p <= p1; p++) marks_[p >> 6] |= 1ull << (p & 63);
     }
     static constexpr std::array<uint64_t, (kPieces + 63) / 64> AllMarked() {
         std::array<uint64_t, (kPieces + 63) / 64> m{};
@@ -219,8 +225,8 @@ private:
 
 struct State {
     Tracked<uint32_t, 0x800> simple;  // simple render states indexed by method / 4
-    std::array<uint32_t, kRsMax> rs{};     // deferred and complex render states by D3DRS
-    std::array<std::array<uint32_t, kTssCount>, 4> tss{};
+    Tracked<uint32_t, kRsMax> rs;          // deferred and complex render states by D3DRS
+    Tracked<std::array<uint32_t, kTssCount>, 4> tss;
     std::array<uint32_t, 4> textures{};    // guest D3DBaseTexture pointers
     std::array<uint32_t, 4> palettes{};    // guest D3DPalette pointers, the colours of the stage's P8 texture
     struct Stream {
@@ -233,15 +239,15 @@ struct State {
     std::shared_ptr<VertexShader> vs;
     std::shared_ptr<PixelShader> ps;
     Tracked<std::array<float, 4>, 192> vsc;  // hardware order: D3D register + 96
-    std::array<std::array<float, 4>, 16> psc{};
+    Tracked<std::array<float, 4>, 16> psc;
     Viewport viewport;
     Surface rt, zs;
     uint32_t scissor_count = 0;
-    std::array<uint32_t, 4 * 8> scissors{};
+    Tracked<uint32_t, 4 * 8> scissors;
     // fixed function
-    std::array<std::array<float, 16>, 512> transforms{};  // by D3DTRANSFORMSTATETYPE
-    std::array<float, 17> material{};
-    std::array<std::array<uint32_t, 26>, 8> lights{};  // D3DLIGHT8
+    Tracked<std::array<float, 16>, 512> transforms;  // by D3DTRANSFORMSTATETYPE
+    Tracked<float, 17> material;
+    Tracked<std::array<uint32_t, 26>, 8> lights;  // D3DLIGHT8
     uint32_t light_enable = 0;                         // bit per light
     float ss_offset_x = 0, ss_offset_y = 0;
     float zscale = 16777215.0f;  // depth buffer units per 1.0

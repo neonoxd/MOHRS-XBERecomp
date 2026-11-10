@@ -114,8 +114,47 @@ def audit_loader():
     print("default.xbe: the loader worker's slot hook verified")
 
 
+def audit_shake(image, update, offset, callers, ret):
+    # the player's view shake update (thiscall, 3 arguments): push ecx; xorps xmm1,xmm1; push ebp; push esi; mov esi,ecx;
+    # movss xmm0,[esi+rate] (its first shake slot), overridden by ShakeFrame; called on foot and mounted
+    base, data, sections = load(str(ROOT / "assets/xbe" / image))
+    code = bytes.fromhex("510f57c955568bf1f30f1086") + struct.pack("<I", offset)
+    assert data[update - base:update - base + len(code)] == code, f"{image}: shake update prologue"
+    assert data[ret - base:ret - base + 3] == bytes.fromhex("c20c00"), f"{image}: shake update ret 0xc at {ret:X}"
+    found = set()
+    for _, va, size, flags in sections:
+        if not flags & 4:
+            continue
+        for off in range(va - base, va - base + size - 5):
+            if data[off] == 0xE8 and (base + off + 5 + struct.unpack_from("<i", data, off + 1)[0]) & 0xFFFFFFFF == update:
+                found.add(base + off)
+    assert found == set(callers), f"{image}: shake update callers {sorted(hex(c) for c in found)}"
+    source = (ROOT / "src" / ("game" if image == "default.xbe" else "coop") / "hooks.cpp").read_text()
+    assert f"X86_FUNC(sub_{update:08X})" in source and "ShakeFrame" in source, f"{image}: shake update override"
+    print(f"{image}: the view shake update and its {len(callers)} callers verified")
+
+
+def audit_kick(image, config, block, end, steps):
+    # a mounted gun's firing kick in the player update: test byte [esi+0xd46],8 at its start (MountedKick jumps past it
+    # to end), each oscillator step a mulss xmm0,[ebp+8] right before its hook, with the step where the hook reads it
+    base, data, _ = load(str(ROOT / "assets/xbe" / image))
+    text = (ROOT / "config" / config).read_text()
+    assert data[block - base:block - base + 7] == bytes.fromhex("f68646" "0d000008"), f"{image}: kick block start"
+    assert f'at = 0x{block:X}\ncall = "MountedKick"\non_true = 0x{end:X}' in text, f"{image}: MountedKick hook"
+    for at, call, before in steps:
+        code = bytes.fromhex(before + "f30f594508")
+        assert data[at - len(code) - base:at - base] == code, f"{image}: oscillator step before {at:X}"
+        assert f'at = 0x{at:X}\ncall = "{call}"' in text, f"{image}: {call} hook"
+    print(f"{image}: the mounted gun kick block and its {len(steps)} oscillator steps verified")
+
+
 if __name__ == "__main__":
     audit_loader()
+    audit_shake("default.xbe", 0xD6700, 0xD78, (0xDC90C, 0xE0AE9), 0xD6A49)
+    audit_kick("default.xbe", "game.toml", 0xDDA3F, 0xDDC23, [(0xDDB92, "MountedKickStep", "0f28c3")])
+    audit_kick("moh3rdc.xbe", "coop.toml", 0xD75F5, 0xD7848,
+               [(0xD774D, "MountedKickSeatStep", "f30f10867c0e0000"), (0xD77BC, "MountedKickStep", "0f28c2")])
+    audit_shake("moh3rdc.xbe", 0xCB440, 0xD90, (0xD614C, 0xD8A19), 0xCB789)
     audit("default.xbe", "game.toml", 0x13A90, [
         (0x13AAF, "FrameWaitEax", "83f802"), (0x13ACA, "FrameWaitEcx", "83f902"),
         (0xA4C32, "MissionTicks", "506a00"), (0xA4CEC, "MenuTicks", "50"),

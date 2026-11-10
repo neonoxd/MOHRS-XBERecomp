@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <cstdio>
 #include <cstring>
@@ -130,6 +131,81 @@ bool ScriptFrame(X86Context& ctx) {
     dt = float(script_total - script_ran);
     script_ran = script_total;
     return true;
+}
+
+namespace {
+struct ShakeClock {
+    double total = 0, ran = 0;
+    int64_t frames = 0;
+};
+thread_local std::unordered_map<uint32_t, ShakeClock> shakes;  // by player
+}
+
+bool ShakeFrame(X86Context& ctx) {
+    static const bool off = std::getenv("MOHRS_SHAKE_EVERY_FRAME") != nullptr;  // test runs: the old behavior
+    if (off || (!Opt().unlocked_fps && !Opt().fps60)) {
+        shakes.clear();
+        return true;
+    }
+    float& dt = kernel::G<float>(ctx.esp + 12);
+    ShakeClock& c = shakes[ctx.ecx];
+    c.total += std::max(0.0f, dt);
+    // as ScriptFrame: once per two-tick console frame, with all the time since this player's last run
+    auto frame = int64_t(c.total / 2);
+    if (frame <= c.frames) return false;
+    c.frames = frame;
+    dt = float(c.total - c.ran);
+    c.ran = c.total;
+    return true;
+}
+
+namespace {
+struct KickClock {
+    double total = 0;
+    int64_t frames = 0;
+    float run = 0;  // the time of the run in progress
+};
+thread_local std::unordered_map<uint32_t, KickClock> kicks;  // by player
+}
+
+bool MountedKickSkip(const X86Context& ctx) {
+    static const bool off = std::getenv("MOHRS_SHAKE_EVERY_FRAME") != nullptr;
+    if (off || (!Opt().unlocked_fps && !Opt().fps60)) {
+        kicks.clear();
+        return false;
+    }
+    KickClock& c = kicks[ctx.esi];
+    c.total += std::max(0.0f, kernel::G<float>(ctx.ebp + 8));
+    auto frame = int64_t(c.total / 2);
+    if (frame <= c.frames) return true;
+    // whole console frames of two ticks: with a little less the oscillator would miss a flip and the gun drift
+    c.run = float(2 * std::min<int64_t>(frame - c.frames, 4));
+    c.frames = frame;
+    return false;
+}
+
+void MountedKickStep(X86Context& ctx, float step) {
+    auto c = kicks.find(ctx.esi);
+    if (c != kicks.end()) ctx.xmm[0].f[0] = step * c->second.run;
+}
+
+bool MuzzlePuffFrame(uint32_t weapon) {
+    static const bool off = std::getenv("MOHRS_PUFF_EVERY_FRAME") != nullptr;  // test runs: the old behavior
+    if (off || (!Opt().unlocked_fps && !Opt().fps60)) return true;
+    static std::unordered_map<uint32_t, int64_t> last;
+    auto now = std::chrono::steady_clock::now().time_since_epoch();
+    auto frame = int64_t(std::chrono::duration<double>(now).count() * 30);
+    auto it = last.find(weapon);
+    if (it != last.end() && it->second == frame) return false;
+    last[weapon] = frame;
+    return true;
+}
+
+void ParticleDrag(float& keep, float seconds) {
+    static const bool off = std::getenv("MOHRS_PARTICLE_DRAG_EVERY_FRAME") != nullptr;  // test runs: the old behavior
+    if (off || (!Opt().unlocked_fps && !Opt().fps60)) return;
+    if (!(keep > 0) || !(seconds > 0)) return;  // no drag base to scale (a full stop or worse): as the console
+    keep = float(std::pow(double(keep), double(seconds) * 30.0));
 }
 
 void FloorRayWorld(const X86Context& ctx) { floor_world = ctx.edi; }
@@ -327,20 +403,26 @@ void Watch(float delta) {
     }
     frames++;
     ticks += delta;
-    // MOHRS_SERIES=<addr>:<dwords> (hex): those floats every frame of the window
-    static const std::pair<uint32_t, uint32_t> series = [] {
-        const char* v = std::getenv("MOHRS_SERIES");
-        char* end = nullptr;
-        uint32_t at = v ? uint32_t(std::strtoul(v, &end, 16)) : 0;
-        return std::pair<uint32_t, uint32_t>(at, at && *end == ':' ? uint32_t(std::strtoul(end + 1, nullptr, 16)) : 0);
-    }();
-    if (series.second) {
-        std::string values;
-        for (uint32_t i = 0; i < series.second && i < 16; i++) {
-            char s[24];
-            std::snprintf(s, sizeof s, " %.4f", kernel::G<float>(series.first + i * 4));
-            values += s;
+    // MOHRS_SERIES=<addr>:<dwords>[,...] (hex): those floats every frame of the window, up to 16 per range
+    static const std::vector<std::pair<uint32_t, uint32_t>> series = [] {
+        std::vector<std::pair<uint32_t, uint32_t>> out;
+        for (const char* v = std::getenv("MOHRS_SERIES"); v && *v;) {
+            char* end = nullptr;
+            uint32_t at = uint32_t(std::strtoul(v, &end, 16));
+            if (*end != ':') break;
+            out.push_back({at, std::min<uint32_t>(uint32_t(std::strtoul(end + 1, &end, 16)), 16)});
+            v = *end == ',' ? end + 1 : nullptr;
         }
+        return out;
+    }();
+    if (!series.empty()) {
+        std::string values;
+        for (const auto& [at, n] : series)
+            for (uint32_t i = 0; i < n; i++) {
+                char s[24];
+                std::snprintf(s, sizeof s, " %.7g", kernel::G<float>(at + i * 4));
+                values += s;
+            }
         LOGR("series %.4f dt %.3f:%s", now, delta, values.c_str());
     }
     for (Range& r : ranges) {

@@ -90,6 +90,72 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -O2 -Isdk/runtime tests/state_tracked_t
 `tools/fps_probe.ps1 -Build profile` runs another build folder, such as a release configuration with
 `-gline-tables-only` for profiling. `-Visible` shows the window for `tools/screenshot.ps1`.
 
+## Immediate-mode vertices and per-draw headers, 2026-11-08
+
+A quick save on the 1_11 boat turret dropped below 200 FPS at 2560x1440 with a 50% render scale. The title's thread
+was the limit (busy 100%, the render thread 66%). A sampling profile of a release build with line tables showed a
+particle system (`0xB1110`, the spray) taking 41% of it: each quad's four vertices go through the library's vertex
+data calls, `D3DDevice_SetVertexData4f`, `2f` and `Color` (default.xbe `0x1C2210`, `0x1C21D0`, `0x1C2270`), which push
+a method and its values that `Walk` then parsed back one value at a time, copying all 64 attribute floats per vertex,
+and `EndPrimitive` repacked them with a `vector::insert` per slot and vertex.
+
+| Change | Where |
+|---|---|
+| The three vertex data calls are host functions: the attribute goes straight to its immediate-mode slot | `d3d8.cpp` |
+| They take the device lock only to read commands still pending: per call it was a fifth of the thread | `WalkPending` |
+| `EndPrimitive` copies the written slots with one 16-byte copy each | `d3d8.cpp` |
+| Each of a draw's 26 bindings keeps its last header copy, compared before any lookup, and its last use | `render_thread.cpp` |
+
+The game binds about 11,000 distinct buffer headers in a few frames, so the 1,024-slot caches in front of the header
+and use maps missed about five times a draw; most of those bindings repeat from the previous draw, which the
+per-binding copies now catch. The symbols are named in both configs (co-op `0x1BB610`, `0x1BB5D0`, `0x1BB670`).
+
+Same save, 2560x1440 window at 50%, FoV 85, uncapped, `XBE_PERF=1`, mean of the one-second reports after loading,
+the same draws (about 2,140 a frame) and the same pictures at 10, 17 and 27 seconds:
+
+| Scene | Before | After |
+|---|---:|---:|
+| 1_11 boat turret quick save | 180-191 FPS (3 runs) | 232-233 FPS (2 runs) |
+| 1_3 opening, 2560x1440 at 100%, FoV 90 | 557 FPS | 612 FPS |
+
+Not done: `SendState` still compares about 2.5 KB of untracked state per draw (19% of the thread), and the game's
+own code is most of the rest. Profile-guided optimisation of the game code would need a profile runtime in the
+freestanding game DLL, which a release compiles on the player's PC.
+
+## Recording without lookups, compact immediate mode, 2026-11-08 (second save)
+
+A second save on the 1_11 turret, timed with `-NoPerf` (per-draw clocks off), mean of the one-second reports after
+loading, alternating builds: **about 241 FPS before, about 311 after** (+29%), with the same draws and scenes.
+
+| Change | Where | Why |
+|---|---|---|
+| Header copies made per binding without a map: a binding keeps its copy while the header's bytes stay the same | `render_thread.cpp` | ~11,000 distinct headers in a few frames: every map lookup was a cache miss |
+| Resources read per batch kept as a list per batch in flight, searched only for the title's rare busy questions | `render_thread.cpp` | the last-use map was updated on every binding of every draw |
+| Immediate-mode vertices held in their draw layout (only the slots written, ascending), drawn from that buffer | `d3d8.cpp` | particle vertices copied 64 floats each and were packed again |
+| The game's vertex helper (`0x17E4C0`, co-op `0x1776C0`) writes the slots directly | `src/*/hooks.cpp`, `d3d::ImmediateData` | three library calls per vertex |
+| Device references counted inline; a resource bound again where it already is skips the pair | `d3d8.cpp` | each was a call into the guest's InternalAddRef / InternalRelease |
+
+Later in the same round: the device lock is an atomic flag its owner takes again by counting (`d3d::DeviceLock`; `std::recursive_mutex` was 7% of the title's thread), and the render thread remembers its last target lookups, pipeline, sampler and view table, and skips setting the same pipeline, tables, viewport, scissor, blend factor, stencil reference and topology on the command list again (89% to 82% busy). The two together measured about +3% (288 against 280 FPS over the same early seconds), as the title's thread still sets the pace: `SendState`'s compares of the untracked state (19%) and the spray's particle function (`0xB1110`, 33%, its vertex emission included) are the largest parts left.
+
+Before those, the game's thread was 100% busy; the render thread then was (89%), in per-draw work: binding stage textures
+(`BindStageTexturesAndTargets`), vertex assembly, sampler and pixel key hashes, the pipeline key, the constant
+upload and the driver. The next step is reusing those results when consecutive draws leave that state alone.
+Tried and dropped: joining consecutive indexed draws (consecutive draws almost always use another vertex buffer),
+x86-64-v3 for the game code (no change).
+
+## Tracked state, and where both threads stand, 2026-11-08
+
+The rest of the draw state is tracked too (`rs`, `tss`, `psc`, `scissors`, `transforms`, `material`, `lights`):
+`gpu::Tracked` takes elements of any size (one straddling pieces is sent whole), writers mark what they write, the
+per-draw copy of the deferred states marks only values that changed (`update`), and `SendState` compares only the
+few plain fields left. Quick saves keep their layout: the tracked arrays are written as the plain arrays they were,
+under the old size as the layout mark (`kStateLayout`), so earlier files still load.
+
+It measured no faster (294 against 296 FPS), because with the counters on the render thread was busy 2.8 ms of a
+3.1 ms frame and the title's thread never waited: the two threads are now about even, and halving one alone hardly
+shows. The render thread's per-draw work is vertex assembly and upload (0.55 ms a frame), stage texture binding
+(0.62 ms) and the rest of the draw (keys, constants, the driver, about 1.4 ms).
+
 ## Reproduce
 
 Ask before launching probes while the user may be using the PC. The script creates isolated settings and saves,
