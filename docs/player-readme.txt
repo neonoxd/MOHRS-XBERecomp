@@ -75,6 +75,7 @@ Everything is also in settings.toml beside the executable, written on the first 
   walk_speed = 50               percent of running speed while Walk is held
   width / height                output resolution, 0 for the desktop's
   anisotropic_filtering         0 as the game asks, else a level such as 16
+  check_game_hash = true        false starts a release the build does not recognize without asking each time
 
 Unlocked frame rates above 60 FPS are new; if something behaves differently from the console, compare with
 Frame Rate at 60 FPS and please report it.

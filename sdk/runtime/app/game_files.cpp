@@ -131,10 +131,18 @@ bool FindGame(GameFiles& game) {
         MessageBoxW(nullptr, kGame.missing, kGame.short_title, MB_ICONERROR);
         return false;
     }
-    std::wstring text = other_name.filename().wstring() +
-                        L" is a different release of the game than this build was made from, and will most likely "
-                        L"crash.\n\nStart it anyway?";
-    if (MessageBoxW(nullptr, text.c_str(), kGame.short_title, MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) != IDYES) return false;
+    // check_game_hash = false: the player knows, and a title launch (a process restart) would ask every time
+    if (!Get().check_game_hash) {
+        LOGW("Game: %s is another release, started without asking (check_game_hash = false)",
+             other_name.string().c_str());
+    } else {
+        std::wstring text = other_name.filename().wstring() +
+                            L" is a different release of the game than this build was made from, and will most likely "
+                            L"crash.\n\nStart it anyway?\n\n(check_game_hash = false in settings.toml starts it "
+                            L"without asking.)";
+        if (MessageBoxW(nullptr, text.c_str(), kGame.short_title, MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) != IDYES)
+            return false;
+    }
     game = std::move(other);
     kernel::MountDisc(std::move(other_disc));
     return true;

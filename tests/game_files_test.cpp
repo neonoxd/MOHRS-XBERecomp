@@ -44,6 +44,10 @@ const app::GameInfo app::kGame = {
     },
 };
 std::filesystem::path app::ExeDir() { return exe_dir; }
+app::Settings& app::Get() {
+    static Settings s;
+    return s;
+}
 void logx::Write(Level, const char*, ...) {}
 
 namespace {
@@ -144,6 +148,13 @@ int main() {
     Check(!app::FindGame(game) && messages == 1 && (message_flags & MB_ICONWARNING), "unknown release retains warning and rejection");
     reply = IDYES;
     Check(app::FindGame(game) && messages == 2 && kernel::MountedDisc(), "unknown release can still be explicitly accepted");
+    kernel::MountDisc(nullptr);
+
+    assets = Begin("unknown-unchecked");
+    WriteIso(assets / "unknown.iso", "unknown");
+    app::Get().check_game_hash = false;
+    Check(app::FindGame(game) && messages == 0 && kernel::MountedDisc(), "check_game_hash = false starts it unasked");
+    app::Get().check_game_hash = true;
     kernel::MountDisc(nullptr);
     std::puts("game files: supported releases, exact-hash priority, disc pairing and unknown-release checks passed");
 }

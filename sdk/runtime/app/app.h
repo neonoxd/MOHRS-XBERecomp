@@ -30,6 +30,7 @@ struct Settings {
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
+    bool check_game_hash = true;           // false: a release the build does not know starts without asking
 };
 
 Settings& Get();
