@@ -14,16 +14,16 @@ libraries run as host code, graphics go through Direct3D 12 and audio through XA
 
 Single-player and co-op boot and run with graphics, audio, saves, controller and keyboard/mouse support.
 KBM and the first controller share player 1 in singleplayer. Co-op and split-screen multiplayer setup give KBM
-and controllers separate inputs automatically; see [controller routing](docs/controller-routing.md).
+and controllers separate inputs automatically; see [input](docs/input.md).
 Widescreen and 60 FPS are implemented. An experimental mode above 60 FPS uses elapsed-time updates;
 see [frame timing and settings](docs/frame-timing.md). The game uses XDK 5455, supported by this repo's SDK.
 Adjustable [field of view](docs/fov.md) is available through `fov` in `settings.toml` (70 is the original view).
-See [performance measurements](docs/performance.md) for the packed-vertex optimization and benchmark commands.
+See [renderer performance](docs/performance.md) for the optimizations and benchmark commands.
 Display, frame rate, field of view and mouse settings can also be changed in the game's own menus under
-[PC Options](docs/pc-options.md), in Options and in the pause screen's Preferences.
-The [menu mouse adapter](docs/menu-mouse.md) adds hover/click navigation, settings arrows and wheel control, and
-clickable pause headings alongside keyboard and controller input.
+[PC Options](docs/menus.md), in Options and in the pause screen's Preferences. Menus also take hover/click
+navigation, settings arrows and wheel control, and clickable pause headings.
 For testing, F5 and F9 [quick save and load](docs/quick-save.md) the whole machine in single player.
+Crash dumps, probe scripts and diagnostic switches are in [debugging](docs/debugging.md).
 See [docs/PLAN.md](docs/PLAN.md) for the milestones.
 
 ## Repository layout

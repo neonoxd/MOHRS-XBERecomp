@@ -294,7 +294,7 @@ XPP_MemoryUnitType          = 0x1D1678
 at = 0xD8A1E
 call = "MouseLook"
 
-# Mounted guns use a separate update and co-op player offsets (docs/mouse-look.md).
+# Mounted guns use a separate update and co-op player offsets (docs/input.md).
 [[hook]]
 at = 0xD6151
 call = "TurretLook"

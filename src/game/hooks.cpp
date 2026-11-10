@@ -14,7 +14,7 @@
 
 using kernel::R32;
 
-// Publish the native shell/game mode before this frame's XInput reads (docs/controller-routing.md).
+// Publish the native shell/game mode before this frame's XInput reads (docs/input.md).
 X86_EXTERN_FUNC(__imp__sub_001616C0);
 X86_FUNC(sub_001616C0) {
     game::UpdateControllerMode({0x2463B1, 0x242435, 0x242436, 0x20EDB0, 0x20EDB1});
@@ -220,7 +220,7 @@ X86_FUNC(sub_00120F00) { game::MenuScreen(ctx, base, __imp__sub_00120F00); }
 X86_EXTERN_FUNC(__imp__sub_0012A620);
 X86_FUNC(sub_0012A620) { game::MenuEvent(ctx, base, __imp__sub_0012A620, kMenuCalls); }
 
-// FEng menu pointer adapter; actual text/sprite draws supply the clickable geometry (docs/menu-mouse.md).
+// FEng menu pointer adapter; actual text/sprite draws supply the clickable geometry (docs/menus.md).
 constexpr game::MenuMouseCalls kMouseMenu = {
     0x96900, 0x93260, 0x958D0, 0x162B20, 0x88630,
     0x1FC680, 0x1FC684, 0x246450, 0x246454, 0x246424, 0x246420, 0x271188};

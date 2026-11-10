@@ -78,7 +78,7 @@ bool Readable(uint32_t va, uint32_t size = 4) {
 }
 
 uint32_t KeyboardMask(const MenuMouseCalls& calls) {
-    // FEng masks address logical players, while KBM is always guest port 0 (docs/controller-routing.md).
+    // FEng masks address logical players, while KBM is always guest port 0 (docs/input.md).
     if (!Readable(calls.input_manager, 0x23E1)) return 0;
     uint32_t count = std::min(uint32_t(G<uint8_t>(calls.input_manager + 0x23E0)), 4u);
     for (uint32_t i = 0; i < count; i++)

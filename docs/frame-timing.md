@@ -1,214 +1,185 @@
-# Frame timing and FPS above 60
+# Frame timing: 60 FPS and unlocked
 
-The optional `unlocked_fps` setting removes the game's vertical-blank wait and supplies elapsed time to its
-existing floating-point update path. It is experimental and defaults to false. Both single-player and co-op
-have the hooks. The existing 30/60 FPS modes remain available.
-
-In `settings.toml` beside the executable, before any `[keys]` table:
+`settings.toml`, before any `[keys]` table:
 
 ```toml
-unlocked_fps = true
-fps_cap = 144
+unlocked_fps = true   # experimental, default false; takes precedence over fps60
+fps60 = true          # when unlocked_fps is false: the 60 FPS patch; false is the original two-blank wait
+fps_cap = 144         # 0 = no cap below 2400 (app::kMaxFps), 1 = monitor refresh minus three
 vsync = false
 fps_counter = true
 ```
 
-`fps_cap = 0` removes the host cap down to 2400 FPS, the most any cap allows (`app::kMaxFps`); `1` uses the
-monitor's refresh rate minus three. Above 3,840 FPS a frame is shorter than the entity manager's smallest physics
-step (1/64 tick, `0xFAB00`), which then only runs zero-length steps; the 2400 ceiling keeps every run below it. With vsync enabled the
-display can still limit presentation. `unlocked_fps` takes precedence over `fps60`; when it is false,
-`fps60 = true` gives the tested 60 FPS patch and `fps60 = false` restores the original two-blank wait.
+The 2400 FPS ceiling keeps frames longer than the entity manager's smallest step (1/64 tick, about 3,840 FPS).
+Both executables have every hook below. The original 30 FPS mode runs unchanged guest code for all of them.
 
-## Executable evidence
+## Mechanism
 
-The engine attribution is unverified. No Unreal-specific setting is used by this implementation. The local XBE
-has no readable strings matching Unreal/UObject, MaxFPS or DeltaTime; this alone does not identify its engine.
+The game already has a float delta path. Frame end (`0x13A90`) returns the whole vertical blanks passed (minimum 1);
+each of its nine callers (gameplay, loading, front end, shutdown) converts that with `cvtsi2ss xmm0,eax`, multiplies
+it by the PAL/NTSC scale and stores the global float delta. One tick is 1/60 s.
 
-The handover's earlier inference that interpolation is required was too strong. There is a float delta path:
+- `FrameDelta` runs after the conversion on all nine paths and replaces XMM0 with steady-clock elapsed seconds
+  times 60. The first delta is one tick; a stall is capped at six ticks (the entity manager's maximum) and the rest
+  is dropped, not caught up.
+- `FrameWait` lets zero blanks pass in unlocked mode. The SDK still raises 60 Hz vertical blank callbacks, so console
+  time is unchanged. Presentation uses the SDK's `fps_cap`/vsync.
+
+The main update passes float deltas to entities, animations, camera, fades and player turning, and the entity
+manager subdivides deltas above one tick. Everything below is a system that counted frames or whole ticks instead.
+Render frame counters are left alone: some readers use their parity to spread work across frames. Each remainder is
+advanced once at its conversion site, not per entity.
+
+## Addresses
 
 | Operation | default.xbe | moh3rdc.xbe |
 |---|---:|---:|
-| Frame end, returns whole vertical blanks passed, minimum 1 | 0x13A90 | 0x13AE0 |
-| Wait compares against 2, EAX / ECX | 0x13AAF / 0x13ACA | 0x13AFF / 0x13B1A |
-| Main gameplay frame | 0xA4A90 | 0x98A40 |
-| Global float frame delta | 0x1FF528 | 0x1F7648 |
-| PAL/NTSC delta multiplier, initially 1 | 0x1FC678 | 0x1F54D8 |
-| Player look update, float delta at EBP+8 | 0xE0A50 | 0xD8980 |
-| Integer mission timer conversion, hook before PUSH EAX | 0xA4C32 | 0x98C88 |
-| Integer UI delta conversion, hook before PUSH EAX | 0xA4CEC | 0x98D94 |
-| In-game menu units (0x11DD20 / 0x118150), hook before PUSH EAX | 0x11DDCB | 0x11823D |
-| In-game menu modal loop units (end-of-mission screens), hook before PUSH EAX | 0x11DC48 | 0x118078 |
-| Save/profile popup units (0xF68A0 / 0xEF2C0), hook before PUSH EAX | 0xF68D6 | 0xEF2F6 |
-| Entity delayed-message delta, hook before SUBSS XMM0,XMM3 | 0xFABB4 | 0xF3684 |
-| Loading animation initialization, resets phase | 0xFC9FD | 0xF550D |
-| Loading animation float phase, hook after CVTSI2SS | 0xFD3DC | 0xF5EEC |
-| Profile/save popup animation initialization | 0xF6B74 | 0xEF594 |
-| Profile/save popup float phase, hook after CVTSI2SS | 0xF6C5A | 0xEF67A |
-| Soldier brain goal ticks, hook after CVTTSS2SI | 0x197C6 | 0x19056 |
-| Threat memory decay, hook after the 0.01 load | 0x223A8 | 0x21F58 |
-| Player floor ray: collision world before the cast | 0xDAC19 | 0xD1581 |
-| Player floor ray result, hook at cmp edi, 1 | 0xDAC2A | 0xD1592 |
-| Script system frame update, function override | 0x4C0F0 | 0x4F220 |
-| Entity manager update, function override | 0xFAB00 | 0xF35D0 |
-| Player view shake and recoil update, function override | 0xD6700 | 0xCB440 |
-| Mounted gun firing kick block, skip hook to its end | 0xDDA3F -> 0xDDC23 | 0xD75F5 -> 0xD7848 |
-| Its oscillator steps (time), hook after MULSS by [EBP+8] | 0xDDB92 | 0xD774D, 0xD77BC |
-| Animation event scan | 0x6FA30 | 0x62470 |
-| Its loop wrap branch, hook jumping to the forward scan | 0x6FB74 -> 0x6FB0D | 0x625B4 -> 0x6254D |
-| Timed particle update (0xA7ED0 / 0x9C110), hook after keep = 1 - drag | 0xA7F16 | 0x9C156 |
-| Pooled particle update (0xABD10 / 0xA0690), hook after keep = 1 - drag | 0xABD70 | 0xA06E0 |
-| Weapon muzzle puff spawn, function override | 0xE2CF0 | 0xDAE10 |
+| Frame end, returns whole vertical blanks passed, minimum 1 | `0x13A90` | `0x13AE0` |
+| Wait compares against 2, EAX / ECX | `0x13AAF` / `0x13ACA` | `0x13AFF` / `0x13B1A` |
+| Main gameplay frame | `0xA4A90` | `0x98A40` |
+| Global float frame delta | `0x1FF528` | `0x1F7648` |
+| PAL/NTSC delta multiplier, initially 1 | `0x1FC678` | `0x1F54D8` |
+| Player look update, float delta at EBP+8 | `0xE0A50` | `0xD8980` |
+| Integer mission timer conversion, hook before PUSH EAX | `0xA4C32` | `0x98C88` |
+| Integer UI delta conversion, hook before PUSH EAX | `0xA4CEC` | `0x98D94` |
+| In-game menu units (`0x11DD20` / `0x118150`), hook before PUSH EAX | `0x11DDCB` | `0x11823D` |
+| In-game menu modal loop units (end-of-mission screens), hook before PUSH EAX | `0x11DC48` | `0x118078` |
+| Save/profile popup units (`0xF68A0` / `0xEF2C0`), hook before PUSH EAX | `0xF68D6` | `0xEF2F6` |
+| Entity delayed-message delta, hook before SUBSS XMM0,XMM3 | `0xFABB4` | `0xF3684` |
+| Loading animation initialisation, resets phase | `0xFC9FD` | `0xF550D` |
+| Loading animation float phase, hook after CVTSI2SS | `0xFD3DC` | `0xF5EEC` |
+| Profile/save popup animation initialisation | `0xF6B74` | `0xEF594` |
+| Profile/save popup float phase, hook after CVTSI2SS | `0xF6C5A` | `0xEF67A` |
+| Soldier brain goal ticks, hook after CVTTSS2SI | `0x197C6` | `0x19056` |
+| Threat memory decay, hook after the 0.01 load | `0x223A8` | `0x21F58` |
+| Player floor ray: collision world before the cast | `0xDAC19` | `0xD1581` |
+| Player floor ray result, hook at cmp edi, 1 | `0xDAC2A` | `0xD1592` |
+| Script system frame update, function override | `0x4C0F0` | `0x4F220` |
+| Entity manager update, function override | `0xFAB00` | `0xF35D0` |
+| Player view shake and recoil update, function override | `0xD6700` | `0xCB440` |
+| Mounted gun firing kick block, skip hook to its end | `0xDDA3F` -> `0xDDC23` | `0xD75F5` -> `0xD7848` |
+| Its oscillator steps (time), hook after MULSS by [EBP+8] | `0xDDB92` | `0xD774D`, `0xD77BC` |
+| Animation event scan | `0x6FA30` | `0x62470` |
+| Its loop wrap branch, hook jumping to the forward scan | `0x6FB74` -> `0x6FB0D` | `0x625B4` -> `0x6254D` |
+| Timed particle update (`0xA7ED0` / `0x9C110`), hook after keep = 1 - drag | `0xA7F16` | `0x9C156` |
+| Pooled particle update (`0xABD10` / `0xA0690`), hook after keep = 1 - drag | `0xABD70` | `0xA06E0` |
+| Weapon muzzle puff spawn, function override | `0xE2CF0` | `0xDAE10` |
 
-There are nine callers of frame end in each image. Each converts EAX with `cvtsi2ss xmm0,eax`, multiplies it by
-the saved PAL/NTSC scale and stores the global float delta. `FrameDelta` runs **after the conversion**, on all
-nine paths (gameplay, loading, front end and shutdown). It replaces XMM0 with steady-clock elapsed seconds
-times 60. The original scale still applies. The first delta is one tick, and a stall is capped at six ticks,
-matching the entity manager's existing maximum; discarded stall time does not leave a catch-up backlog.
+Addresses in the text below are default.xbe unless a co-op one is given.
 
-`FrameWait` lets zero blanks pass in unlocked mode. The SDK still generates normal 60 Hz vertical blank
-callbacks, so console time and other users of that signal are unchanged. Present still uses the SDK's existing
-`fps_cap`/vsync controls. No SDK changes are needed.
+## Frame-dependent systems
 
-The main update already passes float deltas to entities, animations, camera, fades and player turning. Its entity
-manager subdivides deltas above one tick. Three conversions needed explicit treatment for deltas below one:
+Several fixes run a system once per **console frame** (two ticks, 1/30 s) with all the time since its last run.
+Where a `*_EVERY_FRAME` switch is named, it restores the old per-frame behaviour for comparison.
 
-- Mission elapsed time is stored as an integer. Accumulate fractional ticks before handing it whole ticks.
-- The UI/frontend update also accepts whole ticks. Give it a separate remainder in its own scaled units.
-- In-game menus (post-mission stats and save screens, `0x11DD20`) and the save/profile popup (`0xF68A0`, vtable
-  `0x1EA340` beside its star renderer) convert the delta to FEng units the same way, `(int)(dt * 20)`, 1,200 a
-  second. That is 4% slow at 144 FPS, 17% at 1,000 and zero above 1,200 FPS: highlights stopped blinking, and
-  transitions and button responses waited for an occasional long frame. The in-game menu feeds the same FEng
-  manager as the front end and shares its remainder (`MenuTicks`); the popup has its own (`PopupTicks`).
-  The end-of-mission screens run in the in-game menu's modal loop instead (from `0x11DA95`, ending each pass in
-  `0xA2E20`), which converts the global frame delta at `0x11DC42` (co-op `0x118072`); the
-  first fix missed it, so above 1,200 FPS those screens' highlight stayed invisible and "Save Profile and
-  Continue" never moved on. It shares the same remainder.
-- Delayed entity messages store float countdowns but truncate their update delta to an integer and back to a
-  float. Use the original float delta in XMM2 instead of the truncated copy in XMM3, so messages still expire.
+### Whole-tick conversions
 
-Each remainder is advanced once at its original conversion site, rather than once per entity or player.
-Render frame counters are left alone: some readers use their parity to distribute work across frames.
+- **Mission timer** is an integer: fractional ticks accumulate until whole.
+- **UI/front-end update** takes whole ticks: separate remainder in its own scaled units.
+- **In-game menus** (post-mission stats, save screens, `0x11DD20`) and the **save/profile popup** (`0xF68A0`, vtable
+  `0x1EA340`) convert the delta to FEng units as `(int)(dt * 20)`, 1,200 a second. Truncated per frame that is 4%
+  slow at 144 FPS and zero above 1,200 FPS (no blinking highlights, stalled transitions and button responses). The
+  in-game menu shares the front end's FEng remainder (`MenuTicks`), the popup has its own (`PopupTicks`). The
+  end-of-mission screens run in the in-game menu's modal loop (from `0x11DA95`, each pass ending in `0xA2E20`),
+  which converts at `0x11DC42` (co-op `0x118072`) and shares `MenuTicks`.
+- **Delayed entity messages** keep float countdowns but truncated their delta to an integer: the original float
+  delta in XMM2 is used instead of the truncated copy in XMM3.
 
-The loading-screen stars/medal have a separate draw counter at loading-object offset `+0x10`. The loading
-renderer (`0xFD280`, co-op `0xF5D90`) converts it to a float, increments it every draw and wraps at 33. It
-multiplies the float by `2*pi/33` before its sine/cosine calculations. This animation therefore speeds up with
-the render rate even though gameplay receives the correct time delta. In the 60 FPS and unlocked modes,
-`LoadingAnimation` supplies a continuous phase at 30 steps/second, preserving the console's 1.1-second cycle.
-Texture initialization resets the host animation clock, and the first draw starts at phase zero. The original
-integer counter and all draw calls remain intact. The original 30 FPS mode uses its unchanged guest phase.
+### Loading and popup animations
 
-Animation events (dialogue lines, opcode `0xCAF0`, sounds, effects) are fired by the scan at `0x6FA30` (co-op
-`0x62470`) to the entity's listener (vtable `0x1E84F0`, handler `0xCF780`). It turns the previous and current
-animation times into whole frames at 30 a second (`ebx`, `edx`) and keeps a started flag at `+0xE4`. Previous
-below current fires the events between them, and on the first scan every event up to the current frame. Previous
-at or above current is taken as a loop wrap, and with the flag clear that branch fires every event of the
-animation. At 30 FPS a first scan always moves at least one frame on. At 60 FPS and unlocked it can stay on frame
-0, so every event of a new animation fired at once and then again at its own time: dialogue lines were heard
-twice. `AnimEventFirstScan` sends equal frames, which only reach that branch on a first scan, to the forward scan
-instead. `MOHRS_EVENT_TRACE=1` logs every event the listener handles with the guest call chain. In 1_1's first 40
-seconds the 60 FPS run handled 256 events before the fix and 135 after it, against 138 at 30 FPS and 134 unlocked
-at 144 FPS. The remaining differences are a repeating event on looping animations, within one per listener, and
-depend on where each run stopped.
+The loading stars/medal renderer (`0xFD280`, co-op `0xF5D90`) increments a float draw counter at loading-object
+`+0x10` every draw, wraps at 33 and multiplies by `2*pi/33`, so it sped up with the render rate. `LoadingAnimation`
+supplies a continuous phase at 30 steps a second (the console's 1.1-second cycle), reset at texture initialisation.
+The profile/save popup renderer (`0xF6C30`, co-op `0xEF650`, the `MemoryCardPopup.fng` hierarchy) uses the same
+`medal.xsh` texture, cycle and constant with its counter at `+0x14`; `PopupAnimation` does the same with its own
+clock, reset at popup initialisation. Integer counters and draw calls are untouched.
 
-Soldier AI brains choose between goals (attack, take cover, idle, ...). Each brain update (`0x197C0`, co-op
-`0x19050`) truncates its float delta to whole ticks (`cvttss2si eax,[esp+4]`) and adds them to every active goal's
-counter (`0x18D40` -> `0x243C0`). Once a counter passes the goal's period (60, 10 or 1 ticks) the goal is re-scored,
-and a change posts message `0x10C` to the NPC's script; `0x192C0` picks the best goal. The console added 2 a frame and
-the 60 FPS mode 1, but above 60 FPS the truncation gives 0: goals were only re-scored when a level script changed the
-NPC's AI state (`0x3ED90` -> `0x18F90`), so NPCs kept their first choice (for example a plane long gone).
-`BrainTicks` (hook right after the conversion) hands each brain whole ticks from its own `KeyedTickRemainder`,
-keyed by the brain in ECX. The same update calls `0x223A0` (co-op `0x21F50`), which lowers each of 15 remembered
-threats (priority up to 2.0 plus a distance term, set by `0x22410`) by 0.01 and forgets those below zero. It runs
-once per update and ignores the delta it is passed (`ret 4`), so threats were forgotten after 6.7 s at 30 FPS, 3.3 s
-at 60 and 1.4 s at 144. `ThreatDecay` (hook after the 0.01 load into XMM2) scales the step by ticks / 2. Both hooks
-apply in the 60 FPS and unlocked modes; the 60 FPS mode's exact one-tick frames give it the same goal timing as
-before, and the original 30 FPS mode is untouched.
+### Animation events
 
-Each player physics step ends in `0xDA7D0` (co-op `0xD104A`), which casts a ray straight down from 0.39 above the
-player to z = -10000. If it hits nothing (result 1) the game takes the player to be off the world: it zeroes the
-velocity and calls the movement step with no time, which puts the player back where the previous step ended. A seam
-in the collision mesh misses as well: in 1_1 a vertical ray at x -41.88 to -41.90, on the lip of a doorway early in
-the ship, finds no floor. Every step from the same place with the same length lands in the seam again, so the player
-stays put while forward is held. One-tick steps (0.067 units) seldom land in it, while unlocked steps (0.028 at
-144 FPS, far less at 2,400) almost always do. Players saw the doorway as sometimes impassable at 30 FPS, more often
-at 60 and always unlocked. `FloorRayWorld` keeps the collision world the cast uses, and `FloorRayRetry` casts again
-0.05 and then 0.15 units to each side before a miss stands; it calls the game's own segment (`0x144C30`), hit record
-(`0x142AB0`, `0x142910`) and flag (`0x7A8A0`) functions. In the 60 FPS and unlocked modes, probes of the 1_1 doorway
-from three quick saves crossed at 60, 144, 240, 1,000 and 2,400 FPS (one to four retries) where unlocked runs had
-stood still. The original 30 FPS mode is untouched.
+The scan at `0x6FA30` fires an animation's events (dialogue lines, opcode `0xCAF0`, sounds, effects) to the entity's
+listener (vtable `0x1E84F0`, handler `0xCF780`). It turns previous and current animation time into whole frames at 30
+a second and keeps a started flag at `+0xE4`. Previous below current fires the events in between (on the first scan,
+all up to current); previous at or above current is a loop wrap, which with the flag clear fires every event. At 30
+FPS a first scan always advances a frame; faster, it can stay on frame 0 and fire every event at once and again on
+time (dialogue heard twice). `AnimEventFirstScan` sends equal frames to the forward scan. `MOHRS_EVENT_TRACE=1` logs
+every event with the guest call chain.
 
-The script system's frame update (`0x4C0F0`, co-op `0x4F220`, called from the gameplay frame at `0xA4B52` /
-`0x98B07`) runs the scripts (`0x48470`), their messages (`0x4A700`), 11 condition watch lists (`0x2E0C0`), the
-timer wheel (`0x4BD10`, in time) and frame queues (`0x511B0`). Each watch list (`0x4B700`) counts calls and polls its
-waiting conditions every n calls, posting a message (0x7B, 0x132, ...) for each that holds. The console called it 30
-times a second, so those periods are console frames: at 144 FPS conditions were polled 4.8 times as often, and AI
-scripts woken by them ran their loops that much faster. In 1_1 a soldier's script restarted his reload (play
-animation state, native `0x303A0`) every 0.15 s instead of every 0.7 s, before the 0.6-second animation could
-finish, so he looked stuck reloading; at 60 FPS it was every 0.4 s. The function override `ScriptFrame` runs the update
-only when the running total of ticks enters a new two-tick console frame, with all the time since the last run, so it
-runs 30 times a second at any frame rate and the timer wheel still gets every tick. With it the soldier's reload
-cadence (13 requests in about 10 s) is the same at 30, 60 and 144 FPS. `MOHRS_SCRIPT_EVERY_FRAME` restores the old
-per-frame update for comparison. The 60 FPS and unlocked modes use it; the original 30 FPS mode is untouched.
+### Soldier AI
 
-The player's view shake and recoil update (`0xD6700`, co-op `0xCB440`; thiscall, yaw and pitch offset pointers and
-the time, `ret 0xC`) is called each frame on foot (`0xE0AE9` / `0xD8A19`) and on a mounted gun (`0xDC90C` /
-`0xD614C`). It advances two shake slots (`+0xD58`, `+0xD7C`; started by script natives through `0xD5F70`) in time,
-but each call also adds a random jolt to the view offsets at `+0x284`/`+0x288`, which persist from frame to frame,
-and while a mounted gun fires (`+0xD4C` bit 0x40) steps that gun's shake level `+0xDA8` by a fixed amount. So the
-view shook as many times as there were frames and a mounted gun's shake built up in frames: at the start of 1_1,
-unlocked at about 700 FPS, the offsets moved 25 times as far a second as at 30 FPS and reached twice the size.
-`ShakeFrame` runs it once per two-tick console frame of each player with the time since that player's last run, as
-`ScriptFrame` does; the same shake then moved 0.55 a second against 0.58 at 30 FPS. `MOHRS_SHAKE_EVERY_FRAME` restores
-the old per-frame update. The 60 FPS and unlocked modes use it.
+- **Goal re-scoring.** The brain update (`0x197C0`, co-op `0x19050`) truncates its delta to whole ticks
+  (`cvttss2si eax,[esp+4]`) and adds them to each active goal's counter (`0x18D40` -> `0x243C0`). Past the goal's
+  period (60, 10 or 1 ticks) the goal is re-scored, a change posts message `0x10C` to the NPC's script and `0x192C0`
+  picks the best goal. Above 60 FPS the truncation gives 0 and goals were only re-scored when a script changed the AI
+  state (`0x3ED90` -> `0x18F90`). `BrainTicks` gives each brain whole ticks from a `KeyedTickRemainder` keyed by ECX.
+- **Threat memory.** The same update calls `0x223A0` (co-op `0x21F50`), which lowers each of 15 remembered threats
+  (priority up to 2.0 plus a distance term, set by `0x22410`) by 0.01 per call and forgets those below zero, ignoring
+  its delta (`ret 4`): 6.7 s at 30 FPS, 1.4 s at 144. `ThreatDecay` scales the step by ticks / 2.
 
-That was not the 1_11 boat turret's violent shake. While a mounted gun fires, the player update (`0xDB530`, co-op
-`0xD4BF0`) moves the gun along its axis by 0.006 times an oscillator, or for a gun with a seat (player `+0xD46` bit 8,
-the 1_11 turret) the seat matrix `+0xEE0` (co-op `+0xFC0`) by 0.02 times it, added to where it is each frame. The
-oscillator (`0x27465C`, step `0x201F0C`, limit `0x201F08`; co-op also a seat one at player `+0xE78`) moves by its
-step of 1 a tick and flips at +-1. At 30 FPS a frame is two ticks, so it flips each frame and the seat twitches
-+-0.02; at more frames it ramps and the additions pile up: unlocked the seat swung 0.15 at about 15 Hz, the turret
-and view with it. `MountedKick` skips the block between two console frames of each player and `MountedKickStep`
-gives its oscillator steps exactly two ticks a console frame (less would miss a flip and let the seat drift). The
-seat then moves 0.67 a second at about 1,000 FPS against 0.60 at 30 FPS, flipping +-0.02 each console frame.
-`MOHRS_SHAKE_EVERY_FRAME` restores this one too.
+Both apply in the 60 FPS and unlocked modes; at 60 FPS the exact one-tick frames give the same goal timing as before.
 
-The entity manager (`0xFAB00`, co-op `0xF35D0`) steps physics in steps of at most one tick, but when its first step
-is shorter than 1/64 tick (`0x1EAA2C`) it only runs a zero-length step and returns before the post-step and attached
-entity updates: nothing moves that frame. Above 3,840 FPS every frame was that short. Slow motion makes it happen at
-ordinary rates: `0xA4F30` multiplies the frame's time by a scale the scripts ramp down for a while (`0x1FF614`..
-`0x1FF620`). At the end of 1_1 the player is thrown into the air and the scene slows while a plane passes; at 240 FPS
-and above the scaled steps fell under 1/64 tick, so the player, the plane and the other aircraft stood still until the
-slow motion ended (144 FPS stayed just above it, 30 and 60 far above). `EntityStep` (a function override) carries
-such steps over and runs the manager once the carried time reaches 1/64 tick, with all of it. With it the pause at 240
-and about 1,100 FPS moves as at 144: the player drifts and seven aircraft move during it, the plane in view. The
-60 FPS and unlocked modes use it; the original 30 FPS mode is untouched.
+### Player floor ray
 
-Two of the three particle classes move their particles in a per-frame callback: the timed class (vtable `0x1E5E78`,
-update `0xA8810`, particle callback `0xA7ED0`; co-op `0x9C110`) and the pooled class (vtable `0x1E61E8`, `0xACC10` ->
-`0xABD10`; co-op `0xA0690`). Both compute `keep = 1 - drag` from the effect definition and apply
-`v = v * keep + acceleration * seconds` once a frame, so the damping was applied as many times as there were frames:
-at 240 FPS a particle lost speed eight times as fast as on the console and barely left its emitter. `ParticleDrag`,
-hooked right after the subtraction (keep in XMM7 / XMM1, the frame's seconds in XMM3 / XMM0), raises keep to the
-frame's console frames (`seconds * 30`), so a 30 FPS frame keeps the console's factor. The stateless class
-(`0x1E6460`, update `0xB2AF0`, draw `0xB1110`) computes its particles from their age and needs nothing.
-`MOHRS_PARTICLE_DRAG_EVERY_FRAME` restores the old damping. Not yet checked in a scene that uses these classes.
+Each player physics step ends in `0xDA7D0` (co-op `0xD104A`), casting a ray down from 0.39 above the player to
+z = -10000. A miss (result 1) is taken as off the world: velocity is zeroed and the movement step runs with no time,
+putting the player back. Seams in the collision mesh also miss (1_1: a doorway lip early in the ship, x -41.88 to
+-41.90), and the same step length from the same place hits the seam again, so the player stops. Short unlocked
+steps land in seams far more often than one-tick steps. `FloorRayWorld` keeps the cast's collision world and
+`FloorRayRetry` casts again 0.05 and then 0.15 units to each side before a miss stands, using the game's segment
+(`0x144C30`), hit record (`0x142AB0`, `0x142910`) and flag (`0x7A8A0`) functions.
 
-Effects come from a fixed pool of 128 emitters (`0xB0120`, in use at `0x270E10`); an effect whose definition has
-priority 0 is only created while more than nine are free, and otherwise its spawn (`0xB55B0`) returns nothing. A
-weapon's muzzle puff (`0xE2CF0`, co-op `0xDAE10`, from the weapon update `0xE3330`) spawns a 0.54-second emitter
-every frame while the weapon's flash flag (`+0x340` bit 0x20) is set. At 30 FPS a firing weapon keeps about 16
-alive; at 240 FPS about 130, more than the whole pool. In 1_1 the floor-fire burst in the room with the extinguisher
-(hash `0xC4DE5EC2`: spawned by a level or object script through native `0x43830`, stopped by `0x38B90` ten ticks
-later, about eleven flames lasting 5.6 s) spawned at 30 FPS; above it the fires never appeared and a 60 FPS run logged
-a failed spawn of that effect. A fire spawned at 30 FPS stays when switching to unlocked. `MuzzlePuffFrame` lets each
-weapon spawn its puff at most once per console frame (1/30 s of real time). `MOHRS_PUFF_EVERY_FRAME` restores the old
-spawning. With it the floor fires appear in that room unlocked (played by hand: its fires need the player's actions).
+### Script system
 
-Profile checking and save-game prompts share another medal/star renderer (`0xF6C30`, co-op `0xEF650`),
-used by the `MemoryCardPopup.fng` hierarchy. It loads the same `data\loading\medal.xsh` texture and uses the
-same 33-frame cycle and angle constant, with its counter at object `+0x14`. `PopupAnimation` supplies the
-same elapsed-time phase with a separate clock; popup initialization resets it. The modal state, input, profile
-checking, save operations and prompt lifetime continue through the original game code.
+The script frame update (`0x4C0F0`, called from the gameplay frame at `0xA4B52` / co-op `0x98B07`) runs scripts
+(`0x48470`), their messages (`0x4A700`), 11 condition watch lists (`0x2E0C0`), the timer wheel (`0x4BD10`, in time)
+and frame queues (`0x511B0`). Each watch list (`0x4B700`) polls its conditions every n calls and posts a message
+(0x7B, 0x132, ...) for each that holds, so polling and the AI loops it wakes scaled with frame rate (a 1_1 soldier
+restarted his 0.6 s reload animation every 0.15 s at 144 FPS instead of 0.7 s). `ScriptFrame` runs the update once
+per console frame; the timer wheel still gets every tick. `MOHRS_SCRIPT_EVERY_FRAME`.
+
+### View shake and recoil
+
+The view shake and recoil update (`0xD6700`; thiscall, yaw and pitch offset pointers and the time, `ret 0xC`) is
+called each frame on foot (`0xE0AE9` / co-op `0xD8A19`) and on a mounted gun (`0xDC90C` / `0xD614C`). Its two shake
+slots (`+0xD58`, `+0xD7C`, started by script natives through `0xD5F70`) advance in time, but each call adds a random
+jolt to the persistent view offsets `+0x284`/`+0x288`, and while a mounted gun fires (`+0xD4C` bit 0x40) steps its
+shake level `+0xDA8` by a fixed amount, so shake scaled with frame count. `ShakeFrame` runs it once per console frame
+per player. `MOHRS_SHAKE_EVERY_FRAME`.
+
+### Mounted gun kick
+
+While a mounted gun fires, the player update (`0xDB530`, co-op `0xD4BF0`) moves the gun along its axis by 0.006
+times an oscillator, or for a gun with a seat (player `+0xD46` bit 8, the 1_11 boat turret) the seat matrix `+0xEE0`
+(co-op `+0xFC0`) by 0.02 times it, cumulatively each frame. The oscillator (`0x27465C`, step `0x201F0C`, limit
+`0x201F08`; co-op also a seat one at player `+0xE78`) moves its step of 1 a tick and flips at +-1: at 30 FPS it flips
+every frame (+-0.02 twitch), faster it ramps and the additions pile up into a violent swing. `MountedKick` skips the
+block between console frames and `MountedKickStep` gives the oscillator exactly two ticks per console frame (fewer
+would miss a flip and let the seat drift). `MOHRS_SHAKE_EVERY_FRAME`.
+
+### Entity manager minimum step
+
+The entity manager (`0xFAB00`) steps physics in steps of at most one tick, but a first step under 1/64 tick
+(`0x1EAA2C`) only runs a zero-length step and returns before the post-step and attached updates: nothing moves.
+Besides very high frame rates, slow motion triggers it: `0xA4F30` scales frame time by a script-ramped factor
+(`0x1FF614`..`0x1FF620`), and at the end of 1_1 everything froze at 240 FPS and above. `EntityStep` carries short
+steps over and runs the manager once the carried time reaches 1/64 tick.
+
+### Particles
+
+The timed class (vtable `0x1E5E78`, update `0xA8810`, callback `0xA7ED0`; co-op `0x9C110`) and pooled class (vtable
+`0x1E61E8`, `0xACC10` -> `0xABD10`; co-op `0xA0690`) compute `keep = 1 - drag` and apply `v = v * keep + accel *
+seconds` once per frame, so damping scaled with frame rate. `ParticleDrag`, after the subtraction (keep in XMM7 /
+XMM1, seconds in XMM3 / XMM0), raises keep to the power `seconds * 30`. The stateless class (`0x1E6460`, update
+`0xB2AF0`, draw `0xB1110`) computes particles from their age and needs nothing. `MOHRS_PARTICLE_DRAG_EVERY_FRAME`.
+Not yet checked in a scene that uses these classes.
+
+### Muzzle puffs and the effect pool
+
+Effects come from a pool of 128 emitters (`0xB0120`, in use at `0x270E10`). An effect of priority 0 is only created
+while more than nine are free; otherwise its spawn (`0xB55B0`) returns nothing. A weapon's muzzle puff (`0xE2CF0`,
+from the weapon update `0xE3330`) spawns a 0.54 s emitter every frame while its flash flag (`+0x340` bit 0x20) is
+set: about 16 alive at 30 FPS, about 130 at 240, exhausting the pool so script effects failed (1_1: the floor-fire
+burst, hash `0xC4DE5EC2`, spawned through native `0x43830`, stopped by `0x38B90`). `MuzzlePuffFrame` spawns at most
+one puff per weapon per console frame. `MOHRS_PUFF_EVERY_FRAME`.
 
 ## Verification
 
@@ -219,61 +190,15 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -Isrc tests/frame_clock_test.cpp -o re/
 cmd /c "tools\dev.bat cmake --build out\build\release -- -k 0 -j 12"
 ```
 
-The audit checks all nine frame-end callers and the wait/timer/loading-animation/AI brain hook instructions against
-both supplied XBEs, and the floor ray's stack offsets and helper calls, the script update's and the entity manager's calls and overrides. The clock tests also give menus 1,200 FEng units a second at 60-5,000 FPS. The clock tests also model the goal counter (re-scores per 10 s at 60 FPS kept within one at
-60-1,000 FPS; the old truncation gives none at 144) and threat memory (6.7 s at every rate).
-The standalone clock tests check ten seconds at 30, 60, 120, 144, 240 and 1,000 FPS, conservation of integer
-timer fractions, zero/negative timer deltas, and stall recovery.
-Loading-animation checks compare phase after five seconds at each frame rate, verify the 1.1-second period,
-ensure repeated draws at the same time leave the phase unchanged, and check reset on a new loading screen.
+`timing_audit.py` checks the nine frame-end callers and every hook instruction above against both XBEs, including
+the floor ray's stack offsets and helper calls and the script and entity manager overrides. The clock tests check
+ten seconds at 30-1,000 FPS, integer timer remainders, zero/negative deltas, stall recovery, 1,200 FEng units a
+second at 60-5,000 FPS, goal re-scoring and threat memory at every rate, and the loading animation's phase, period
+and reset.
 
-`MOHRS_TIMING=1` logs frame rate, time advanced, player look-update rate, player time advanced, mission elapsed
-ticks and player position once per second. A stable 144 FPS run should report about 60 frame/player ticks per
-second. During a scripted sequence the look update can be inactive and the mission timer paused.
+`MOHRS_TIMING=1` logs frame rate, ticks advanced, player look-update rate and ticks, mission ticks and player
+position once a second; a steady run reports about 60 ticks a second at any frame rate. Other diagnostics and
+`tools/fps_probe.ps1` are in [debugging.md](debugging.md).
 
-Development switches for test runs (environment variables): `MOHRS_TIMING=0.1` reports ten times a second;
-`MOHRS_ENTITY_DUMP=<seconds>[:<radius>]` lists the entities near the player once; `MOHRS_CONTACT_TRACE` logs each
-object the player's contact handler (`0xDEFA0`) sees; `MOHRS_STEP_TRACE=x,y,radius` logs every movement step
-(`0xE0E50`) and collision resolve (`0xD8260`) near a point. The last two override game functions, so the DLL must
-be relinked after the executable for them to take effect. `MOHRS_ANIM_TRACE=<event tables>` (or `all`) logs the
-animation channels playing them and who starts them; `MOHRS_GRAPH_TRACE` logs animation graph state requests (`0x6A120`,
-`0xCE030`); `MOHRS_NATIVE_TRACE=find|<owner>` logs a script's native calls; `MOHRS_MESSAGE_TRACE` logs posted script
-messages (`0x4ADB0`); `MOHRS_WATCH=<from>-<to>:<addr>:<bytes>,...` sums each dword's changes over a window
-(`MOHRS_SERIES=<addr>:<n>,...` prints floats every frame of it); `MOHRS_DUMP=<addr>:<bytes>` dumps memory with
-`MOHRS_ENTITY_DUMP`. `XBE_MUTE` silences the game's sound output.
-
-`tools/fps_probe.ps1` creates an isolated run folder under `re/fps-probes`, copies the release executables/DLLs
-and uses fresh settings/saves. It never sends OS input and only stops processes from that run folder. Ask before
-running it while the user may be using the PC. For example:
-
-```powershell
-& tools/fps_probe.ps1 -Cap 60 -Seconds 18
-& tools/fps_probe.ps1 -Cap 120 -Unlocked -Seconds 18
-& tools/fps_probe.ps1 -Cap 144 -Unlocked -Seconds 18
-```
-
-Runs reuse one folder, `reps-probes
-un`, so the Windows volume mixer keeps one entry for them, and are muted
-(`XBE_MUTE`) unless `-Sound` is given; each run's logs and settings are copied to its own results folder. `-Fps30`
-uses the original 30 FPS mode. `-Pad "9/6:forward,12:a"` drives the virtual pad inside the game (no OS
-input): a word at a time in seconds after the first poll, held for the time after `/` (0.1 s otherwise); words are
-`forward`, `backward`, `strafeleft`, `straferight`, `lookleft`, `lookright`, `jump`, `crouch` and the menu buttons.
-`-Report 0.25` sets the timing report interval. `-AnyBuild` loads a quick save made by another build. For example,
-the 1_1 doorway: `-Unlocked -Cap 240 -QuickSave "6:load" -QuickSaveFrom <folder> -AnyBuild -Pad "10/40:forward"`.
-
-2026-10-26 release smoke results, level 1_1, no injected input: stable 120 and 144 FPS, approximately
-60.000 player ticks/s at both rates. The mission timer advanced by about 60 ticks/s; the opening scripted
-movement reached the same final player position as the 60 FPS baseline. No errors or crashes in these runs.
-An uncapped level 1_4 run reached roughly 570-725 FPS with about 60 player ticks/s and an advancing mission
-timer. The co-op executable on 1_4 and the front-end level 1_16 both reached 144 FPS without logged errors.
-These checks use windowed 1280x720 output and say nothing about performance at other resolutions.
-
-Baseline commit: `2866645`. The user reports that almost everything looks and feels correct and has visually
-confirmed both cosmetic timing fixes: mission-loading stars and the shared profile-check/save-prompt stars.
-Both release images build, the clock/animation tests and XBE hook audit pass, and isolated 240 FPS level 1_4
-and front-end boots pass. Those input-free boots do not exercise the animated prompts themselves; their visual
-verification came from the user's interactive tests.
-
-These are timing and boot checks. Movement distance, weapon cadence, physics, mounted guns, pause/resume,
-cutscene synchronization and full two-controller co-op still need interactive play-testing. Frame-dependent
-behavior elsewhere in the game may need further hooks; this is why the mode is opt-in.
+Still to play-test: movement distance, weapon cadence, physics, pause/resume, cutscene sync and two-controller
+co-op at high frame rates. Other frame-dependent behaviour may need hooks, which is why unlocked stays opt-in.
