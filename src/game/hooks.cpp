@@ -121,7 +121,10 @@ X86_FUNC(sub_0010EA00) {
 // Mouse look (src/common/mouse_look.h), using the native player-to-port assignments.
 constexpr uint32_t kPlayers = 0x270108;
 // [[hook]] 0xE0AEE in the player's look update 0xE0A50: esi the player, before the stick's rates are added
-void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers, 0x271188, game::kDefaultMouseLook); }
+void MouseLook(X86Context& ctx, uint8_t*) {
+    game::MouseLook(ctx, kPlayers, 0x271188, game::kDefaultMouseLook);
+    game::WeaponScope(ctx.esi, game::kDefaultWeapons);
+}
 // [[hook]] 0xDC911 in the mounted gun's update: esi the player, before the stick's rates are added
 void TurretLook(X86Context& ctx, uint8_t*) { game::TurretLook(ctx, kPlayers, 0x271188, game::kDefaultMouseLook); }
 

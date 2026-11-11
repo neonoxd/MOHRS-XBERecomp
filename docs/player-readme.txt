@@ -46,11 +46,14 @@ Keyboard and mouse controls:
   Grenade               G                Jump                  Space
   Reload                R                Crouch                C, Ctrl
   Melee                 V, Middle mouse  Center view           Z
-  Sniper zoom           Wheel            D-pad left/right      4, 5
+  Next/previous weapon  Wheel            D-pad left/right      4, 5
+  Sniper zoom           Wheel (scoped)
   Back (objectives)     Tab              Pause                 Escape
   Quick save            F5               Quick load            F9
 
-1 cycles rifles, shotguns and automatic weapons, 2 pistols, 3 everything else you carry (bazooka first).
+1 cycles rifles, shotguns and automatic weapons, 2 pistols, 3 everything else you carry (bazooka first). The
+wheel steps through all your weapons, down for the next, up for the previous; looking through a sniper scope it
+zooms instead.
 
 Quick save and load are for testing, in single player during play. There is one slot, also written to
 quicksave\MOHRS.qsv: after a restart, start or continue any mission and press F9. A new version of the game

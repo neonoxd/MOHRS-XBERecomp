@@ -1,6 +1,7 @@
 #pragma once
 // Weapon keys (docs/input.md "Weapon keys"): primary_weapon cycles the firearms but pistols, secondary_weapon the
-// pistols, special_weapon the rest (launchers first), by the weapon definition's WeaponType (+0x68, copied to the
+// pistols, special_weapon the rest (launchers first); next_weapon and prev_weapon (the wheel) step through all of
+// them. Groups go by the weapon definition's WeaponType (+0x68, copied to the
 // weapon at 0x1504C3): 1 pistol, 2 bolt rifle, 3 semi-automatic rifle or shotgun, 4 sniper, 5 automatic, 6 launcher,
 // 7 grenade, 8 thrown; 0x150090 calls 1-5 firearms. The ring is kept sorted by it (0xDF320), so a group is in order.
 //
@@ -25,13 +26,19 @@ struct WeaponLayout {
     uint32_t holder, ring;           // player
     uint32_t id, type, count_a, count_b;  // weapon
     uint32_t next_weapon_return;     // the NextWeapon native's return address from the select
+    uint32_t fov;                    // player: the zoom field, half the view's FoV in degrees (docs/input.md)
 };
-inline constexpr WeaponLayout kDefaultWeapons{0x270108, 0x271188, 0xE6C, 0xE70, 0x2F8, 0x310, 0x2FC, 0x2FE, 0x33D09};
-inline constexpr WeaponLayout kCoopWeapons{0x265278, 0x266618, 0xF4C, 0xF50, 0x308, 0x320, 0x30C, 0x30E, 0x332F9};
+inline constexpr WeaponLayout kDefaultWeapons{0x270108, 0x271188, 0xE6C, 0xE70, 0x2F8, 0x310, 0x2FC, 0x2FE, 0x33D09,
+                                              0xE30};
+inline constexpr WeaponLayout kCoopWeapons{0x265278, 0x266618, 0xF4C, 0xF50, 0x308, 0x320, 0x30C, 0x30E, 0x332F9,
+                                           0xF10};
 
 // after the input manager's action query (thiscall (player index, action), ret 8; 0xB83E0 / 0xACC80), with its
 // arguments: a weapon key reads as a switch press for KBM's player when its group has another usable weapon
 void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const WeaponLayout& layout);
+// each on-foot look update (the mouse look hook, esi the player): for KBM's player, whether a sniper (WeaponType 4)
+// is out and zoomed in, so the wheel zooms rather than steps the weapon
+void WeaponScope(uint32_t player, const WeaponLayout& layout);
 // before the weapon select: the switch a weapon key started goes to that weapon
 void WeaponSelect(X86Context& ctx, const WeaponLayout& layout);
 

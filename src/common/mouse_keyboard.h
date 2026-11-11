@@ -29,9 +29,15 @@ void SetMenuInput(bool active);  // explicit FEng ownership, independent of the 
 void UseMenuMouse();
 void MenuResume();             // a short Start press through the normal pause handling
 void SetFrontEnd(bool front_end);  // guest thread: in the front-end shell the pause key goes back instead
-// the weapon key pressed in play since the last call (1 primary, 2 secondary, 3 special), or 0; a press waits a
-// moment for the game to take it
-int TakeWeaponKey();
+// what the weapon keys asked for in play since the last call: a group (1 primary, 2 secondary, 3 special), or steps
+// through every weapon (next positive, previous negative), or nothing; a press waits a moment for the game to take it
+struct WeaponRequest {
+    int group = 0;
+    int steps = 0;
+};
+WeaponRequest TakeWeaponRequest();
+// guest thread, each look update of KBM's player: a sniper scope is up, so the wheel zooms instead of switching
+void SetScoped(bool scoped);
 
 // actions the keyboard and mouse can be bound to in the settings file's [keys], key names comma separated
 // letter, digit and symbol keys bind by position as the US key there

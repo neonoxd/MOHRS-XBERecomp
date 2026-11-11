@@ -77,19 +77,56 @@ int main() {
     Poll(0, false);
 
     // weapon keys: a press in play, once
-    Check(input::TakeWeaponKey() == 0, "no key");
+    Check(input::TakeWeaponRequest().group == 0, "no key");
     auto pad = Poll('2', true);
     Check(!(pad.buttons & 0xF), "2 no longer presses the dpad");
-    Check(input::TakeWeaponKey() == 2 && input::TakeWeaponKey() == 0, "2 asks for the second weapon once");
+    Check(input::TakeWeaponRequest().group == 2 && input::TakeWeaponRequest().group == 0, "2 asks for the second weapon once");
     Poll('2', true);
-    Check(input::TakeWeaponKey() == 0, "holding it asks nothing more");
+    Check(input::TakeWeaponRequest().group == 0, "holding it asks nothing more");
     Poll(0, true);
     Poll('3', true);
-    Check(input::TakeWeaponKey() == 3, "3 the third");
+    Check(input::TakeWeaponRequest().group == 3, "3 the third");
     Poll(0, true);
     Poll('1', false);
-    Check(input::TakeWeaponKey() == 0, "nothing in menus");
+    Check(input::TakeWeaponRequest().group == 0, "nothing in menus");
     Poll(0, false);
+    // the wheel: weapon steps, zoom only with a scope up
+    auto notches = [](int up, int down) {
+        input::g_wheel_notches[0] = up;
+        input::g_wheel_notches[1] = down;
+        if (up) input::g_wheel_ms[0] = input::NowMs();
+        if (down) input::g_wheel_ms[1] = input::NowMs();
+    };
+    notches(0, 2);
+    pad = Poll(0, true);
+    auto request = input::TakeWeaponRequest();
+    Check(request.steps == 2 && request.group == 0, "two notches down: two steps on");
+    Check(!(pad.buttons & 0xF), "and no zoom");
+    input::g_wheel_ms[1] = 0;
+    notches(1, 0);
+    Poll(0, true);
+    Check(input::TakeWeaponRequest().steps == -1, "a notch up: one step back");
+    input::g_wheel_ms[0] = 0;
+    input::SetScoped(true);
+    notches(0, 1);
+    pad = Poll(0, true);
+    Check(input::TakeWeaponRequest().steps == 0 && (pad.buttons & 0xF) == 1u << 1, "scoped: the notch zooms out");
+    input::g_wheel_ms[1] = 0;
+    input::SetScoped(false);
+    notches(0, 1);
+    Poll(0, false);
+    Check(input::TakeWeaponRequest().steps == 0, "in a menu: no step, and none left over");
+    Poll(0, true);
+    Check(input::TakeWeaponRequest().steps == 0, "none left over in play");
+    input::g_wheel_ms[1] = 0;
+    Poll('2', true);
+    notches(0, 1);
+    Poll('2', true);
+    request = input::TakeWeaponRequest();
+    Check(request.group == 0 && request.steps == 1, "a step after a group key: the step wins");
+    input::g_wheel_ms[1] = 0;
+    Poll(0, true);
+
     Check((Poll('4', true).buttons & 0xF) == 1u << 2, "4 is dpad left");
     Check((Poll('5', true).buttons & 0xF) == 1u << 3, "5 is dpad right");
 

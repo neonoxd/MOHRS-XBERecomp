@@ -81,7 +81,14 @@ weapon at `0x1504C3`):
 
 The game calls types 1-5 firearms (`0x150090`) and keeps the ring sorted by type as weapons are added (`0xDF320`),
 which is why the switch steps pistol, rifle, automatic. A key picks its group's first usable weapon, or, when one of
-the group is out, the next one after it, wrapping; a group with nothing else usable does nothing. The switch stays the
+the group is out, the next one after it, wrapping; a group with nothing else usable does nothing.
+
+`next_weapon` (wheel down) and `prev_weapon` (wheel up) step through every usable weapon in that order, wrapping, one
+step per wheel notch (counted from raw input, so a quick scroll takes several steps). The wheel is also sniper zoom
+(dpad up and down): it zooms only while KBM's player looks through a scope, a sniper (WeaponType 4) out with the zoom
+field (`+0xE30`, co-op `+0xF10`) below the hip's 35, and steps the weapon otherwise. The mouse look hook publishes
+that state each on-foot look update (`WeaponScope`); notches while scoped or outside play are dropped. Other keys
+bound to the zoom or the steps always act. The switch stays the
 game's own, holster and draw included:
 
 | Role | default.xbe | moh3rdc.xbe |
@@ -152,10 +159,12 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/r
 ```
 
 The mapper test drives the real `Keyboard()` with faked keys: Escape as Start in play and pause, as B in the front
-end and latched while held, weapon key presses once per press and only in play, the moved dpad keys. The weapon test
+end and latched while held, weapon key presses once per press and only in play, wheel notches as steps and as zoom
+only with a scope up, none kept from a menu, the moved dpad keys. The weapon test
 runs both overrides on a ring sorted like the game's: each group, cycling and wrapping within it, weapons not picked
 up and empty grenades skipped, a second press before the select, another player's port, mounted and unarmed players,
-selects from elsewhere, a weapon lost before the select, no current holder, and bit `0x10`. With `XBE_LOG_INFO`
+selects from elsewhere, a weapon lost before the select, no current holder, bit `0x10`, wheel steps either way
+(wrapping, added up, from no holder, a second before the select) and the scope test. With `XBE_LOG_INFO`
 set the log says why each key press switched or did not.
 
 The routing test covers shared singleplayer input, joining in either order, both setup flags, co-op/PvP gameplay and pause,

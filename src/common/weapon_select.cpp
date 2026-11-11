@@ -19,6 +19,9 @@ constexpr uint32_t kHeldWeapon = 0x2BC, kNextHolder = 0x2B4, kHolderFlags = 0x3C
 constexpr uint8_t kHolderHas = 4;
 constexpr uint32_t kCountedType = 7;
 constexpr uint32_t kPistol = 1, kLastFirearm = 5;
+constexpr uint32_t kSniper = 4;
+constexpr int kAnyGroup = 0;
+constexpr float kHipFov = 35.0f;  // the player's zoom field from the hip (src/common/mouse_look.cpp)
 // bit 0: on a gun, whose weapon is the current one (0xD6560 / 0xCB2A0); 0x10 is only the way onto it (set at
 // 0xD9056, swapped for bit 0 at 0xDC3F8)
 constexpr uint32_t kStateFlags = 0xD46;
@@ -59,13 +62,13 @@ bool InGroup(uint32_t type, int key) {
 }
 
 // the key's next usable weapon after `from` in the switch's order, or its first when `from` is not in the group; 0
-// when the player has none
-uint32_t Pick(uint32_t player, int key, uint32_t from, const WeaponLayout& l) {
+// when the player has none. kAnyGroup moves `steps` places through every usable weapon instead.
+uint32_t Pick(uint32_t player, int key, uint32_t from, const WeaponLayout& l, int steps = 0) {
     uint32_t group[kMaxHolders];
     uint32_t count = 0, after = kMaxHolders;
     uint32_t head = R32(player + l.ring), at = head;
     for (uint32_t i = 0; Pointer(at) && i < kMaxHolders; i++) {
-        if (Usable(at, l) && InGroup(R32(Weapon(at) + l.type), key)) {
+        if (Usable(at, l) && (key == kAnyGroup || InGroup(R32(Weapon(at) + l.type), key))) {
             if (at == from) after = count;
             group[count++] = at;
         }
@@ -73,6 +76,11 @@ uint32_t Pick(uint32_t player, int key, uint32_t from, const WeaponLayout& l) {
         if (at == head) break;
     }
     if (!count) return 0;
+    if (key == kAnyGroup) {
+        // steps through every usable weapon, either way; from none, the first step is the first or the last
+        int n = int(count), from_place = after < count ? int(after) : (steps > 0 ? -1 : 0);
+        return group[((from_place + steps) % n + n) % n];
+    }
     return after < count ? group[(after + 1) % count] : group[0];
 }
 
@@ -100,8 +108,9 @@ void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const W
     if (action != kSwitchAction || ctx.eax) return;
     uint32_t player = KeyboardPlayer(index & 0xFF, l);
     if (!Pointer(player)) return;
-    int key = input::TakeWeaponKey();
-    if (!key) return;
+    input::WeaponRequest request = input::TakeWeaponRequest();
+    int key = request.group;
+    if (!key && !request.steps) return;
     // On a gun the switch is the gun's. No current holder is how a level starts (0xE0020 clears it): the game's own
     // switch then takes the first usable weapon (the select walks from the ring's head), so a key takes its group's.
     if (G<uint8_t>(player + kStateFlags) & kMounted) {
@@ -116,7 +125,7 @@ void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const W
     if (g_pending.player && !switching) LOGI("weapon key: the last switch asked for was not taken by the script");
     uint32_t asked = switching ? WithId(player, g_pending.id, l) : 0;
     uint32_t from = asked ? asked : current;
-    uint32_t wanted = Pick(player, key, from, l);
+    uint32_t wanted = Pick(player, key, from, l, request.steps);
     // the select given the current weapon's id would put it away and leave the player unarmed
     if (!wanted || wanted == from || wanted == current) {
         LOGI("weapon key %d: nothing else in the group (holding %08X)", key, current);
@@ -125,6 +134,17 @@ void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const W
     g_pending = {player, R32(Weapon(wanted) + l.id), NowMs() + kSwitchMs};
     if (!switching) ctx.eax = 1;
     LOGI("weapon key %d: switching to holder %08X", key, wanted);
+}
+
+void WeaponScope(uint32_t player, const WeaponLayout& l) {
+    uint32_t count = std::min(uint32_t(G<uint8_t>(l.input_manager + 0x23E0)), 4u);
+    uint32_t index = 0;
+    while (index < count && R32(l.players + index * 4) != player) index++;
+    if (index == count || KeyboardPlayer(index, l) != player) return;
+    uint32_t current = R32(player + l.holder);
+    uint32_t weapon = Pointer(current) ? Weapon(current) : 0;
+    bool sniper = Pointer(weapon) && R32(weapon + l.type) == kSniper;
+    input::SetScoped(sniper && G<float>(player + l.fov) < kHipFov - 0.5f);
 }
 
 void WeaponSelect(X86Context& ctx, const WeaponLayout& l) {

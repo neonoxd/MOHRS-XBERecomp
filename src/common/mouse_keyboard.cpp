@@ -35,14 +35,19 @@ std::atomic<uint32_t> g_menu_pressed{0}, g_block_mouse{0};
 std::atomic<int> g_menu_wheel{0};
 std::atomic<uint64_t> g_resume_until{0};
 std::atomic<bool> g_front_end{false};
-std::atomic<int> g_weapon_key{0};  // 1-based place asked for by a weapon key, taken by the game's switch query
-std::atomic<uint64_t> g_weapon_ms{0};
+// what the weapon keys and the wheel asked for, taken by the game's switch query (src/common/weapon_select.h)
+std::mutex g_weapon_lock;
+WeaponRequest g_weapon;
+uint64_t g_weapon_ms = 0;
+std::atomic<bool> g_scoped{false};  // KBM's player looks through a sniper scope, from the game's look update
+std::atomic<uint64_t> g_scoped_ms{0};
 constexpr uint64_t kPlayMs = 250;
 constexpr uint64_t kTapMs = 80;
 // The wheel binds as two keys, codes Windows leaves unassigned. A notch holds what is bound to it for one tap.
 constexpr int kWheelUp = 0x0E;
 constexpr int kWheelDown = 0x0F;
 std::atomic<uint64_t> g_wheel_ms[2] = {};  // the last notch up, down
+std::atomic<int> g_wheel_notches[2] = {};  // notches up, down not yet taken: each steps the weapon once
 
 uint64_t NowMs() {
     auto since = std::chrono::steady_clock::now().time_since_epoch();
@@ -60,6 +65,9 @@ constexpr int kQuickSave = -4;  // keys of their own, outside the pad (src/commo
 constexpr int kQuickLoad = -5;
 constexpr int kFirstWeapon = -6;  // primary, then -7 secondary, -8 special: a weapon group (src/common/weapon_select.h)
 constexpr int kWeaponKeys = 3;
+constexpr int kNextWeapon = -9;  // a step through every weapon; on the wheel, one per notch
+constexpr int kPrevWeapon = -10;
+constexpr int kZoomUp = 8, kZoomDown = 9;  // dpad up and down: the sniper zoom
 constexpr int kFirstButtonBit = 8;
 constexpr int kStart = 12;
 constexpr int kFirstMoveKey = 16;
@@ -106,8 +114,10 @@ constexpr Target kActions[] = {
     {{"primary_weapon", "1"}, kFirstWeapon},
     {{"secondary_weapon", "2"}, kFirstWeapon - 1},
     {{"special_weapon", "3"}, kFirstWeapon - 2},
-    {{"sniper_zoom_up", "Wheel Up"}, 8},  // the dpad
-    {{"sniper_zoom_down", "Wheel Down"}, 9},
+    {{"next_weapon", "Wheel Down"}, kNextWeapon},
+    {{"prev_weapon", "Wheel Up"}, kPrevWeapon},
+    {{"sniper_zoom_up", "Wheel Up"}, kZoomUp},  // the dpad
+    {{"sniper_zoom_down", "Wheel Down"}, kZoomDown},
     {{"dpad_left", "4"}, 10},
     {{"dpad_right", "5"}, 11},
     {{"back", "Tab"}, 13},
@@ -251,11 +261,17 @@ struct Held {
     bool walk = false;
     bool pause = false;
     uint32_t weapons = 0;  // weapon keys held, bit 0 primary_weapon
+    uint32_t cycle = 0;    // keys other than the wheel held for next_weapon (bit 0), prev_weapon (bit 1)
     int stick[8] = {};  // move forward back left right, look up down left right
 };
 
+bool Scoped() { return g_scoped && NowMs() - g_scoped_ms < kPlayMs; }
+
 Held PressActions(const Binds& binds, bool play, Pad& p) {
     Held held;
+    // The wheel zooms while a sniper scope is up and steps through the weapons otherwise, so it can be bound to both;
+    // its weapon steps are counted by notch in Keyboard. Other keys bound to either always act.
+    bool scoped = Scoped();
     // in a menu the wheel and the mouse buttons do nothing, a bound key presses its button
     auto pressed = [play](int vk) {
         constexpr int buttons[] = {VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2};
@@ -267,12 +283,16 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
     for (size_t i = 0; i < kCount; i++) {
         int b = kActions[i].button;
         if (b == kQuickSave || b == kQuickLoad) continue;
-        if (!std::any_of(binds[i].begin(), binds[i].end(), pressed)) continue;
+        bool cycle = b == kNextWeapon || b == kPrevWeapon, zoom = b == kZoomUp || b == kZoomDown;
+        auto down = [&](int vk) { return (!Wheel(vk) || (!cycle && (!zoom || scoped))) && pressed(vk); };
+        if (!std::any_of(binds[i].begin(), binds[i].end(), down)) continue;
         held.used = true;
         if (b == kWalk) {
             held.walk = true;
         } else if (b <= kFirstWeapon && b > kFirstWeapon - kWeaponKeys) {
             if (play) held.weapons |= 1u << (kFirstWeapon - b);
+        } else if (cycle) {
+            if (play) held.cycle |= b == kNextWeapon ? 1u : 2u;
         } else if (b == kStart) {
             held.pause = true;
         } else if (b >= kFirstLookKey && !play) {
@@ -290,7 +310,7 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
 
 // Pads are polled from more than one thread: the edges below are atomic.
 std::atomic<bool> g_pause_held{false}, g_pause_back{false};
-std::atomic<uint32_t> g_weapons_held{0};
+std::atomic<uint32_t> g_weapons_held{0}, g_cycle_held{0};
 
 // The pause key presses Start, which pauses and resumes; in the front end, where Start accepts, it presses B to go
 // back. What it presses is decided when it goes down, so a hold across loading does not turn into the other button.
@@ -301,14 +321,33 @@ void PressPause(bool held, bool play, Pad& p) {
     else p.buttons |= uint16_t(1u << (kStart - kFirstButtonBit));
 }
 
-// a weapon key's press, kept for the game's next switch query
-void PressWeapons(uint32_t held) {
-    uint32_t pressed = held & ~g_weapons_held.exchange(held);
-    for (int i = 0; i < kWeaponKeys; i++) {
-        if (!(pressed >> i & 1)) continue;
-        g_weapon_ms = NowMs();
-        g_weapon_key = i + 1;
+// The wheel's notches for next_weapon and prev_weapon since the last call, in play with no scope up; later notches
+// are dropped, so a scroll while zoomed or in a menu does not step the weapon afterwards.
+int WheelSteps(const Binds& binds, bool play) {
+    int notches[2] = {g_wheel_notches[0].exchange(0), g_wheel_notches[1].exchange(0)};  // up, down
+    if (!play || Scoped()) return 0;
+    int steps = 0;
+    for (size_t i = 0; i < kCount; i++) {
+        int b = kActions[i].button;
+        if (b != kNextWeapon && b != kPrevWeapon) continue;
+        for (int vk : binds[i])
+            if (Wheel(vk)) steps += (b == kNextWeapon ? 1 : -1) * notches[vk == kWheelDown];
     }
+    return steps;
+}
+
+// weapon key and step presses, kept for the game's next switch query: the last kind asked for wins, steps add up
+void PressWeapons(uint32_t held, uint32_t cycle, int steps) {
+    uint32_t pressed = held & ~g_weapons_held.exchange(held);
+    uint32_t stepped = cycle & ~g_cycle_held.exchange(cycle);
+    steps += int(stepped & 1) - int(stepped >> 1 & 1);
+    if (!pressed && !steps) return;
+    std::lock_guard lock(g_weapon_lock);
+    if (NowMs() - g_weapon_ms >= kPlayMs) g_weapon = {};
+    g_weapon_ms = NowMs();
+    for (int i = 0; i < kWeaponKeys; i++)
+        if (pressed >> i & 1) g_weapon = {i + 1, 0};
+    if (steps) g_weapon = {0, g_weapon.steps + steps};
 }
 
 }  // namespace
@@ -326,7 +365,11 @@ void OnRawInput(void* handle) {
     if (GetRawInputData(input, RID_INPUT, &ri, &size, sizeof(RAWINPUTHEADER)) == UINT(-1)) return;
     if (ri.header.dwType != RIM_TYPEMOUSE || !Active()) return;
     const RAWMOUSE& m = ri.data.mouse;
-    if (m.usButtonFlags & RI_MOUSE_WHEEL) g_wheel_ms[SHORT(m.usButtonData) < 0] = NowMs();
+    if (m.usButtonFlags & RI_MOUSE_WHEEL) {
+        bool down = SHORT(m.usButtonData) < 0;
+        g_wheel_ms[down] = NowMs();
+        g_wheel_notches[down]++;
+    }
     if (g_menu) {
         if (m.usButtonFlags & RI_MOUSE_LEFT_BUTTON_DOWN) g_menu_pressed.fetch_or(1);
         if (m.usButtonFlags & RI_MOUSE_RIGHT_BUTTON_DOWN) g_menu_pressed.fetch_or(2);
@@ -389,12 +432,15 @@ void Keyboard(Pad& p) {
         std::lock_guard lock(g_bind_lock);
         binds = g_binds;
     }
-    if (!UpdateSettle(binds)) return;
+    if (!UpdateSettle(binds)) {
+        g_wheel_notches[0] = g_wheel_notches[1] = 0;
+        return;
+    }
     bool play = Playing();
     bool fixed_down = std::any_of(std::begin(kFixed), std::end(kFixed), Down);
     Held held = PressActions(binds, play, p);
     PressPause(held.pause, play, p);
-    PressWeapons(held.weapons);
+    PressWeapons(held.weapons, held.cycle, WheelSteps(binds, play));
     // Enter, Space and Backspace act in menus; in play they do what they are bound to
     if (!play && (Down(VK_RETURN) || Down(VK_SPACE))) p.analog[0] = 0xFF;
     if (!play && Down(VK_BACK)) p.analog[1] = 0xFF;
@@ -462,9 +508,16 @@ void SetMenuInput(bool active) {
 void UseMenuMouse() { SetKeyboard(true); }
 void SetFrontEnd(bool front_end) { g_front_end = front_end; }
 
-int TakeWeaponKey() {
-    int key = g_weapon_key.exchange(0);
-    return key && NowMs() - g_weapon_ms < kPlayMs ? key : 0;
+WeaponRequest TakeWeaponRequest() {
+    std::lock_guard lock(g_weapon_lock);
+    WeaponRequest r = g_weapon;
+    g_weapon = {};
+    return NowMs() - g_weapon_ms < kPlayMs ? r : WeaponRequest{};
+}
+
+void SetScoped(bool scoped) {
+    g_scoped = scoped;
+    g_scoped_ms = NowMs();
 }
 void MenuResume() { g_resume_until = NowMs() + kTapMs; }
 

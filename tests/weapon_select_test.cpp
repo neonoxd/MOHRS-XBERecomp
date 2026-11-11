@@ -2,6 +2,7 @@
 // tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/runtime tests/weapon_select_test.cpp
 //     src/common/weapon_select.cpp -o re/weapon_select_test.exe
 #include "common/weapon_select.h"
+#include "common/mouse_keyboard.h"
 #include "kernel/kernel.h"
 
 #include <array>
@@ -10,7 +11,8 @@
 
 namespace {
 std::array<uint8_t, 0x300000> memory{};
-int key = 0;
+int key = 0, steps = 0;
+int scoped = -1;  // the last SetScoped, -1 none
 
 void Check(bool ok, const char* message) {
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
@@ -77,11 +79,25 @@ uint32_t Press(int k) {
     if (Query(0, 0x12, 0).eax != 1) return 0;
     return Select(kPlayer);
 }
+
+// wheel notches (next positive): the same
+uint32_t Scroll(int n) {
+    steps = n;
+    if (Query(0, 0x12, 0).eax != 1) return 0;
+    return Select(kPlayer);
+}
 }  // namespace
 
 namespace kernel { uint8_t* g_base = memory.data(); }
 namespace logx { void Write(Level, const char*, ...) {} }
-namespace input { int TakeWeaponKey() { int k = key; key = 0; return k; } }
+namespace input {
+WeaponRequest TakeWeaponRequest() {
+    WeaponRequest r{key, steps};
+    key = steps = 0;
+    return r;
+}
+void SetScoped(bool s) { scoped = s; }
+}  // namespace input
 
 int main() {
     Setup();
@@ -136,6 +152,39 @@ int main() {
     Check(Press(kSecondary) == Id(Colt), "no current holder, as a level starts: the group's first");
     Check(Press(kPrimary) == Id(Garand), "for each group");
     Holding(Garand);
+
+    // the wheel: every usable weapon, either way (Colt, Garand, Thompson, BAR, Bazooka, Grenades; no Welrod)
+    Holding(Garand);
+    Check(Scroll(1) == Id(Thompson), "next");
+    Check(Scroll(-1) == Id(Colt), "previous");
+    Holding(Colt);
+    Check(Scroll(-1) == Id(Grenades), "previous wraps to the last");
+    Holding(Grenades);
+    Check(Scroll(1) == Id(Colt), "next wraps to the first");
+    Check(Scroll(3) == Id(Thompson), "notches add up");
+    Check(Scroll(6) == 0, "all the way round: nothing");
+    steps = 1;
+    Check(Query(0, 0x12, 0).eax == 1, "a notch starts the switch");
+    steps = 1;
+    Check(Query(0, 0x12, 0).eax == 0 && Select(kPlayer) == Id(Garand), "a second before the select goes one further");
+    G<uint32_t>(kPlayer + L.holder) = 0;
+    Check(Scroll(1) == Id(Colt) && Scroll(-1) == Id(Grenades), "no current holder: first or last");
+    Holding(Garand);
+
+    // the scope: a sniper out and zoomed in
+    G<uint32_t>(Weapon(Garand) + L.type) = 4;
+    G<float>(kPlayer + L.fov) = 35.0f;
+    game::WeaponScope(kPlayer, L);
+    Check(scoped == 0, "a sniper from the hip: not scoped");
+    G<float>(kPlayer + L.fov) = 10.0f;
+    game::WeaponScope(kPlayer, L);
+    Check(scoped == 1, "a sniper zoomed in: scoped");
+    G<uint32_t>(Weapon(Garand) + L.type) = 3;
+    game::WeaponScope(kPlayer, L);
+    Check(scoped == 0, "another weapon zoomed in: not scoped");
+    scoped = -1;
+    game::WeaponScope(kPlayer + 0x4000, L);
+    Check(scoped == -1, "another player's look update says nothing");
 
     key = kSecondary;
     Query(0, 0x12, 0);

@@ -95,7 +95,10 @@ X86_FUNC(sub_00107280) {
 // Mouse look, using the native player-to-port assignments (default.xbe's input manager at 0x271188).
 constexpr uint32_t kPlayers = 0x265278;
 // [[hook]] 0xD8A1E in the player's look update 0xD8980: esi the player, before the stick's rates are added.
-void MouseLook(X86Context& ctx, uint8_t*) { game::MouseLook(ctx, kPlayers, 0x266618, game::kCoopMouseLook); }
+void MouseLook(X86Context& ctx, uint8_t*) {
+    game::MouseLook(ctx, kPlayers, 0x266618, game::kCoopMouseLook);
+    game::WeaponScope(ctx.esi, game::kCoopWeapons);
+}
 // [[hook]] 0xD6151 in the mounted gun branch of 0xD4BF0, before angle integration and the native co-op limits.
 void TurretLook(X86Context& ctx, uint8_t*) { game::TurretLook(ctx, kPlayers, 0x266618, game::kCoopMouseLook); }
 
