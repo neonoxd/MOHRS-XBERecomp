@@ -7,7 +7,9 @@
 #include "common/quick_save.h"
 #include "common/menu_mouse.h"
 #include "common/test_hooks.h"
+#include "common/weapon_select.h"
 #include "common/widescreen.h"
+#include "common/mouse_keyboard.h"
 #include "kernel/kernel.h"
 #include "xdk/d3d8.h"
 #include "xdk/hle.h"
@@ -18,7 +20,21 @@ using kernel::R32;
 X86_EXTERN_FUNC(__imp__sub_001616C0);
 X86_FUNC(sub_001616C0) {
     game::UpdateControllerMode({0x2463B1, 0x242435, 0x242436, 0x20EDB0, 0x20EDB1});
+    input::SetFrontEnd(kernel::G<uint8_t>(0x2463B1) != 0);
     __imp__sub_001616C0(ctx, base);
+}
+
+// Weapon keys (src/common/weapon_select.h): the input manager's action query and the weapon select
+X86_EXTERN_FUNC(__imp__sub_000B83E0);
+X86_FUNC(sub_000B83E0) {
+    uint32_t index = R32(ctx.esp + 4), action = kernel::G<uint16_t>(ctx.esp + 8);
+    __imp__sub_000B83E0(ctx, base);
+    game::WeaponSwitchQuery(ctx, index, action, game::kDefaultWeapons);
+}
+X86_EXTERN_FUNC(__imp__sub_000D8720);
+X86_FUNC(sub_000D8720) {
+    game::WeaponSelect(ctx, game::kDefaultWeapons);
+    __imp__sub_000D8720(ctx, base);
 }
 
 // the game state's SetCurrentLevel(mission, level), which the boot calls at 0x12623 and 0x1263D

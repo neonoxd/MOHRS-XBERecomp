@@ -41,10 +41,11 @@ Keyboard and mouse controls:
   Move                  W A S D          Walk (hold)           Alt
   Fire                  Left mouse       Aim mode              Right mouse
   Action                E, F             Change weapon         Q, Mouse 4
+  Weapon 1, 2, 3        1, 2, 3
   Grenade               G                Jump                  Space
   Reload                R                Crouch                C, Ctrl
   Melee                 V, Middle mouse  Center view           Z
-  Sniper zoom           Wheel, 1 and 2   D-pad left/right      3, 4
+  Sniper zoom           Wheel            D-pad left/right      4, 5
   Back (objectives)     Tab              Pause                 Escape
   Quick save            F5               Quick load            F9
 
@@ -56,7 +57,8 @@ In menus, hover and left click to select an entry; right click goes back. The wh
 settings screens, click a label or displayed value to select its row, then click the arrows or use the wheel to
 change the value. Click the select/confirm hint to save or
 the back hint to cancel. Pause headings are clickable; right click on a pause page resumes.
-The arrow keys also move, Enter confirms and Backspace goes back. Gameplay bindings can be changed in the [keys]
+The arrow keys also move, Enter confirms, Backspace goes back, and so does Escape in the main menus (in the
+pause menu Escape resumes). Gameplay bindings can be changed in the [keys]
 table of settings.toml.
 
 

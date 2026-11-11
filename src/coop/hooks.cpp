@@ -7,7 +7,9 @@
 #include "common/options_menu.h"
 #include "common/menu_mouse.h"
 #include "common/test_hooks.h"
+#include "common/weapon_select.h"
 #include "common/widescreen.h"
+#include "common/mouse_keyboard.h"
 #include "kernel/kernel.h"
 #include "xdk/d3d8.h"
 #include "xdk/hle.h"
@@ -17,7 +19,22 @@ using kernel::R32;
 X86_EXTERN_FUNC(__imp__sub_0015AA90);
 X86_FUNC(sub_0015AA90) {
     game::UpdateControllerMode({0x23E5B1, 0x23A615, 0x23A616, 0x206F90, 0x206F91});
+    input::SetFrontEnd(kernel::G<uint8_t>(0x23E5B1) != 0);
     __imp__sub_0015AA90(ctx, base);
+}
+
+// Weapon keys (src/common/weapon_select.h): the input manager's action query and the weapon select, default.xbe's
+// 0xB83E0 and 0xD8720
+X86_EXTERN_FUNC(__imp__sub_000ACC80);
+X86_FUNC(sub_000ACC80) {
+    uint32_t index = R32(ctx.esp + 4), action = kernel::G<uint16_t>(ctx.esp + 8);
+    __imp__sub_000ACC80(ctx, base);
+    game::WeaponSwitchQuery(ctx, index, action, game::kCoopWeapons);
+}
+X86_EXTERN_FUNC(__imp__sub_000CD820);
+X86_FUNC(sub_000CD820) {
+    game::WeaponSelect(ctx, game::kCoopWeapons);
+    __imp__sub_000CD820(ctx, base);
 }
 
 // the script system's frame update, default.xbe's 0x4C0F0: at the console's 30 Hz in the 60 FPS and unlocked modes

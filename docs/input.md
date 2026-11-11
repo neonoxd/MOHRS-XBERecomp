@@ -61,6 +61,38 @@ speed is linear in each action. Each axis is mapped on its own: `|f| < 0.25` is 
 speed asked for. A plain scale of the stick value lands lower: 0.707 per axis moved diagonally at 79%, and a 50%
 walk at 27%.
 
+## Keyboard keys
+
+Escape (the `pause` binding) presses Start in play and on pause pages, which pauses and resumes. In the front-end
+shell (byte `0x2463B1`, co-op `0x23E5B1`, published by the controller-update override) it presses B instead, so it
+goes back like Backspace rather than accepting. Which button a press sends is decided when the key goes down.
+
+### Weapon keys
+
+`weapon_1`-`weapon_3` (1, 2, 3) pick the KBM player's first, second or third weapon, counting the weapons the switch
+would step to (`src/common/weapon_select.{h,cpp}`). The switch stays the game's own, holster and draw included:
+
+| Role | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| Action query (thiscall (player index, action), ret 8; 0 when not pressed) | `0xB83E0` | `0xACC80` |
+| Switch action 0x12 read, then message 0x12 to the player's script | `0xDDCB0` | `0xD78E3`, `0xD7AC6` |
+| Script native NextWeapon(direction), return address from the select | `0x33CD0`, `0x33D09` | `0x332C0`, `0x332F9` |
+| Weapon select (thiscall (direction, id), ret 8) | `0xD8720` | `0xCD820` |
+| Usable test (fastcall holder) | `0xE27E0` | `0xDA900` |
+| Player: current holder, ring head | `+0xE6C`, `+0xE70` | `+0xF4C`, `+0xF50` |
+| Weapon: id, type, counts | `+0x2F8`, `+0x310`, `+0x2FC/+0x2FE` | `+0x308`, `+0x320`, `+0x30C/+0x30E` |
+
+Holders link through `+0x2B4` (next) and `+0x2B0` (previous), hold their weapon at `+0x2BC` and flags at `+0x3C0`
+(bit 2: picked up). A weapon is usable when it is picked up, or for type 7 when its two counts are not both zero. The
+select walks the ring in the given direction to the next usable holder whose weapon id matches (any, for id 0); with
+a current holder and no match the walk never ends, so a match must exist before an id is passed.
+
+A key press is held for 250 ms. The action query override answers the switch action as pressed for the player on
+port 0 when the key asks for another usable weapon, the player is armed and not on a gun; it remembers that weapon's
+id for two seconds. The select override gives that id to the next select NextWeapon makes for the same player, if
+the weapon is still usable; any other select is left alone. Number keys used to be zoom (1, 2) and dpad left/right
+(3, 4); a settings file without `weapon_1` that still has those defaults gets the new ones (wheel only, 4 and 5).
+
 ## Mouse look
 
 Raw mouse counts are added to the KBM player's angles before the native stick integration; the game then applies
@@ -94,7 +126,20 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/r
 & re/controller_routing_test.exe
 ```
 
-The test covers shared singleplayer input, joining in either order, both setup flags, co-op/PvP gameplay and pause,
+```powershell
+cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/runtime tests/keyboard_mapper_test.cpp -luser32 -o re/keyboard_mapper_test.exe"
+& re/keyboard_mapper_test.exe
+cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/runtime tests/weapon_select_test.cpp src/common/weapon_select.cpp -o re/weapon_select_test.exe"
+& re/weapon_select_test.exe
+```
+
+The mapper test drives the real `Keyboard()` with faked keys: Escape as Start in play and pause, as B in the front
+end and latched while held, weapon key presses once per press and only in play, the moved dpad keys. The weapon test
+runs both overrides on a fake ring: numbering past weapons not picked up and empty type 7s, the current weapon,
+missing places, another player's port, mounted and unarmed players, selects from elsewhere, a weapon lost before the
+select.
+
+The routing test covers shared singleplayer input, joining in either order, both setup flags, co-op/PvP gameplay and pause,
 return to the main menu with stale gameplay flags, held-input suppression, unplug/reconnect, extra pads, rumble
 ownership, both mounted-gun layouts and zoom scaling. Not covered by automated tests: play with physical hardware
 (swapping devices mid-mission, joining in co-op and PvP, pausing from each player, KBM on the 5_4 howitzer in co-op).

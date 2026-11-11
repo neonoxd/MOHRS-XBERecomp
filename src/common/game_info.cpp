@@ -120,9 +120,19 @@ void Load(const void* table) {
     if (requested_fov != o.fov) g_complete = false;
     o.mouse_sensitivity = ReadFloat(t, "mouse_sensitivity", o.mouse_sensitivity);
     o.mouse_vertical_sensitivity = ReadFloat(t, "mouse_vertical_sensitivity", o.mouse_vertical_sensitivity);
-    if (const toml::table* keys = t["keys"].as_table())
+    if (const toml::table* keys = t["keys"].as_table()) {
         for (auto&& [id, value] : *keys)
             if (auto v = value.value<std::string>()) o.keys[std::string(id.str())] = *v;
+        // Before the weapon keys, 1-4 were zoom and the dpad. A file written then that still has those defaults gets
+        // the new ones, so the number keys do one thing each.
+        if (!keys->contains("weapon_1")) {
+            constexpr std::pair<const char*, const char*> kOld[] = {
+                {"sniper_zoom_up", "Wheel Up,1"}, {"sniper_zoom_down", "Wheel Down,2"},
+                {"dpad_left", "3"}, {"dpad_right", "4"}};
+            for (auto [id, old] : kOld)
+                if (auto it = o.keys.find(id); it != o.keys.end() && it->second == old) o.keys.erase(it);
+        }
+    }
 }
 
 // each action's keys, the defaults written out so the file shows what can be bound

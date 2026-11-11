@@ -34,6 +34,9 @@ std::atomic<bool> g_menu{false};
 std::atomic<uint32_t> g_menu_pressed{0}, g_block_mouse{0};
 std::atomic<int> g_menu_wheel{0};
 std::atomic<uint64_t> g_resume_until{0};
+std::atomic<bool> g_front_end{false};
+std::atomic<int> g_weapon_key{0};  // 1-based place asked for by a weapon key, taken by the game's switch query
+std::atomic<uint64_t> g_weapon_ms{0};
 constexpr uint64_t kPlayMs = 250;
 constexpr uint64_t kTapMs = 80;
 // The wheel binds as two keys, codes Windows leaves unassigned. A notch holds what is bound to it for one tap.
@@ -55,6 +58,8 @@ struct Target {
 constexpr int kWalk = -3;
 constexpr int kQuickSave = -4;  // keys of their own, outside the pad (src/common/quick_save.cpp)
 constexpr int kQuickLoad = -5;
+constexpr int kFirstWeapon = -6;  // weapon_1, then -7, -8: a place in the player's weapons (src/common/weapon_select.h)
+constexpr int kWeaponKeys = 3;
 constexpr int kFirstButtonBit = 8;
 constexpr int kStart = 12;
 constexpr int kFirstMoveKey = 16;
@@ -98,10 +103,13 @@ constexpr Target kActions[] = {
     {{"crouch", "C,Ctrl"}, 5},
     {{"center_view", "Z"}, 14},
     {{"melee_attack", "V,MMB"}, 15},
-    {{"sniper_zoom_up", "Wheel Up,1"}, 8},  // the dpad
-    {{"sniper_zoom_down", "Wheel Down,2"}, 9},
-    {{"dpad_left", "3"}, 10},
-    {{"dpad_right", "4"}, 11},
+    {{"weapon_1", "1"}, kFirstWeapon},
+    {{"weapon_2", "2"}, kFirstWeapon - 1},
+    {{"weapon_3", "3"}, kFirstWeapon - 2},
+    {{"sniper_zoom_up", "Wheel Up"}, 8},  // the dpad
+    {{"sniper_zoom_down", "Wheel Down"}, 9},
+    {{"dpad_left", "4"}, 10},
+    {{"dpad_right", "5"}, 11},
     {{"back", "Tab"}, 13},
     {{"pause", "Escape"}, kStart},
     {{"look_up", "Up"}, 20},
@@ -241,6 +249,8 @@ bool UpdateSettle(const Binds& binds) {
 struct Held {
     bool used = false;
     bool walk = false;
+    bool pause = false;
+    uint32_t weapons = 0;  // weapon keys held, bit 0 weapon_1
     int stick[8] = {};  // move forward back left right, look up down left right
 };
 
@@ -261,6 +271,10 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
         held.used = true;
         if (b == kWalk) {
             held.walk = true;
+        } else if (b <= kFirstWeapon && b > kFirstWeapon - kWeaponKeys) {
+            if (play) held.weapons |= 1u << (kFirstWeapon - b);
+        } else if (b == kStart) {
+            held.pause = true;
         } else if (b >= kFirstLookKey && !play) {
             continue;
         } else if (b >= kFirstMoveKey) {
@@ -268,11 +282,33 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
         } else if (b < kFirstButtonBit) {
             p.analog[b] = 0xFF;
         } else {
-            // Start pauses and resumes; keep the pause binding identical in play and menus.
             p.buttons |= uint16_t(1u << (b - kFirstButtonBit));
         }
     }
     return held;
+}
+
+// Pads are polled from more than one thread: the edges below are atomic.
+std::atomic<bool> g_pause_held{false}, g_pause_back{false};
+std::atomic<uint32_t> g_weapons_held{0};
+
+// The pause key presses Start, which pauses and resumes; in the front end, where Start accepts, it presses B to go
+// back. What it presses is decided when it goes down, so a hold across loading does not turn into the other button.
+void PressPause(bool held, bool play, Pad& p) {
+    if (!g_pause_held.exchange(held) && held) g_pause_back = g_front_end && !play;
+    if (!held) return;
+    if (g_pause_back) p.analog[1] = 0xFF;
+    else p.buttons |= uint16_t(1u << (kStart - kFirstButtonBit));
+}
+
+// a weapon key's press, kept for the game's next switch query
+void PressWeapons(uint32_t held) {
+    uint32_t pressed = held & ~g_weapons_held.exchange(held);
+    for (int i = 0; i < kWeaponKeys; i++) {
+        if (!(pressed >> i & 1)) continue;
+        g_weapon_ms = NowMs();
+        g_weapon_key = i + 1;
+    }
 }
 
 }  // namespace
@@ -357,6 +393,8 @@ void Keyboard(Pad& p) {
     bool play = Playing();
     bool fixed_down = std::any_of(std::begin(kFixed), std::end(kFixed), Down);
     Held held = PressActions(binds, play, p);
+    PressPause(held.pause, play, p);
+    PressWeapons(held.weapons);
     // Enter, Space and Backspace act in menus; in play they do what they are bound to
     if (!play && (Down(VK_RETURN) || Down(VK_SPACE))) p.analog[0] = 0xFF;
     if (!play && Down(VK_BACK)) p.analog[1] = 0xFF;
@@ -422,6 +460,12 @@ void SetMenuInput(bool active) {
 }
 
 void UseMenuMouse() { SetKeyboard(true); }
+void SetFrontEnd(bool front_end) { g_front_end = front_end; }
+
+int TakeWeaponKey() {
+    int key = g_weapon_key.exchange(0);
+    return key && NowMs() - g_weapon_ms < kPlayMs ? key : 0;
+}
 void MenuResume() { g_resume_until = NowMs() + kTapMs; }
 
 const Action* Actions(size_t* count) {
