@@ -124,8 +124,8 @@ void Load(const void* table) {
         for (auto&& [id, value] : *keys)
             if (auto v = value.value<std::string>()) o.keys[std::string(id.str())] = *v;
         // Before the weapon keys, 1-4 were zoom and the dpad. A file written then that still has those defaults gets
-        // the new ones, so the number keys do one thing each.
-        if (!keys->contains("weapon_1")) {
+        // the new ones, so the number keys do one thing each. (weapon_1 was the first weapon key's name.)
+        if (!keys->contains("weapon_1") && !keys->contains("primary_weapon")) {
             constexpr std::pair<const char*, const char*> kOld[] = {
                 {"sniper_zoom_up", "Wheel Up,1"}, {"sniper_zoom_down", "Wheel Down,2"},
                 {"dpad_left", "3"}, {"dpad_right", "4"}};

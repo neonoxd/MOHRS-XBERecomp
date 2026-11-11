@@ -58,7 +58,7 @@ struct Target {
 constexpr int kWalk = -3;
 constexpr int kQuickSave = -4;  // keys of their own, outside the pad (src/common/quick_save.cpp)
 constexpr int kQuickLoad = -5;
-constexpr int kFirstWeapon = -6;  // weapon_1, then -7, -8: a place in the player's weapons (src/common/weapon_select.h)
+constexpr int kFirstWeapon = -6;  // primary, then -7 secondary, -8 special: a weapon group (src/common/weapon_select.h)
 constexpr int kWeaponKeys = 3;
 constexpr int kFirstButtonBit = 8;
 constexpr int kStart = 12;
@@ -103,9 +103,9 @@ constexpr Target kActions[] = {
     {{"crouch", "C,Ctrl"}, 5},
     {{"center_view", "Z"}, 14},
     {{"melee_attack", "V,MMB"}, 15},
-    {{"weapon_1", "1"}, kFirstWeapon},
-    {{"weapon_2", "2"}, kFirstWeapon - 1},
-    {{"weapon_3", "3"}, kFirstWeapon - 2},
+    {{"primary_weapon", "1"}, kFirstWeapon},
+    {{"secondary_weapon", "2"}, kFirstWeapon - 1},
+    {{"special_weapon", "3"}, kFirstWeapon - 2},
     {{"sniper_zoom_up", "Wheel Up"}, 8},  // the dpad
     {{"sniper_zoom_down", "Wheel Down"}, 9},
     {{"dpad_left", "4"}, 10},
@@ -250,7 +250,7 @@ struct Held {
     bool used = false;
     bool walk = false;
     bool pause = false;
-    uint32_t weapons = 0;  // weapon keys held, bit 0 weapon_1
+    uint32_t weapons = 0;  // weapon keys held, bit 0 primary_weapon
     int stick[8] = {};  // move forward back left right, look up down left right
 };
 

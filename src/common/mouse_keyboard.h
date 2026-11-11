@@ -29,7 +29,8 @@ void SetMenuInput(bool active);  // explicit FEng ownership, independent of the 
 void UseMenuMouse();
 void MenuResume();             // a short Start press through the normal pause handling
 void SetFrontEnd(bool front_end);  // guest thread: in the front-end shell the pause key goes back instead
-// the weapon key pressed in play since the last call, 1-based, or 0; a press waits a moment for the game to take it
+// the weapon key pressed in play since the last call (1 primary, 2 secondary, 3 special), or 0; a press waits a
+// moment for the game to take it
 int TakeWeaponKey();
 
 // actions the keyboard and mouse can be bound to in the settings file's [keys], key names comma separated

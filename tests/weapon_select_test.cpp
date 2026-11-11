@@ -20,9 +20,14 @@ using kernel::G;
 using kernel::R32;
 const game::WeaponLayout& L = game::kDefaultWeapons;
 constexpr uint32_t kPlayers = L.players, kManager = L.input_manager, kPlayer = 0x10000, kStack = 0x70000;
-constexpr uint32_t kHolders[] = {0x20000, 0x21000, 0x22000, 0x23000};
-constexpr uint32_t kWeapons[] = {0x30000, 0x31000, 0x32000, 0x33000};
-constexpr uint32_t kIds[] = {0x400100, 0x400200, 0x400300, 0x400400};
+constexpr int kPrimary = 1, kSecondary = 2, kSpecial = 3;
+
+// the ring as the game keeps it, sorted by WeaponType (0xDF320)
+enum Slot { Colt, Welrod, Garand, Thompson, BAR, Bazooka, Grenades, kSlots };
+constexpr uint32_t kTypes[kSlots] = {1, 1, 3, 5, 5, 6, 7};
+uint32_t Holder(int i) { return 0x20000 + i * 0x1000; }
+uint32_t Weapon(int i) { return 0x40000 + i * 0x1000; }
+uint32_t Id(int i) { return 0x400100 + i * 0x100; }
 
 void Setup() {
     memory.fill(0);
@@ -31,17 +36,21 @@ void Setup() {
     G<uint8_t>(kManager) = 0;              // entry 0: KBM's port
     G<uint8_t>(kManager + 0x8F8) = 1;      // entry 1: a controller
     G<uint32_t>(kPlayers + 4) = kPlayer + 0x4000;
-    for (int i = 0; i < 4; i++) {
-        G<uint32_t>(kHolders[i] + 0x2BC) = kWeapons[i];
-        G<uint32_t>(kHolders[i] + 0x2B4) = kHolders[(i + 1) % 4];
-        G<uint32_t>(kHolders[i] + 0x2B0) = kHolders[(i + 3) % 4];
-        G<uint8_t>(kHolders[i] + 0x3C0) = 4;
-        G<uint32_t>(kWeapons[i] + L.id) = kIds[i];
+    for (int i = 0; i < kSlots; i++) {
+        G<uint32_t>(Holder(i) + 0x2BC) = Weapon(i);
+        G<uint32_t>(Holder(i) + 0x2B4) = Holder((i + 1) % kSlots);
+        G<uint32_t>(Holder(i) + 0x2B0) = Holder((i + kSlots - 1) % kSlots);
+        G<uint8_t>(Holder(i) + 0x3C0) = 4;
+        G<uint32_t>(Weapon(i) + L.id) = Id(i);
+        G<uint32_t>(Weapon(i) + L.type) = kTypes[i];
     }
-    G<uint8_t>(kHolders[1] + 0x3C0) = 0;  // not picked up: not counted
-    G<uint32_t>(kPlayer + L.ring) = kHolders[0];
-    G<uint32_t>(kPlayer + L.holder) = kHolders[0];
+    G<uint8_t>(Holder(Welrod) + 0x3C0) = 0;  // not picked up
+    G<int16_t>(Weapon(Grenades) + L.count_a) = 2;
+    G<uint32_t>(kPlayer + L.ring) = Holder(Colt);
+    G<uint32_t>(kPlayer + L.holder) = Holder(Garand);
 }
+
+void Holding(int i) { G<uint32_t>(kPlayer + L.holder) = Holder(i); }
 
 X86Context Query(uint32_t index, uint32_t action, uint32_t answer) {
     X86Context ctx{};
@@ -61,6 +70,13 @@ uint32_t Select(uint32_t player, uint32_t ret = 0x33D09, uint32_t id = 0) {
     game::WeaponSelect(ctx, L);
     return R32(kStack + 8);
 }
+
+// a key pressed in play: the id the switch it starts ends at, 0 for no switch
+uint32_t Press(int k) {
+    key = k;
+    if (Query(0, 0x12, 0).eax != 1) return 0;
+    return Select(kPlayer);
+}
 }  // namespace
 
 namespace kernel { uint8_t* g_base = memory.data(); }
@@ -71,50 +87,61 @@ int main() {
     Setup();
     Check(Query(0, 0x12, 0).eax == 0 && Select(kPlayer) == 0, "no key: the game's switch as it was");
 
-    key = 2;
-    Check(Query(0, 0x12, 0).eax == 1, "key 2 reads as a switch press");
-    Check(Select(kPlayer) == kIds[2], "places count usable weapons only: the second is the third holder");
-    Check(Select(kPlayer) == 0, "the request is used once");
+    // holding the Garand
+    Check(Press(kSecondary) == Id(Colt), "secondary: the pistol, past one not picked up");
+    Check(Press(kPrimary) == Id(Thompson), "primary from a primary: the next one");
+    Holding(Thompson);
+    Check(Press(kPrimary) == Id(BAR), "and the next");
+    Holding(BAR);
+    Check(Press(kPrimary) == Id(Garand), "wrapping to the first");
+    Holding(Colt);
+    Check(Press(kPrimary) == Id(Garand), "primary from a pistol: the first primary");
+    Check(Press(kSecondary) == 0, "the only pistol, held: nothing");
+    Check(Press(kSpecial) == Id(Bazooka), "special: the launcher first");
+    Holding(Bazooka);
+    Check(Press(kSpecial) == Id(Grenades), "then grenades with ammo");
+    G<int16_t>(Weapon(Grenades) + L.count_a) = 0;
+    Check(Press(kSpecial) == 0, "empty grenades are skipped: the only special, held");
+    G<int16_t>(Weapon(Grenades) + L.count_a) = 2;
 
-    key = 3;
-    Check(Query(0, 0x11, 0).eax == 0 && key == 3, "other actions leave the key");
-    Check(Query(0, 0x12, 0).eax == 1, "key 3");
+    // a second press before the script's select
+    Holding(Garand);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "first press starts the switch");
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 0 && key == 0, "second press starts no second switch");
+    Check(Select(kPlayer) == Id(BAR), "and the switch under way goes one further");
+    key = kSecondary;
+    Query(0, 0x12, 0);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 0, "back to the group held: no switch");
+    Check(Select(kPlayer) == Id(Colt), "the switch under way keeps its weapon, never the one held");
+
+    key = kSecondary;
+    Query(0, 0x12, 0);
     Check(Select(kPlayer, 0xE00AA) == 0, "a select from elsewhere is left alone");
-    Check(Select(kPlayer) == kIds[3], "and NextWeapon's still goes to key 3: the fourth holder");
+    Check(Select(kPlayer) == Id(Colt), "and NextWeapon's still gets the request");
 
-    key = 1;
-    Check(Query(0, 0x12, 0).eax == 0, "the current weapon: no switch");
-    key = 4;
-    Check(Query(0, 0x12, 0).eax == 0, "no fourth usable weapon: no switch");
-    key = 2;
-    Check(Query(1, 0x12, 0).eax == 0 && key == 2, "a controller's player is not KBM's");
-    Check(Query(0, 0x12, 1).eax == 1 && key == 2, "a real switch press stays as it is");
+    key = kSecondary;
+    Check(Query(0, 0x11, 0).eax == 0 && key == kSecondary, "other actions leave the key");
+    Check(Query(1, 0x12, 0).eax == 0 && key == kSecondary, "a controller's player is not KBM's");
+    Check(Query(0, 0x12, 1).eax == 1 && key == kSecondary, "a real switch press stays as it is");
 
     G<uint8_t>(kPlayer + 0xD46) = 1;
-    Check(Query(0, 0x12, 0).eax == 0, "on a mounted gun: nothing");
+    Check(Press(kSecondary) == 0, "on a mounted gun: nothing");
+    G<uint8_t>(kPlayer + 0xD46) = 0x10;
+    Check(Press(kSecondary) == Id(Colt), "getting onto a gun is still on foot");
     G<uint8_t>(kPlayer + 0xD46) = 0;
     G<uint32_t>(kPlayer + L.holder) = 0;
-    key = 2;
-    Check(Query(0, 0x12, 0).eax == 0, "unarmed: nothing");
-    G<uint32_t>(kPlayer + L.holder) = kHolders[0];
+    Check(Press(kSecondary) == Id(Colt), "no current holder, as a level starts: the group's first");
+    Check(Press(kPrimary) == Id(Garand), "for each group");
+    Holding(Garand);
 
-    key = 2;
+    key = kSecondary;
     Query(0, 0x12, 0);
-    G<uint8_t>(kHolders[2] + 0x3C0) = 0;
+    G<uint8_t>(Holder(Colt) + 0x3C0) = 0;
     Check(Select(kPlayer) == 0, "a weapon gone before the select: the game's next weapon");
-    G<uint8_t>(kHolders[2] + 0x3C0) = 4;
-
-    // type 7 counts by its ammo
-    G<uint32_t>(kWeapons[2] + L.type) = 7;
-    key = 2;
-    Check(Query(0, 0x12, 0).eax == 1 && Select(kPlayer) == kIds[3], "an empty type 7 is skipped in the numbering");
-    G<int16_t>(kWeapons[2] + L.count_a) = 3;
-    key = 2;
-    Check(Query(0, 0x12, 0).eax == 1 && Select(kPlayer) == kIds[2], "a type 7 with ammo is counted");
-
-    key = 2;
-    Query(0, 0x12, 0);
-    Check(Select(kPlayer + 0x4000) == 0 && Select(kPlayer) == kIds[2], "another player's select keeps the request");
+    Check(Press(kSecondary) == 0, "no pistol: nothing");
 
     std::puts("weapon select: all checks passed");
 }

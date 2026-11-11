@@ -1,5 +1,8 @@
 #pragma once
-// Weapon keys: weapon_1..3 pick the player's first, second or third weapon (docs/input.md "Weapon keys").
+// Weapon keys (docs/input.md "Weapon keys"): primary_weapon cycles the firearms but pistols, secondary_weapon the
+// pistols, special_weapon the rest (launchers first), by the weapon definition's WeaponType (+0x68, copied to the
+// weapon at 0x1504C3): 1 pistol, 2 bolt rifle, 3 semi-automatic rifle or shotgun, 4 sniper, 5 automatic, 6 launcher,
+// 7 grenade, 8 thrown; 0x150090 calls 1-5 firearms. The ring is kept sorted by it (0xDF320), so a group is in order.
 //
 // The switch stays the game's own: on the switch action (0x12) the player update posts message 0x12 to the player's
 // script (default.xbe 0xDDCB0, co-op 0xD78E3 and 0xD7AC6), which holsters the weapon and calls its NextWeapon native
@@ -10,7 +13,7 @@
 //
 // Ring layout: the player's current holder and the ring's first holder (+0xE6C/+0xE70, co-op +0xF4C/+0xF50); a holder
 // has its weapon at +0x2BC, the next holder at +0x2B4 and flags at +0x3C0 (bit 2: the player has it). A weapon has its
-// id, type and two counts; the usable test (0xE27E0 / 0xDA900) takes type 7 by its counts, the rest by bit 2.
+// id, WeaponType and two counts; the usable test (0xE27E0 / 0xDA900) takes type 7 by its counts, the rest by bit 2.
 #include <cstdint>
 
 #include "cpu/x86_context.h"
@@ -27,7 +30,7 @@ inline constexpr WeaponLayout kDefaultWeapons{0x270108, 0x271188, 0xE6C, 0xE70, 
 inline constexpr WeaponLayout kCoopWeapons{0x265278, 0x266618, 0xF4C, 0xF50, 0x308, 0x320, 0x30C, 0x30E, 0x332F9};
 
 // after the input manager's action query (thiscall (player index, action), ret 8; 0xB83E0 / 0xACC80), with its
-// arguments: a weapon key reads as a switch press for KBM's player when it asks for another usable weapon
+// arguments: a weapon key reads as a switch press for KBM's player when its group has another usable weapon
 void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const WeaponLayout& layout);
 // before the weapon select: the switch a weapon key started goes to that weapon
 void WeaponSelect(X86Context& ctx, const WeaponLayout& layout);

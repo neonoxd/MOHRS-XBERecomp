@@ -41,13 +41,16 @@ Keyboard and mouse controls:
   Move                  W A S D          Walk (hold)           Alt
   Fire                  Left mouse       Aim mode              Right mouse
   Action                E, F             Change weapon         Q, Mouse 4
-  Weapon 1, 2, 3        1, 2, 3
+  Primary weapon        1                Pistol                2
+  Special weapon        3
   Grenade               G                Jump                  Space
   Reload                R                Crouch                C, Ctrl
   Melee                 V, Middle mouse  Center view           Z
   Sniper zoom           Wheel            D-pad left/right      4, 5
   Back (objectives)     Tab              Pause                 Escape
   Quick save            F5               Quick load            F9
+
+1 cycles rifles, shotguns and automatic weapons, 2 pistols, 3 everything else you carry (bazooka first).
 
 Quick save and load are for testing, in single player during play. There is one slot, also written to
 quicksave\MOHRS.qsv: after a restart, start or continue any mission and press F9. A new version of the game

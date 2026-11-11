@@ -69,8 +69,20 @@ goes back like Backspace rather than accepting. Which button a press sends is de
 
 ### Weapon keys
 
-`weapon_1`-`weapon_3` (1, 2, 3) pick the KBM player's first, second or third weapon, counting the weapons the switch
-would step to (`src/common/weapon_select.{h,cpp}`). The switch stays the game's own, holster and draw included:
+`primary_weapon` (1), `secondary_weapon` (2) and `special_weapon` (3) pick the KBM player's weapons by group
+(`src/common/weapon_select.{h,cpp}`), using the weapon definition's WeaponType (definition `+0x68`, copied to the
+weapon at `0x1504C3`):
+
+| Key | WeaponType | Player weapons |
+|---|---|---|
+| Primary | 2 bolt rifle, 3 semi-automatic rifle or shotgun, 4 sniper, 5 automatic | M1 Garand, Springfield, shotgun, Thompson, Type 100, BAR |
+| Secondary | 1 pistol | Colt .45, Welrod |
+| Special | anything else: 6 launcher, 7 grenade, 8 thrown | Bazooka |
+
+The game calls types 1-5 firearms (`0x150090`) and keeps the ring sorted by type as weapons are added (`0xDF320`),
+which is why the switch steps pistol, rifle, automatic. A key picks its group's first usable weapon, or, when one of
+the group is out, the next one after it, wrapping; a group with nothing else usable does nothing. The switch stays the
+game's own, holster and draw included:
 
 | Role | default.xbe | moh3rdc.xbe |
 |---|---:|---:|
@@ -80,7 +92,7 @@ would step to (`src/common/weapon_select.{h,cpp}`). The switch stays the game's 
 | Weapon select (thiscall (direction, id), ret 8) | `0xD8720` | `0xCD820` |
 | Usable test (fastcall holder) | `0xE27E0` | `0xDA900` |
 | Player: current holder, ring head | `+0xE6C`, `+0xE70` | `+0xF4C`, `+0xF50` |
-| Weapon: id, type, counts | `+0x2F8`, `+0x310`, `+0x2FC/+0x2FE` | `+0x308`, `+0x320`, `+0x30C/+0x30E` |
+| Weapon: id, WeaponType, counts | `+0x2F8`, `+0x310`, `+0x2FC/+0x2FE` | `+0x308`, `+0x320`, `+0x30C/+0x30E` |
 
 Holders link through `+0x2B4` (next) and `+0x2B0` (previous), hold their weapon at `+0x2BC` and flags at `+0x3C0`
 (bit 2: picked up). A weapon is usable when it is picked up, or for type 7 when its two counts are not both zero. The
@@ -88,10 +100,16 @@ select walks the ring in the given direction to the next usable holder whose wea
 a current holder and no match the walk never ends, so a match must exist before an id is passed.
 
 A key press is held for 250 ms. The action query override answers the switch action as pressed for the player on
-port 0 when the key asks for another usable weapon, the player is armed and not on a gun; it remembers that weapon's
-id for two seconds. The select override gives that id to the next select NextWeapon makes for the same player, if
-the weapon is still usable; any other select is left alone. Number keys used to be zoom (1, 2) and dpad left/right
-(3, 4); a settings file without `weapon_1` that still has those defaults gets the new ones (wheel only, 4 and 5).
+port 0 when the key's group has another usable weapon and the player is not on a gun (`+0xD46` bit 0; `0x10` is
+only the way onto one). A level starts with no current holder (`0xE0020`); the game's switch then equips from the
+ring's head, and a key equips its group's first. The override remembers that weapon's id for two seconds. The select override gives that id to the next select NextWeapon makes for the same
+player, if the weapon is still usable; any other select is left alone. A key pressed again before that select moves
+the remembered weapon on in its group without starting a second switch (the script would step past it afterwards),
+and never to the weapon out: the select given that id puts it away and leaves the player unarmed. Weapon definitions
+come from `weapbul_<easy|medium|hard|mp>.dat` in each level archive (loader `0x151EC0`, names hashed with CRC-32,
+`0x10EB60`). Number keys used to be zoom (1, 2) and dpad left/right (3, 4); a settings file with neither
+`primary_weapon` nor the first build's `weapon_1` that still has those defaults gets the new ones (wheel only, 4
+and 5).
 
 ## Mouse look
 
@@ -135,9 +153,10 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/r
 
 The mapper test drives the real `Keyboard()` with faked keys: Escape as Start in play and pause, as B in the front
 end and latched while held, weapon key presses once per press and only in play, the moved dpad keys. The weapon test
-runs both overrides on a fake ring: numbering past weapons not picked up and empty type 7s, the current weapon,
-missing places, another player's port, mounted and unarmed players, selects from elsewhere, a weapon lost before the
-select.
+runs both overrides on a ring sorted like the game's: each group, cycling and wrapping within it, weapons not picked
+up and empty grenades skipped, a second press before the select, another player's port, mounted and unarmed players,
+selects from elsewhere, a weapon lost before the select, no current holder, and bit `0x10`. With `XBE_LOG_INFO`
+set the log says why each key press switched or did not.
 
 The routing test covers shared singleplayer input, joining in either order, both setup flags, co-op/PvP gameplay and pause,
 return to the main menu with stale gameplay flags, held-input suppression, unplug/reconnect, extra pads, rumble
