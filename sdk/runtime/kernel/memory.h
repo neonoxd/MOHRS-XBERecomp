@@ -27,6 +27,8 @@ uint8_t* Base();
 bool Commit(uint32_t va, uint32_t size);
 void Decommit(uint32_t va, uint32_t size);
 bool IsCommitted(uint32_t va);
+// every page of [va, va + size) is readable guest memory; a header the title freed can point anywhere
+bool IsCommittedRange(uint32_t va, uint32_t size);
 // every committed guest range, the physical memory first (crash dumps take them)
 std::vector<std::pair<uint32_t, uint32_t>> CommittedRanges();
 

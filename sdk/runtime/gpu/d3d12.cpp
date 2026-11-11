@@ -1819,11 +1819,15 @@ void ReadStagePalette(const State& s, int stage, const TextureDesc& d, StagePale
     constexpr uint32_t kPaletteSizeShift = 30;
     if (d.format != kFmtP8 || !s.palettes[size_t(stage)]) return;
     uint32_t header = s.palettes[size_t(stage)];
-    palette.va = mem::VirtualFromPhysical(kernel::R32(header + kPaletteData));
+    if (!mem::IsCommittedRange(header, 8)) return;
+    uint32_t va = mem::VirtualFromPhysical(kernel::R32(header + kPaletteData));
     uint32_t size_code = kernel::R32(header + kPaletteCommon) >> kPaletteSizeShift;
+    size_t bytes = sizeof(PaletteCopy::colours) >> size_code;
+    // a freed palette header left bound: the texture is decoded without colours, as with no palette
+    if (!mem::IsCommittedRange(va, uint32_t(bytes))) return;
+    palette.va = va;
     static std::unordered_map<uint32_t, PaletteCopy> copies;
     PaletteCopy& c = copies[palette.va];
-    size_t bytes = (std::size(c.colours) >> size_code) * sizeof(uint32_t);
     const void* now = kernel::HostPtr(palette.va);
     if (c.bytes != bytes || std::memcmp(c.colours, now, bytes)) {
         std::memset(c.colours, 0, sizeof(c.colours));

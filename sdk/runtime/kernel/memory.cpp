@@ -126,6 +126,17 @@ void Decommit(uint32_t va, uint32_t size) {
 
 bool IsCommitted(uint32_t va) { return InPhysical(va) || g_committed[va >> 12] != 0; }
 
+bool IsCommittedRange(uint32_t va, uint32_t size) {
+    const uint64_t end = uint64_t(va) + std::max<uint32_t>(size, 1);
+    if (end > (1ull << 32)) return false;
+    // most textures are in the physical windows: no page walk
+    for (uint64_t window : {uint64_t(kContiguousBase), uint64_t(kWriteCombineBase)})
+        if (va >= window && end <= window + kPhysicalSize) return true;
+    for (uint64_t p = va & ~uint64_t(kPage - 1); p < end; p += kPage)
+        if (!IsCommitted(uint32_t(p))) return false;
+    return true;
+}
+
 // first fit allocator over a guest range
 class Ranges {
 public:

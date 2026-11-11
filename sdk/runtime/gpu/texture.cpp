@@ -271,7 +271,7 @@ const FormatInfo& Format(uint32_t f) {
 
 bool Describe(uint32_t header, TextureDesc& d) {
     using namespace kernel;
-    if (!header) return false;
+    if (!header || !mem::IsCommittedRange(header, 20)) return false;
     uint32_t common = R32(header);
     uint32_t type = common & 0x70000;  // 0x40000 texture, 0x50000 surface
     if (type != 0x40000 && type != 0x50000) return false;
@@ -296,6 +296,16 @@ bool Describe(uint32_t header, TextureDesc& d) {
         d.depth = dims == 3 ? 1u << ((fmt >> 28) & 0xF) : 1;
         d.linear = !Format(d.format).swizzled && !Format(d.format).compressed;
         d.pitch = d.width * Format(d.format).bits / 8;
+    }
+    // A stage can still hold a header the title freed and reused (a level's names over a texture after a mission's
+    // movie): the console's GPU keeps what it latched and never faults, so such a texture is no texture here
+    uint32_t total = TotalSize(d);
+    if (!mem::IsCommittedRange(d.data, total)) {
+        static std::atomic<int> logged{0};
+        if (logged.fetch_add(1, std::memory_order_relaxed) < 4)
+            LOGE("gpu: texture header %08X points at %08X+%X, not guest memory (a freed header?): not drawn", header,
+                 d.data, total);
+        return false;
     }
     return true;
 }
