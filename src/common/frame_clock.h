@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdint>
 #include <unordered_map>
+#include <vector>
 
 namespace game {
 
@@ -44,6 +45,41 @@ struct KeyedTickRemainder {
         uint32_t whole = uint32_t(total);
         f = total - whole;
         return whole;
+    }
+};
+
+// A post to the script system's message queue: its queue function's stack arguments (target, handler entry,
+// argument, its word, argument object, sender, message), the two 16-bit ones masked.
+struct QueuedPost {
+    uint32_t target, handler, argument, word, object, sender, message;
+    bool operator==(const QueuedPost&) const = default;
+};
+
+// The script system drains its message queue once per console frame (ScriptFrame), and code that runs every frame
+// posts every frame: many copies per drain at high frame rates. Repeat is true for a post, on a later frame, equal to
+// one of the posts its target got on the last frame it got any: it has had nothing else since, and on the console a
+// drain would have come in between. Posts within one frame always stand, as do all after a different one.
+struct RepeatedPosts {
+    struct Burst {
+        uint64_t frame = 0;
+        std::vector<QueuedPost> posts;
+    };
+    std::unordered_map<uint32_t, Burst> targets;
+    uint64_t frame = 0;
+
+    void NextFrame() { frame++; }
+    void Drained() { targets.clear(); }
+    bool Repeat(const QueuedPost& post) {
+        auto [it, fresh] = targets.try_emplace(post.target);
+        Burst& burst = it->second;
+        if (fresh) burst.frame = frame;
+        else if (burst.frame != frame) {
+            if (std::find(burst.posts.begin(), burst.posts.end(), post) != burst.posts.end()) return true;
+            burst.frame = frame;
+            burst.posts.clear();
+        }
+        burst.posts.push_back(post);
+        return false;
     }
 };
 

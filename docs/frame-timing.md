@@ -55,6 +55,8 @@ advanced once at its conversion site, not per entity.
 | Player floor ray: collision world before the cast | `0xDAC19` | `0xD1581` |
 | Player floor ray result, hook at cmp edi, 1 | `0xDAC2A` | `0xD1592` |
 | Script system frame update, function override | `0x4C0F0` | `0x4F220` |
+| Script message queue function, function override | `0x481F0` | `0x4B340` |
+| Its entry pool's free list | `0x255748` | `0x24D974` |
 | Entity manager update, function override | `0xFAB00` | `0xF35D0` |
 | Player view shake and recoil update, function override | `0xD6700` | `0xCB440` |
 | Mounted gun firing kick block, skip hook to its end | `0xDDA3F` -> `0xDDC23` | `0xD75F5` -> `0xD7848` |
@@ -137,6 +139,18 @@ and frame queues (`0x511B0`). Each watch list (`0x4B700`) polls its conditions e
 (0x7B, 0x132, ...) for each that holds, so polling and the AI loops it wakes scaled with frame rate (a 1_1 soldier
 restarted his 0.6 s reload animation every 0.15 s at 144 FPS instead of 0.7 s). `ScriptFrame` runs the update once
 per console frame; the timer wheel still gets every tick. `MOHRS_SCRIPT_EVERY_FRAME`.
+
+Messages posted to scripts (`0x4ADB0`, one entry per matching handler) wait in a queue that the script update
+drains (`0x48470`, at most 256 a run). The queue function (`0x481F0`) takes each entry from a 256-entry pool
+(`0x255744`, free list `0x255748`) without checking it is empty. Code that runs every frame posts every frame: a
+multiplayer player standing still posts 300 to its `MultiPlayer` script (`0xCC9A0`, 4 handlers), so with one drain
+per console frame about 1,700 FPS filled the pool and the next post read a null entry at `0x48253`. `QueuePost`
+drops a post that equals one its target got on the last frame it got any, from an earlier frame since the last
+drain: the console would have drained in between. Posts within one frame, and any after a different post to the
+same target, stand, so the order the script sees is kept. While the pool is empty any post is dropped (logged as
+"script messages: queue full", first 4). A drop goes through the function's own path for a target that is gone
+(`+0x24` = -1), which releases a pooled argument object. `MOHRS_SCRIPT_EVERY_FRAME` turns the drops off with the
+rest.
 
 ### View shake and recoil
 

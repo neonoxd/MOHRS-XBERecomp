@@ -50,6 +50,10 @@ X86_FUNC(sub_0004F220) {
     else kernel::Return(ctx, ctx.eax, 0);
 }
 
+// the script system's message queue function, default.xbe's 0x481F0 (src/common/frame_timing.h)
+X86_EXTERN_FUNC(__imp__sub_0004B340);
+X86_FUNC(sub_0004B340) { game::QueuePost(ctx, base, __imp__sub_0004B340, 0x24D974); }
+
 // the entity manager's update, default.xbe's 0xFAB00: short steps carried over in the 60 FPS and unlocked modes
 X86_EXTERN_FUNC(__imp__sub_000F35D0);
 X86_FUNC(sub_000F35D0) {

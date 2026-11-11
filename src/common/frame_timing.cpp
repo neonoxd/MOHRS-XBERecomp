@@ -115,13 +115,23 @@ bool EntityStep(X86Context& ctx) {
     return true;
 }
 
+namespace {
+// per gameplay frame on the game thread; a post from any other thread is always in frame 0 and never repeats
+thread_local RepeatedPosts posts;
+thread_local bool posts_on = false;
+}
+
 bool ScriptFrame(X86Context& ctx) {
     static const bool off = std::getenv("MOHRS_SCRIPT_EVERY_FRAME") != nullptr;  // test runs: the old behavior
     if (off || (!Opt().unlocked_fps && !Opt().fps60)) {
         script_total = script_ran = 0;
         script_frames = 0;
+        posts = {};
+        posts_on = false;
         return true;
     }
+    posts_on = true;
+    posts.NextFrame();
     float& dt = kernel::G<float>(ctx.esp + 4);
     script_total += std::max(0.0f, dt);
     // console frames are two ticks; run once each time the total enters a new one, with all the time since the last run
@@ -130,7 +140,43 @@ bool ScriptFrame(X86Context& ctx) {
     script_frames = frame;
     dt = float(script_total - script_ran);
     script_ran = script_total;
+    posts.Drained();  // the update drains the queue first
     return true;
+}
+
+void QueuePost(X86Context& ctx, uint8_t* base, QueueFunction original, uint32_t free_list) {
+    uint32_t target = kernel::R32(ctx.esp + 4);
+    uint32_t& id = kernel::G<uint32_t>(target + 0x24);
+    if (id == 0xFFFFFFFFu) {  // gone: the function drops it itself
+        original(ctx, base);
+        return;
+    }
+    QueuedPost post{target,
+                    kernel::R32(ctx.esp + 8),
+                    kernel::R32(ctx.esp + 12),
+                    kernel::R32(ctx.esp + 16) & 0xFFFF,
+                    kernel::R32(ctx.esp + 20),
+                    kernel::R32(ctx.esp + 24),
+                    kernel::R32(ctx.esp + 28) & 0xFFFF};
+    bool drop = false;
+    if (!kernel::R32(free_list)) {
+        drop = true;
+        static int logged = 0;
+        if (logged < 4) {
+            logged++;
+            LOGE("script messages: queue full, message %X to %08X dropped", post.message, target);
+        }
+    } else {
+        drop = posts_on && posts.Repeat(post);
+    }
+    if (!drop) {
+        original(ctx, base);
+        return;
+    }
+    uint32_t saved = id;
+    id = 0xFFFFFFFFu;
+    original(ctx, base);  // releases a pooled argument object and returns 0xE, as for a gone target
+    id = saved;
 }
 
 namespace {

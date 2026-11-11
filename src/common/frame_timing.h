@@ -31,6 +31,15 @@ void ThreatDecay(X86Context& ctx);
 // messages, condition polls counted in frames (0x2E0C0) and frame queues (0x511B0); the console ran it at 30 Hz.
 // ScriptFrame is false on frames between two console frames, else it sets the time since the last run.
 bool ScriptFrame(X86Context& ctx);
+// The script system's message queue function (default 0x481F0, co-op 0x4B340; cdecl (target, handler entry,
+// argument, word, argument object, sender, message)) takes an entry from a 256-entry pool (free list at default
+// 0x255748, co-op 0x24D974) with no check; the queue drains in the script update. A multiplayer player posts 300 to
+// its script (4 handlers, 4 entries) every frame it stands (0xCC9A0): at about 1,700 FPS, 64 frames between two
+// drains filled the pool and the next post read a null entry (0x48253). QueuePost drops a repeated post between two
+// script runs (RepeatedPosts) and any post while the pool is empty, through the function's own path for a gone
+// target (+0x24 == -1), which also releases a pooled argument object.
+using QueueFunction = void (*)(X86Context&, uint8_t*);
+void QueuePost(X86Context& ctx, uint8_t* base, QueueFunction original, uint32_t free_list);
 // The player's view shake and recoil update (default 0xD6700, co-op 0xCB440; thiscall (yaw offset*, pitch offset*,
 // time), ret 0xC), called each frame on foot and on a mounted gun. Each call adds a random jolt to the view offsets at
 // +0x284/+0x288, which persist, and steps a mounted gun's firing shake by a fixed amount: more frames, more jolts

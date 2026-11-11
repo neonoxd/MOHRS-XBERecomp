@@ -117,5 +117,33 @@ int main() {
         animation = {};
         Check(animation.Sample(9000000000LL) == 0, "a new loading screen must reset the phase");
     }
+    {
+        // the multiplayer player's stand message: 300 to its script, one entry per handler, every frame
+        game::RepeatedPosts posts;
+        auto stand = [](uint32_t handler) { return game::QueuedPost{0x826890B0, handler, 0, 0, 0, 0, 300}; };
+        auto turn = game::QueuedPost{0x826890B0, 0x82659C00, 0, 0, 0, 0, 299};
+        auto other = game::QueuedPost{0x82700000, 0x82659B70, 0, 0, 0, 0, 300};
+        int kept = 0;
+        for (int frame = 0; frame < 100; frame++) {
+            posts.NextFrame();
+            for (uint32_t h : {0x82659B70u, 0x82659B90u, 0x82659BB0u, 0x82659BD0u}) kept += !posts.Repeat(stand(h));
+        }
+        Check(kept == 4, "a post repeated on later frames must be queued once per drain");
+        Check(posts.Repeat(stand(0x82659B70)), "a repeat stays dropped within the drain");
+        posts.NextFrame();
+        Check(!posts.Repeat(other), "another target's post must stand");
+        Check(!posts.Repeat(turn), "a different post must stand");
+        posts.NextFrame();
+        Check(!posts.Repeat(stand(0x82659B70)), "a post after a different one must stand, keeping the order");
+        Check(!posts.Repeat(stand(0x82659B90)), "posts within one frame must stand");
+        Check(!posts.Repeat(stand(0x82659B90)), "a post repeated within one frame must stand");
+        posts.NextFrame();
+        Check(posts.Repeat(stand(0x82659B70)), "the next frame's repeat must be dropped");
+        Check(!posts.Repeat({0x826890B0, 0x82659B70, 0, 0, 0x8302F198, 0, 300}),
+              "a post with another argument must stand");
+        posts.Drained();
+        posts.NextFrame();
+        Check(!posts.Repeat(stand(0x82659B70)), "the first post after a drain must stand");
+    }
     std::puts("frame clock checks passed");
 }

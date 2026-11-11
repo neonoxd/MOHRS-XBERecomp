@@ -65,6 +65,11 @@ X86_FUNC(sub_0004C0F0) {
     else kernel::Return(ctx, ctx.eax, 0);
 }
 
+// the script system's message queue function (src/common/frame_timing.h): repeats between two script runs and posts
+// to a full pool dropped
+X86_EXTERN_FUNC(__imp__sub_000481F0);
+X86_FUNC(sub_000481F0) { game::QueuePost(ctx, base, __imp__sub_000481F0, 0x255748); }
+
 // the entity manager's update (docs/frame-timing.md): steps under 1/64 tick carried over in the 60 FPS and unlocked
 // modes instead of standing still
 X86_EXTERN_FUNC(__imp__sub_000FAB00);
