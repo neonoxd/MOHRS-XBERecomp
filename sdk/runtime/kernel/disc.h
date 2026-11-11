@@ -49,4 +49,11 @@ private:
 void MountDisc(std::unique_ptr<Disc> disc);
 const Disc* MountedDisc();
 
+// Contents a game supplies for a file of the mounted disc image, read in the disc's place (a level archive with
+// more files in it, say). Asked with the path under D: as the title named it (backslash separated, any case) each
+// time the file is opened or its size is asked; null keeps the disc's. Any thread.
+using DiscFileContents = std::shared_ptr<const std::vector<uint8_t>>;
+using DiscFileProvider = DiscFileContents (*)(const std::string& path);
+void SetDiscFileProvider(DiscFileProvider provider);
+
 }  // namespace kernel

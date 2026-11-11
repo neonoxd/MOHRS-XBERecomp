@@ -9,7 +9,10 @@ constexpr uint32_t kPage = 0x1000;
 constexpr uint32_t kUserLow = 0x00010000;
 constexpr uint32_t kUserHigh = 0x7FFE0000;
 constexpr uint32_t kContiguousBase = 0x80000000;  // guest VA = kContiguousBase | physical
-constexpr uint32_t kPhysicalSize = 64u << 20;
+// a development kit's 128 MB: a title sizes its own pools for a retail console's 64 MB and uses the rest only when
+// a game's hooks give it more (MOHRS: the main heap grown for weapons from other levels). The XDK's D3D masks
+// physical addresses to 28 bits, so up to 256 MB would do.
+constexpr uint32_t kPhysicalSize = 128u << 20;
 constexpr uint32_t kWriteCombineBase = 0xF0000000;
 constexpr uint32_t kKernelDataBase = 0x80000000;   // first physical megabyte holds kernel variables
 constexpr uint32_t kKernelDataSize = 0x00100000;

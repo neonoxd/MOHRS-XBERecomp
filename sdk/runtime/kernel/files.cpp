@@ -1,8 +1,10 @@
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -77,6 +79,8 @@ struct File : Object {
     std::string xbox;
     FILE* fp = nullptr;
     const Disc::Entry* entry = nullptr;  // on the disc image instead of a host path
+    std::string disc_path;               // there: its path under D:
+    DiscFileContents contents;           // there: what the game supplies in the disc's place (SetDiscFileProvider)
     bool dir = false;
     uint64_t pos = 0;
     std::vector<fs::directory_entry> entries;
@@ -89,13 +93,14 @@ struct File : Object {
     uint64_t* Position() override { return &pos; }
     // on the disc by its entry, a host folder or file by its path (RebuildObject)
     void Describe(snapshot::Writer& w) const override {
-        w.Pod(uint8_t(entry ? 0 : dir ? 1 : fp ? 2 : 3));
+        w.Pod(uint8_t(entry ? (contents ? 4 : 0) : dir ? 1 : fp ? 2 : 3));
         w.Str(xbox);
         if (entry) {
             w.Pod(entry->offset);
             w.Pod(entry->size);
             w.Pod(uint8_t(entry->dir));
             w.Str(entry->name);
+            if (contents) w.Str(disc_path);
         } else {
             w.Str(host.string());
             w.Pod(uint8_t(delete_on_close));
@@ -143,8 +148,16 @@ void FillNetworkInfo(uint32_t out, const fs::path& p) {
     FillNetworkInfo(out, ToFileTime(fs::last_write_time(p, ec)), dir ? 0 : fs::file_size(p, ec), dir);
 }
 
-void FillNetworkInfo(uint32_t out, const Disc::Entry& e) {
-    FillNetworkInfo(out, MountedDisc()->Time(), e.dir ? 0 : e.size, e.dir);
+std::atomic<DiscFileProvider> g_provider{nullptr};
+
+// what the game supplies for a disc file, or null
+DiscFileContents Provided(const Disc::Entry* e, const std::string& disc_path) {
+    DiscFileProvider p = g_provider.load();
+    return p && e && !e->dir ? p(disc_path) : nullptr;
+}
+
+void FillNetworkInfo(uint32_t out, const Disc::Entry& e, const DiscFileContents& contents = nullptr) {
+    FillNetworkInfo(out, MountedDisc()->Time(), e.dir ? 0 : contents ? contents->size() : e.size, e.dir);
 }
 
 bool WildMatch(const std::string& pat, const std::string& s) {
@@ -262,6 +275,7 @@ struct Target {
     std::string host;                    // empty on the disc image or unmapped
     bool disc = false;                   // on the mounted disc image
     const Disc::Entry* entry = nullptr;  // there: the file or folder, null when missing
+    std::string disc_path;               // there: the path under D:
 };
 
 // a file under the folder XBE_DISC_OVERRIDE names replaces the disc's file at the same path, to try changed game
@@ -319,14 +333,18 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
         if (part.find(':') != std::string::npos) return {};
     if (best->first == kCdRom) {
         if (fs::path over = DiscOverride(parts); !over.empty()) return {over.string()};
-        if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
+        if (const Disc* disc = MountedDisc()) {
+            std::string joined;
+            for (const std::string& part : parts) joined += (joined.empty() ? "" : "\\") + part;
+            return {{}, true, disc->Find(parts), joined};
+        }
     }
     return {MatchCase(best->second, parts).string()};
 }
 
 // the disc image is read only: nothing on it is created, replaced or written
-uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t handle_out, uint32_t iosb, uint32_t disposition,
-                    uint32_t options) {
+uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& disc_path, const std::string& name, uint32_t handle_out,
+                    uint32_t iosb, uint32_t disposition, uint32_t options) {
     if (!e && (disposition == 1 || disposition == 4)) {  // FILE_OPEN or FILE_OVERWRITE need an existing file
         LOG_FIRST(200, "missing %s", name.c_str());
         IoStatus(iosb, kObjectNameNotFound, 5);
@@ -344,6 +362,9 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
     f->xbox = Normalize(name);
     f->entry = e;
     f->dir = e->dir;
+    f->disc_path = disc_path;
+    f->contents = Provided(e, disc_path);
+    if (f->contents) LOG_FIRST(64, "files: %s supplied by the game (%zu bytes)", name.c_str(), f->contents->size());
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, 1);
     LOG_FIRST(400, "open %s", name.c_str());
@@ -353,6 +374,8 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
 }  // namespace
 
 std::string ResolvePath(const std::string& xbox_path, uint32_t root_handle) { return Resolve(xbox_path, root_handle).host; }
+
+void SetDiscFileProvider(DiscFileProvider provider) { g_provider.store(provider); }
 
 ObjectRef RebuildObject(ObjType type, snapshot::Reader& r) {
     if (type == ObjType::SymLink) {
@@ -376,6 +399,19 @@ ObjectRef RebuildObject(ObjType type, snapshot::Reader& r) {
         f->dir = dir;
         return f;
     }
+    if (kind == 4) {
+        uint64_t offset = r.Pod<uint64_t>();
+        uint32_t size = r.Pod<uint32_t>();
+        bool dir = r.Pod<uint8_t>() != 0;
+        std::string name = r.Str();
+        f->disc_path = r.Str();
+        const Disc* disc = MountedDisc();
+        const Disc::Entry* root = disc ? disc->Find(std::vector<std::string>{}) : nullptr;
+        f->entry = r.ok && root ? FindEntry(*root, offset, size, dir, name) : nullptr;
+        f->contents = Provided(f->entry, f->disc_path);
+        if (!f->entry || !f->contents) return nullptr;
+        return f;
+    }
     f->host = r.Str();
     f->delete_on_close = r.Pod<uint8_t>() != 0;
     if (!r.ok) return nullptr;
@@ -396,6 +432,10 @@ bool ReadGameFile(const std::string& xbox_path, std::vector<uint8_t>& out) {
     Target t = Resolve(xbox_path, 0);
     if (t.disc) {
         if (!t.entry || t.entry->dir) return false;
+        if (DiscFileContents c = Provided(t.entry, t.disc_path)) {
+            out = *c;
+            return true;
+        }
         out.resize(t.entry->size);
         return MountedDisc()->Read(*t.entry, 0, out.data(), t.entry->size) == t.entry->size;
     }
@@ -413,7 +453,7 @@ KERNEL_EXPORT(190, NtCreateFile, 9) {
     uint32_t root;
     std::string name = ObjectName(attrs, &root);
     Target t = Resolve(name, root);
-    if (t.disc) return OpenOnDisc(t.entry, name, handle_out, iosb, disposition, options);
+    if (t.disc) return OpenOnDisc(t.entry, t.disc_path, name, handle_out, iosb, disposition, options);
     const std::string& host = t.host;
     if (host.empty()) {
         LOGW("NtCreateFile: no mapping for %s", name.c_str());
@@ -516,7 +556,7 @@ KERNEL_EXPORT(202, NtOpenFile, 6) {
     uint32_t root;
     std::string name = ObjectName(attrs, &root);
     Target t = Resolve(name, root);
-    if (t.disc) return OpenOnDisc(t.entry, name, handle_out, iosb, 1, options);
+    if (t.disc) return OpenOnDisc(t.entry, t.disc_path, name, handle_out, iosb, 1, options);
     const std::string& host = t.host;
     std::error_code ec;
     if (host.empty() || !fs::exists(host, ec)) {
@@ -553,6 +593,13 @@ static uint64_t Offset(File& f, uint32_t off) {
     return o >= 0 ? uint64_t(o) : f.pos;
 }
 
+static size_t ReadContents(const std::vector<uint8_t>& c, uint64_t pos, void* out, uint32_t len) {
+    if (pos >= c.size()) return 0;
+    size_t n = size_t(std::min<uint64_t>(len, c.size() - pos));
+    std::memcpy(out, c.data() + pos, n);
+    return n;
+}
+
 // pages is the FILE_SEGMENT_ELEMENT array for scatter and gather, 0 for one buffer
 static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     uint32_t h = a[0], event = a[1], apc = a[2], apc_ctx = a[3], iosb = a[4], buf = a[5], len = a[6], off = a[7];
@@ -567,7 +614,8 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     while (n < len) {
         uint32_t at = pages ? R32(pages + n / 0x1000 * 8) + n % 0x1000 : buf + n;
         uint32_t chunk = pages ? std::min(len - n, 0x1000 - n % 0x1000) : len;
-        size_t done = f->entry ? MountedDisc()->Read(*f->entry, pos + n, HostPtr(at), chunk)
+        size_t done = f->contents ? ReadContents(*f->contents, pos + n, HostPtr(at), chunk)
+                      : f->entry  ? MountedDisc()->Read(*f->entry, pos + n, HostPtr(at), chunk)
                       : write  ? std::fwrite(HostPtr(at), 1, chunk, f->fp)
                                : std::fread(HostPtr(at), 1, chunk, f->fp);
         n += uint32_t(done);
@@ -590,7 +638,10 @@ KERNEL_EXPORT(211, NtQueryInformationFile, 5) {
     auto f = FileFromHandle(h);
     if (!f) return kInvalidHandle;
     std::error_code ec;
-    uint64_t size = f->dir ? 0 : f->entry ? f->entry->size : fs::file_size(f->host, ec);
+    uint64_t size = f->dir         ? 0
+                    : f->contents  ? f->contents->size()
+                    : f->entry     ? f->entry->size
+                                   : fs::file_size(f->host, ec);
     if (f->fp) {
         std::fflush(f->fp);
         size = fs::file_size(f->host, ec);
@@ -616,7 +667,7 @@ KERNEL_EXPORT(211, NtQueryInformationFile, 5) {
             IoStatus(iosb, kSuccess, 8);
             return kSuccess;
         case 34:  // FileNetworkOpenInformation
-            if (f->entry) FillNetworkInfo(out, *f->entry);
+            if (f->entry) FillNetworkInfo(out, *f->entry, f->contents);
             else FillNetworkInfo(out, f->host);
             IoStatus(iosb, kSuccess, 0x38);
             return kSuccess;
@@ -744,7 +795,11 @@ KERNEL_EXPORT(207, NtQueryDirectoryFile, 10) {
     if (len < need) return kBufferTooSmall;
     std::memset(HostPtr(out), 0, need);
     // times, sizes and attributes sit at the same place
-    if (f->entry) FillNetworkInfo(out + 8, *f->disc_entries[i]);
+    if (f->entry) {
+        const Disc::Entry& e = *f->disc_entries[i];
+        std::string path = f->disc_path.empty() ? e.name : f->disc_path + "\\" + e.name;
+        FillNetworkInfo(out + 8, e, Provided(&e, path));
+    }
     else FillNetworkInfo(out + 8, f->entries[i].path());
     // FILE_DIRECTORY_INFORMATION has EndOfFile before AllocationSize, the reverse of the network info
     W32(out + 0x38, R32(out + 8 + 0x30));
@@ -766,7 +821,7 @@ KERNEL_EXPORT(210, NtQueryFullAttributesFile, 2) {
         LOG_FIRST(200, "missing %s", name.c_str());
         return kObjectNameNotFound;
     }
-    if (t.disc) FillNetworkInfo(a[1], *t.entry);
+    if (t.disc) FillNetworkInfo(a[1], *t.entry, Provided(t.entry, t.disc_path));
     else FillNetworkInfo(a[1], t.host);
     return kSuccess;
 }
