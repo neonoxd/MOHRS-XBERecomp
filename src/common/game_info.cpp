@@ -14,6 +14,7 @@
 
 #include "app/app.h"
 #include "common/controller_routing.h"
+#include "common/level_weapons.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
 #include "common/quick_save.h"
@@ -156,6 +157,7 @@ void Save(void* table) {
 void Init() {
     LOGR("MOHRS-XBERecomp %s", MOHRS_VERSION);
     StartWidescreen();
+    InstallLevelWeapons();
     input::LoadBindings();
     if (!g_complete) app::Save();
 }

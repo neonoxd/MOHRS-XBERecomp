@@ -7,6 +7,8 @@
 // preferences opens PCOptions.fng, a screen made from the HUD options screen (src/common/options_package.h) whose
 // rows show and change the settings file's display, frame rate, view and mouse settings. Left and right change a
 // row, confirm saves the settings file, back puts the settings back as they were on entry.
+// The pause screen's preferences also get Cheats under it, Cheats.fng made the same way, whose rows switch the
+// cheats (src/common/cheats.h) for the session.
 namespace game {
 
 using GuestFunction = void (*)(X86Context&, uint8_t*);

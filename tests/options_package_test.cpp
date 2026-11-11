@@ -45,16 +45,16 @@ static void Save(const fs::path& in, const char* name, const std::vector<uint8_t
     std::ofstream(dir / name, std::ios::binary).write(reinterpret_cast<const char*>(data.data()), data.size());
 }
 
-static void Screen(const fs::path& hud) {
+static void Screen(const fs::path& hud, const game::menu::ScreenSpec& spec, size_t rows) {
     std::vector<uint8_t> d = Read(hud);
     std::vector<std::string> labels;
-    for (size_t i = 0; i < game::menu::kRows; i++) labels.push_back("Row " + std::to_string(i));
-    std::vector<uint8_t> made = game::menu::MakeScreen(d.data(), d.size(), labels);
+    for (size_t i = 0; i < rows; i++) labels.push_back("Row " + std::to_string(i));
+    std::vector<uint8_t> made = game::menu::MakeScreen(d.data(), d.size(), labels, spec);
     Check(!made.empty(), "no screen from " + hud.string());
     std::optional<feng::Package> p = feng::Package::Parse(made.data(), made.size());
     Check(p.has_value(), "made screen does not parse");
-    Check(p->Name() == game::menu::kScreen, "screen name");
-    Check(p->Path().ends_with(std::string("\\") + game::menu::kScreen), "screen path " + p->Path());
+    Check(p->Name() == spec.file, "screen name");
+    Check(p->Path().ends_with(std::string("\\") + spec.file), "screen path " + p->Path());
     Check(Buttons(*p) == labels.size(), "a button a row");
     Check(!p->Find("Crosshairs button") && !p->Find("HUD button"), "HUD rows left");
     float last = -1e9f;
@@ -72,7 +72,7 @@ static void Screen(const fs::path& hud) {
     }
     // written again unchanged
     Check(p->Write() == made, "made screen writes back the same");
-    Save(hud, game::menu::kScreen, made);
+    Save(hud, spec.file, made);
     std::printf("%s: %zu bytes, %zu objects\n", hud.string().c_str(), made.size(), p->objects.size());
 }
 
@@ -89,6 +89,20 @@ static void Entry(const fs::path& list) {
     Check(game::menu::AddEntry(made.data(), made.size()).empty(), "entry added twice");
     for (const feng::Object& o : p->objects)
         Check(&o == e || !o.IsButton() || o.Y() != e->Y(), "entry on another entry's row");
+    if (list.filename() == "Preferences.fng") {
+        // the pause screen's Cheats under PC Options, below every other entry
+        made = game::menu::AddEntry(made.data(), made.size(), game::menu::kCheats);
+        Check(!made.empty(), "no Cheats entry in " + list.string());
+        p = feng::Package::Parse(made.data(), made.size());
+        Check(p.has_value() && Buttons(*p) == Buttons(*before) + 2, "two more buttons");
+        e = p->Find("PC Options button");
+        const feng::Object* c = p->Find("Cheats button");
+        Check(e && c && c->IsButton(), "Cheats entry");
+        for (const feng::Object& o : p->objects)
+            Check(&o == c || !o.IsButton() || o.Y() < c->Y(), "Cheats entry is the last row");
+        Check(game::menu::AddEntry(made.data(), made.size(), game::menu::kCheats).empty(), "Cheats added twice");
+        std::printf("%s: Cheats entry at y %.0f\n", list.string().c_str(), c->Y());
+    }
     Save(list, list.filename().string().c_str(), made);
     std::printf("%s: entry at y %.0f\n", list.string().c_str(), e->Y());
 }
@@ -133,12 +147,14 @@ static void PauseTabs(const fs::path& file) {
     auto data = Read(file);
     // Preferences must support both the PC Options insertion and direct tab responses.
     if (current == 2) data = game::menu::AddEntry(data.data(), data.size());
+    if (current == 2 && pages == single) data = game::menu::AddEntry(data.data(), data.size(), game::menu::kCheats);
     auto original = Responses(data);
     auto made = game::menu::AddPauseTabs(data.data(), data.size());
     Check(!made.empty(), "direct tab responses: " + file.string());
     auto parsed = feng::Package::Parse(made.data(), made.size());
     Check(parsed && parsed->Write() == made, "tab package round trip");
     if (current == 2) Check(parsed->Find("PC Options button"), "PC Options entry survived tab additions");
+    if (current == 2 && pages == single) Check(parsed->Find("Cheats button"), "Cheats entry survived tab additions");
     auto changed = Responses(made);
     uint32_t source = feng::Hash(current == 0 ? "Pad_Right" : "Pad_Left");
     Check(original.contains(source), "native tab cleanup response exists");
@@ -195,7 +211,10 @@ int main(int argc, char** argv) {
             files++;
             std::string name = f.path().filename().string();
             PauseTabs(f.path());
-            if (name == "HUD.fng") Screen(f.path());
+            if (name == "HUD.fng") {
+                Screen(f.path(), game::menu::kPcOptions, game::menu::kRows);
+                Screen(f.path(), game::menu::kCheats, game::menu::kCheatRows);
+            }
             if (name == "Option_overlay.fng" || name == "Preferences.fng" || name == "MPPreferences.fng") Entry(f.path());
         }
     }

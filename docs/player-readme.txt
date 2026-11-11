@@ -74,6 +74,11 @@ Options > PC Options in the main menu, and Preferences > PC Options in the pause
 render scale, frame rate (30, 60 or unlocked), FPS limit, VSync, field of view, widescreen, FPS counter, mouse
 sensitivity and mouse inversion. Left and right change a row, confirm saves, back cancels.
 
+Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
+Mode and One Shot Kills. They last until the game is closed. Give All Weapons gives every weapon the current level
+has; in single player the campaign's other weapons are added too from the next level you load (or restart the
+mission). One Shot Kills also applies to your allies.
+
 Everything is also in settings.toml beside the executable, written on the first start. Some settings are only there:
 
   skip_intros = true            no EA logo and opening movie at start
@@ -106,7 +111,7 @@ Known limits of this preview
 - The whole campaign has not been played through on this port yet; the later levels (1_5, 1_7, 1_8, 1_9) have
   not been checked.
 - Multiplayer over a network and Xbox Live are not supported. Split-screen and co-op work.
-- The new PC Options screen is in English in every language.
+- The new PC Options and Cheats screens are in English in every language.
 
 
 Reporting problems

@@ -1,8 +1,10 @@
 // Hooks for default.xbe. A strong definition replaces the recompiled function at that address.
 #include "common/mouse_look.h"
+#include "common/cheats.h"
 #include "common/controller_routing.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
+#include "common/level_weapons.h"
 #include "common/options_menu.h"
 #include "common/quick_save.h"
 #include "common/menu_mouse.h"
@@ -11,6 +13,8 @@
 #include "common/weapon_select.h"
 #include "common/widescreen.h"
 #include "common/mouse_keyboard.h"
+#include <cstdlib>
+
 #include "kernel/kernel.h"
 #include "xdk/d3d8.h"
 #include "xdk/hle.h"
@@ -24,6 +28,25 @@ X86_FUNC(sub_001616C0) {
     input::SetFrontEnd(kernel::G<uint8_t>(0x2463B1) != 0);
     input::SetSaveMenu(kernel::G<uint8_t>(0x244779) != 0);  // the in-game menu's save byte (docs/input.md)
     __imp__sub_001616C0(ctx, base);
+}
+
+// the player's holder insert (thiscall player, weapon hash; ret 4): the ring a level's player setup builds, which
+// Give All Weapons gives from (src/common/cheats.h)
+// Weapons from other levels (src/common/level_weapons.h): XPhysicalAlloc, which the main heap's 48 MB block comes from
+// at boot (0x10FFD0), and the animation bank's load, lookup and release
+X86_EXTERN_FUNC(__imp__sub_001A60FA);
+X86_FUNC(sub_001A60FA) { game::HeapAlloc(ctx, base, __imp__sub_001A60FA); }
+X86_EXTERN_FUNC(__imp__sub_00068BD0);
+X86_FUNC(sub_00068BD0) { game::LoadWeaponBank(ctx, base, __imp__sub_00068BD0); }
+X86_EXTERN_FUNC(__imp__sub_00068CE0);
+X86_FUNC(sub_00068CE0) { game::FindAnimation(ctx, base, __imp__sub_00068CE0); }
+X86_EXTERN_FUNC(__imp__sub_00068BA0);
+X86_FUNC(sub_00068BA0) { game::ReleaseWeaponBank(ctx, base, __imp__sub_00068BA0); }
+
+X86_EXTERN_FUNC(__imp__sub_000DF320);
+X86_FUNC(sub_000DF320) {
+    game::CheatRingBuilt(ctx.ecx);
+    __imp__sub_000DF320(ctx, base);
 }
 
 // the EA stream library's packet take, under its stream's lock (src/common/stream_lock.h)
@@ -50,11 +73,13 @@ X86_FUNC(sub_0009D180) {
     __imp__sub_0009D180(ctx, base);
 }
 
-// the main gameplay frame, called once a frame from the level's loop at 0x128B9: its entry is where a quick save is
-// taken and put back (src/common/quick_save.h), the host's call chain being the same there every frame
+// the main gameplay frame, called once a frame from the level's loop at 0x128B9, paused too: its entry is where a
+// quick save is taken and put back (src/common/quick_save.h), the host's call chain being the same there every frame,
+// and where the cheats are applied (src/common/cheats.h), the players being live there
 X86_EXTERN_FUNC(__imp__sub_000A4A90);
 X86_FUNC(sub_000A4A90) {
     game::QuickSaveFrame(ctx, reinterpret_cast<const void*>(&sub_000A4A90));
+    game::CheatFrame(ctx, game::kDefaultCheats);
     __imp__sub_000A4A90(ctx, base);
 }
 
@@ -294,3 +319,13 @@ X86_EXTERN_FUNC(__imp__sub_00162AE0);
 X86_FUNC(sub_00162AE0) { game::MenuMouseText(ctx, base, __imp__sub_00162AE0, kMouseMenu); }
 X86_EXTERN_FUNC(__imp__sub_000B6B90);
 X86_FUNC(sub_000B6B90) { game::MenuMouseSprite(ctx, base, __imp__sub_000B6B90, kMouseMenu); }
+
+// the sound event lookup and play (thiscall: sound, event hash; ret 8; 0 or less when nothing played):
+// MOHRS_SOUND_TRACE logs the weapon events' (docs/debugging.md)
+X86_EXTERN_FUNC(__imp__sub_00108370);
+X86_FUNC(sub_00108370) {
+    static const bool trace = std::getenv("MOHRS_SOUND_TRACE") != nullptr;
+    uint32_t hash = R32(ctx.esp + 8);
+    __imp__sub_00108370(ctx, base);
+    if (trace) LOGR("sound trace: event %08X -> %d", hash, int(ctx.eax));
+}

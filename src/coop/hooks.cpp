@@ -1,6 +1,7 @@
 // Hooks for moh3rdc.xbe (co-op). A strong definition replaces the recompiled function at that address. The same
 // game functions as in src/game/hooks.cpp, found by their bytes in this build of the game code.
 #include "common/mouse_look.h"
+#include "common/cheats.h"
 #include "common/controller_routing.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
@@ -23,6 +24,21 @@ X86_FUNC(sub_0015AA90) {
     input::SetFrontEnd(kernel::G<uint8_t>(0x23E5B1) != 0);
     input::SetSaveMenu(kernel::G<uint8_t>(0x23C959) != 0);  // the in-game menu's save byte (docs/input.md)
     __imp__sub_0015AA90(ctx, base);
+}
+
+// the main gameplay frame, default.xbe's 0xA4A90 (its "Gameloop Update" profile name): the cheats applied, the
+// players being live there (src/common/cheats.h)
+X86_EXTERN_FUNC(__imp__sub_00098A40);
+X86_FUNC(sub_00098A40) {
+    game::CheatFrame(ctx, game::kCoopCheats);
+    __imp__sub_00098A40(ctx, base);
+}
+
+// the player's holder insert, default.xbe's 0xDF320 (src/common/cheats.h)
+X86_EXTERN_FUNC(__imp__sub_000D3400);
+X86_FUNC(sub_000D3400) {
+    game::CheatRingBuilt(ctx.ecx);
+    __imp__sub_000D3400(ctx, base);
 }
 
 // the EA stream library's packet take, default.xbe's 0x165390, under its stream's lock (src/common/stream_lock.h)

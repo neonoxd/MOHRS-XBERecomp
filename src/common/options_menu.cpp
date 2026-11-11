@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "app/app.h"
+#include "common/cheats.h"
 #include "common/feng.h"
 #include "common/fov.h"
 #include "common/options.h"
@@ -122,6 +123,17 @@ const Row kRows[] = {
 };
 static_assert(std::size(kRows) == menu::kRows);
 
+// the cheats (src/common/cheats.h): switched at once, the game applies them from the next frame
+template <Cheat C>
+Row CheatRow(const char* label) {
+    return {label, [] { return OnOff(CheatOn(C)); }, [](int) { SetCheat(C, !CheatOn(C)); }};
+}
+const Row kCheatRows[] = {CheatRow<Cheat::GiveWeapons>("Give All Weapons"),
+                          CheatRow<Cheat::InfiniteAmmo>("Infinite Ammo"), CheatRow<Cheat::GodMode>("God Mode"),
+                          CheatRow<Cheat::OneShotKills>("One Shot Kills")};
+static_assert(std::size(kCheatRows) == menu::kCheatRows);
+bool g_saved_cheats[size_t(Cheat::Count)];  // game thread
+
 // the settings on entering the screen, put back by a back: other threads read them while the game runs, so only the
 // rows' fields are put back
 struct Saved {
@@ -141,7 +153,8 @@ struct Made {
     bool tabs = false;
     uint32_t va = 0;
 };
-Made g_made[] = {{menu::kScreen, false}, {menu::kScreen, true}, {"Option_overlay.fng", false},
+Made g_made[] = {{menu::kScreen, false}, {menu::kScreen, true}, {menu::kCheatsScreen, true},
+                 {"Option_overlay.fng", false},
                  {"Preferences.fng", true, true}, {"MPPreferences.fng", true, true},
                  {"ObjectivesOverlay.fng", true, true}, {"Notes.fng", true, true}, {"LoadRestart.fng", true, true},
                  {"MPLeaderBoard.fng", true, true}, {"MPLoadRestart.fng", true, true}};
@@ -195,44 +208,18 @@ size_t PackageSize(uint32_t va) {
     return 8 + size_t(R32(va + 4));
 }
 
-// the screen
-
-void Show(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
-    for (size_t r = 0; r < std::size(kRows); r++) {
-        uint32_t value = Text(menu::RowObject(r, "value"));
-        kernel::CallGuest(ctx, calls.set_text, {package, value, Scratch(kRows[r].show())});
-    }
-}
-
-void Setup(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
-    const app::Settings& s = app::Get();
-    g_saved = {s.display_mode, s.render_percent, s.fps_cap, s.vsync, Opt()};
-    for (size_t r = 0; r < std::size(kRows); r++) {
-        kernel::CallGuest(ctx, calls.set_text, {package, Text(menu::RowObject(r, "text")), Text(kRows[r].label)});
-        kernel::CallGuest(ctx, calls.run_script, {package, Text(menu::RowObject(r, "value")), Text("Show")});
-    }
-    Show(ctx, package, calls);
-}
-
-void Step(X86Context& ctx, uint32_t package, int dir, const MenuCalls& calls) {
-    uint32_t focus = R32(package + kFocus);
-    if (!focus) return;
-    uint32_t hash = R32(focus + kObjectHash);
-    for (size_t r = 0; r < std::size(kRows); r++) {
-        if (feng::Hash(menu::RowObject(r, "button")) != hash) continue;
-        std::string was = kRows[r].show();
-        kRows[r].step(dir);
-        if (kRows[r].show() != was) kernel::CallGuest(ctx, calls.sound, {dir > 0 ? 6u : 7u});
-        Show(ctx, package, calls);
-        return;
-    }
-}
+// the screens
 
 // the display mode only changes here, a window switch at every step would be too much
 void Confirm() {
     if (app::Get().display_mode != g_saved.display_mode) app::ApplyDisplay();
     app::Save();
     LOGI("PC options saved");
+}
+
+void Save() {
+    const app::Settings& s = app::Get();
+    g_saved = {s.display_mode, s.render_percent, s.fps_cap, s.vsync, Opt()};
 }
 
 void Revert() {
@@ -252,6 +239,64 @@ void Revert() {
     o.invert_mouse = was.invert_mouse;
 }
 
+// the cheats stay for the session, never in the settings file
+void SaveCheats() {
+    for (size_t c = 0; c < size_t(Cheat::Count); c++) g_saved_cheats[c] = CheatOn(Cheat(c));
+}
+void RevertCheats() {
+    for (size_t c = 0; c < size_t(Cheat::Count); c++) SetCheat(Cheat(c), g_saved_cheats[c]);
+}
+
+struct Screen {
+    const menu::ScreenSpec& spec;
+    const Row* rows;
+    size_t count;
+    void (*save)();     // on entry
+    void (*confirm)();  // confirm keeps the rows
+    void (*revert)();   // back puts them as they were on entry
+};
+const Screen kScreens[] = {{menu::kPcOptions, kRows, std::size(kRows), Save, Confirm, Revert},
+                           {menu::kCheats, kCheatRows, std::size(kCheatRows), SaveCheats, [] {}, RevertCheats}};
+
+// one of the screens made from HUD.fng, by package name, or null
+const Screen* ScreenNamed(const std::string& name) {
+    for (const Screen& screen : kScreens)
+        if (EqualNoCase(name, screen.spec.file)) return &screen;
+    return nullptr;
+}
+
+void Show(X86Context& ctx, uint32_t package, const Screen& screen, const MenuCalls& calls) {
+    for (size_t r = 0; r < screen.count; r++) {
+        uint32_t value = Text(menu::RowObject(r, "value"));
+        kernel::CallGuest(ctx, calls.set_text, {package, value, Scratch(screen.rows[r].show())});
+    }
+}
+
+void Setup(X86Context& ctx, uint32_t package, const Screen& screen, const MenuCalls& calls) {
+    screen.save();
+    for (size_t r = 0; r < screen.count; r++) {
+        uint32_t text = Text(menu::RowObject(r, "text"));
+        kernel::CallGuest(ctx, calls.set_text, {package, text, Text(screen.rows[r].label)});
+        kernel::CallGuest(ctx, calls.run_script, {package, Text(menu::RowObject(r, "value")), Text("Show")});
+    }
+    Show(ctx, package, screen, calls);
+}
+
+void Step(X86Context& ctx, uint32_t package, int dir, const Screen& screen, const MenuCalls& calls) {
+    uint32_t focus = R32(package + kFocus);
+    if (!focus) return;
+    uint32_t hash = R32(focus + kObjectHash);
+    for (size_t r = 0; r < screen.count; r++) {
+        if (feng::Hash(menu::RowObject(r, "button")) != hash) continue;
+        const Row& row = screen.rows[r];
+        std::string was = row.show();
+        row.step(dir);
+        if (row.show() != was) kernel::CallGuest(ctx, calls.sound, {dir > 0 ? 6u : 7u});
+        Show(ctx, package, screen, calls);
+        return;
+    }
+}
+
 }  // namespace
 
 void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
@@ -261,25 +306,36 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
     Made* made = nullptr;
     bool pause = InPauseFolder(kernel::ReadCString(path, 260));
     for (Made& m : g_made)
-        if (EqualNoCase(file, m.name) && (m.pause == pause || std::strcmp(m.name, menu::kScreen) != 0)) made = &m;
+        if (EqualNoCase(file, m.name) && (m.pause == pause || !ScreenNamed(m.name))) made = &m;
     if (!made) {
         original(ctx, base);
         return;
     }
     // the archive's own file: the screen's pattern or the list
-    bool screen = std::strcmp(made->name, menu::kScreen) == 0;
+    const Screen* screen = ScreenNamed(made->name);
     if (screen) W32(esp + 8, Text("HUD.fng"));
     original(ctx, base);
     W32(esp + 8, path);
     if (!made->va && ctx.eax) {
         size_t size = PackageSize(ctx.eax);
         const uint8_t* data = static_cast<const uint8_t*>(kernel::HostPtr(ctx.eax));
-        std::vector<std::string> labels;
-        for (const Row& row : kRows) labels.push_back(row.label);
-        bool entry = EqualNoCase(file, "Option_overlay.fng") || EqualNoCase(file, "Preferences.fng") ||
-                     EqualNoCase(file, "MPPreferences.fng");
-        std::vector<uint8_t> modified = screen ? menu::MakeScreen(data, size, labels) :
-                                        entry ? menu::AddEntry(data, size) : std::vector<uint8_t>(data, data + size);
+        std::vector<uint8_t> modified;
+        if (screen) {
+            std::vector<std::string> labels;
+            for (size_t r = 0; r < screen->count; r++) labels.push_back(screen->rows[r].label);
+            modified = menu::MakeScreen(data, size, labels, screen->spec);
+        } else if (EqualNoCase(file, "Option_overlay.fng") || EqualNoCase(file, "MPPreferences.fng")) {
+            modified = menu::AddEntry(data, size);
+        } else if (EqualNoCase(file, "Preferences.fng")) {
+            // single player and co-op: PC Options, then Cheats under it
+            modified = menu::AddEntry(data, size);
+            if (!modified.empty()) {
+                std::vector<uint8_t> cheats = menu::AddEntry(modified.data(), modified.size(), menu::kCheats);
+                if (!cheats.empty()) modified = std::move(cheats);
+            }
+        } else {
+            modified.assign(data, data + size);
+        }
         if (made->tabs && !modified.empty()) modified = menu::AddPauseTabs(modified.data(), modified.size());
         made->va = Copy(modified);
         if (made->va) {
@@ -296,7 +352,7 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
 void MenuScreen(X86Context& ctx, uint8_t* base, GuestFunction original) {
     uint32_t esp = ctx.esp;
     uint32_t name = R32(esp + 4);
-    bool ours = EqualNoCase(kernel::ReadCString(name, 64), menu::kScreen);
+    bool ours = ScreenNamed(kernel::ReadCString(name, 64)) != nullptr;
     // MOHRS_MENU_TRACE: every screen the game makes, by package name (test runs)
     static const bool trace = std::getenv("MOHRS_MENU_TRACE") != nullptr;
     if (trace) LOGR("menu trace: screen %s", kernel::ReadCString(name, 64).c_str());
@@ -307,7 +363,8 @@ void MenuScreen(X86Context& ctx, uint8_t* base, GuestFunction original) {
 
 void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls) {
     uint32_t handler = ctx.ecx;
-    if (!EqualNoCase(kernel::ReadCString(handler + kHandlerName, 64), menu::kScreen)) {
+    const Screen* screen = ScreenNamed(kernel::ReadCString(handler + kHandlerName, 64));
+    if (!screen) {
         original(ctx, base);
         return;
     }
@@ -318,17 +375,17 @@ void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const Men
     uint32_t package = R32(handler + kHandlerPackage);
     uint32_t event = R32(ctx.esp + 4);
     if (event == kSetup) {
-        Setup(ctx, package, calls);
+        Setup(ctx, package, *screen, calls);
         // the HUD screen's own setup fills in the profile's name; the rows it would set are gone
         original(ctx, base);
         return;
     }
-    if (event == kLeft || event == kRight) Step(ctx, package, event == kRight ? 1 : -1, calls);
-    if (event == kConfirm) Confirm();
+    if (event == kLeft || event == kRight) Step(ctx, package, event == kRight ? 1 : -1, *screen, calls);
+    if (event == kConfirm) screen->confirm();
     if (event == kRevert) {
-        Revert();
+        screen->revert();
         // the screen stays up as the list's preview once left
-        Show(ctx, package, calls);
+        Show(ctx, package, *screen, calls);
     }
     kernel::Return(ctx, 0, 3);
 }

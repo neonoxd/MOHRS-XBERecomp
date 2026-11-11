@@ -1,4 +1,4 @@
-# Menus: PC Options and mouse control
+# Menus: PC Options, Cheats and mouse control
 
 The menus are EA FEng packages (`.fng`) in `data\shell\shell.viv` and `data\pausscrn\pause.viv` / `mppause.viv`,
 each screen paired with a C++ handler that the shell's factory picks by package name. Nothing on disc changes and no
@@ -50,6 +50,147 @@ back (B, Backspace) restores every row as it was when the screen opened. Setting
 | Menu sound (cdecl) | `0x123C10` | `0x11DC90` |
 
 The screen is English in every language.
+
+## Cheats
+
+The pause screen's **Preferences** gets a **Cheats** entry under PC Options (`Preferences.fng` only, so single
+player and co-op; not the multiplayer `MPPreferences.fng`). The screen is made from the pause archive's `HUD.fng`
+like PC Options, with four On/Off rows. Left/right switch a row at once, confirm keeps the rows, back puts them as
+they were on entry. The switches last for the session and are not written to `settings.toml` or the profile.
+
+| Row | What it does |
+|---|---|
+| Give All Weapons | Every player weapon of the level, with full reserve ammo, given once per level once the player holds a weapon. In single player the other campaign levels' weapons are added to the levels loaded while it is on |
+| Infinite Ammo | The game's unlimited ammo cheat: firing leaves the clip as it is |
+| God Mode | The game's invincibility cheat; health is refilled when it comes on |
+| One Shot Kills | The game's one-shot cheat: every hit on an AI character does 1000 damage |
+
+Infinite Ammo, God Mode and One Shot Kills are the console's own unlockable cheats, each a byte the game reads where
+it applies. The cheat getter (`0x127600` / `0x121C20`, index 0 to 11) and setter (`0x1276B0` / `0x121CD0`) list
+all twelve. The game sets the bytes from the profile at a level's start (`0x9F710` / `0x92090`, not in co-op or
+multiplayer) and clears them on a profile load or reset (`0x133CC0`, `0xA0E70`). `src/common/cheats.cpp` sets each
+byte every frame while its row is on, at the main gameplay frame's entry (`0xA4A90` / `0x98A40`, once a frame in
+a level and in the shell, paused too), and puts back the game's value when the row goes off. In a multiplayer match the bytes are left alone.
+
+| | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| Invincibility byte (cheat 10), read by the invulnerable test | `0x20EDBC` | `0x206F9C` |
+| Invulnerable test (fastcall player: `+0xD4E` bit 4 or the cheat) | `0xD6210` | `0xCAD20` |
+| Full health (fastcall player), called when invincibility comes on | `0xD7620` | `0xCC300` |
+| Unlimited ammo byte (cheat 1), read by the weapon fire | `0x20EDBD` | `0x206F9D` |
+| Weapon fire (fastcall weapon): `clip--` unless the byte is set | `0x1506C0` | `0x149A90` |
+| One-shot byte (cheat 2), read by the AI hit handler | `0x20EDC7` | `0x206FA7` |
+| AI hit handler: damage = 1000 (`0x1E0E78`) when set | `0xE9E30` | `0xE1E30` |
+| Multiplayer match byte | `0x20EDB1` | `0x206F91` |
+| Player list, player count | `0x270108`, `0x1FC658` | `0x265278`, `0x1F54B8` |
+
+The one-shot cheat sets the damage of every hit on an AI character, whoever fired it, so allies die in one hit too.
+
+### Give All Weapons
+
+A player's weapon ring holds a holder for every player weapon in the level's object database (class `0x21`
+entries, looked up by weapon hash in the template table at `0x270460`, 0x60 bytes each, built by `0xCB5E0`). The
+player's setup adds each with the holder insert (`0xDF320` / `0xD3400`, thiscall player, weapon hash), which sorts
+the ring by WeaponType. A holder the player does not own has flag `+0x3C0` bit 2 clear. The level's give-weapon
+script native (`0x39E60` / `0x39A00`) finds the holder by hash, adds ammo and sets the bit.
+
+Give All Weapons does the same for every holder of WeaponType 1 to 8 (not tank turrets, mounted guns or melee):
+ammo up to the definition's most (`+0x12`) through the give-ammo call, the bit set, and the clip filled through the
+reload call for a weapon newly owned. It runs once per player when the row comes on and once after each rebuild of
+the ring (the holder insert is hooked), and waits until the player holds a weapon, so a level's unarmed start or
+scene is not armed early.
+
+A level's archive (`level.viv`) carries only its own weapons' files and its object database only its own holders;
+the shared definitions (`weapbul_*.dat`, all 65 weapons) are not enough, as the holder insert returns no holder
+for a hash the level has no template for. Weapons from other levels are added below.
+
+### Weapons from other levels
+
+In single player, while Give All Weapons is on, a campaign level (`data_N\level.viv`) is read from the disc
+image with the other campaign levels' player weapons added, so they are in the ring like the level's own. It takes
+effect when a level loads: switching the row on in a level gives that level's weapons now and the others' from the
+next level or restart. The switches are kept in the `MOHRS_CHEATS` environment variable, which the instance a level
+or the front end relaunches into inherits.
+
+The archive is built on the host (`src/common/level_archive.cpp`, `tests/level_archive_test.cpp`; sounds `src/common/level_sound.cpp`,
+`tests/level_sound_test.cpp`) and served through
+the SDK's disc file provider (`kernel::SetDiscFileProvider`): open, size queries and reads of that path see it. The
+game loads, enumerates and frees it as its own, which matters: file data outside an archive's buffer is freed by
+the game's heap (`0x112F20`).
+
+- Each weapon comes from the first of 1_2, 1_3, 1_5, 1_7, 1_9, 1_1, 1_4, 1_8 holding it (the multiplayer maps have
+  low detail meshes and no weapon scripts). The fire extinguisher is left out: its animations are only in 1_1's
+  bank.
+- Database (`levelfile.lfc`): a header (version, ?, count, table offset), a table of {class, field count, field
+  array}, fields {type, count, values}; types 0 (file) and 4 (name) hold string offsets. All offsets are from the
+  file's start, which the loader `0x114370` adds in place. The new database keeps the old bytes and puts a new
+  table (the old entries, then the new) and the new entries' fields after them. Added per weapon: its class `0x21`
+  entry, a class `0x9` entry for its script, `0x8` for the script's instance (`.sin`), `0xA` for its animation
+  states (`.aso`). The script is the `.cbs` whose base (header `+0x24`) is `PlayerWeapon_Base` and which holds the
+  weapon hash; the bazooka has none.
+- Files: every file the weapon entry names (skeleton, first person mesh, crosshair and overlay, textures, `.aso`)
+  and the script and instance, when the level lacks them. All are fetched by name (`0x114120` → archive lookup
+  `0x1132E0`, a linear scan); `.xsh` files are also registered by walking the archive (`0x10D570`, `0x10CFD0`).
+- World models are not added. A `.msh` is a static mesh (loader `0x10D6F0`, from `0xEB2E0` in the object step):
+  the files it names, then EAGL blocks whose texture context comes from the level (`0x113360`). Another level's
+  breaks the load (the EAGL loader `0x172660` reads a section table past the block), and the loader does not check
+  for a missing one (null at `0x10D6F0+0xA7`). An added weapon's entry names the level's first weapon's world model
+  instead, so a dropped or third person added weapon shows as that one. The weapon definitions (`weapbul_*.dat`)
+  name world models a level lacks too; they are skipped there, as long as the file is not in the archive.
+- Holder pool: `0xCB5E0` sizes the object pools from the settings entry (class `0x1B`): `0xD1E90(0x408, field 57)`
+  is the weapon holders' (6 when unset, as in every campaign level; the multiplayer maps set 16). The holder
+  insert fails past it, so the merged database points field 57 at a new record of the level's weapons plus the
+  added plus 5.
+- Archive: `C0FB`, directory size less 4 and count (16-bit big endian), then a 3-byte offset, 3-byte size and name
+  per file; files start on 0x80. Offsets are 3 bytes, so an archive stays under 16 MB (1_2's grows to 15.6 MB).
+- Animations: first person animations are in the level's `anim.bnk`, an EAGL ELF whose `AnimationBank` names them
+  `S_0x<CRC-32 of the lower case name>`. The archive gets multiplayer map 2_1's bank (every player weapon's, 0.9 MB)
+  as `mohrs_weapons.bnk`. After the level's bank loads (`0x68BD0`, a level load step in the table at `0x1FF54C`),
+  the hook runs `0x68BD0` again with the bank globals pointed at the added bank and the hash table emptied, keeps
+  the EAGL object and its hash → index table, and puts the level's back. A lookup by hash the level's bank misses
+  (`0x68CE0` with bank 0) is made again with the added bank and the index (`0x68CE0`'s explicit bank path,
+  `0x689B0`). `0x68BA0` releases it with the level's.
+- Sounds: a weapon's sounds are events named `WpnFire_<name>` (`0x100CA0`), `WpnSlct_<name>` and `WpnRld_<name>`,
+  each also with `_Zone<n>`, the name from the table at `0x202740` by the definition's `+0x60` (Colt_45,
+  Springfield, Model_11, Sten_Silenced, ...), hashed with CRC-32 and played by `0x108370`; its animation states
+  (`.aso`) name its foley events by hash. A level's events are in `sound\<m>_<l>.ubr` ("UBER": a header with the
+  column count `+0x10`, record count `+0x14` and size `+0x18`, columns {name hash, type, offset}, records sorted by
+  the type 6 hash column, which `0x107C20` binary searches, then a trailer). Column `0x7FFF5F24` is a bit mask of
+  the banks the sample is in (`0xFE190`: bit n-1 bank n, 31 the script bank `<m><l>scr.abk`, which stays loaded)
+  and `0xBC1069FF` the sample's index in it. A level has only its own weapons' events, all in its script bank. The
+  provider also serves the level's `.ubr` and script bank with the added weapons' events from the level each came
+  from: the records converted to the level's columns by name (1_7 and 1_8 have other column sets), their samples
+  appended to the bank. A bank (`BNKl`, version 5) is a header (count `+6`, header size `+8`, data size `+0xC`), an
+  offset to each sample's `PT` header from its own place, the headers (tags: byte, length, big endian value; `0x88`
+  and `0x89` the absolute offsets of a sample's data and second channel), then the data; codec `0x04` samples keep
+  their data in the header part, which moves with the headers. About 50-90 events and 1.1-1.5 MB per level.
+- Memory: the main heap is one 48 MB `XPhysicalAlloc` (`0x1A60FA`) from `0x10FFD0`, given to the EA memory manager
+  over its `XPhysicalSize`. The game's later physical allocations (D3D, sound) need about what is left of a 64 MB
+  console, so the SDK gives the guest a development kit's 128 MB and the block is made larger at boot by up to
+  12 MB, keeping 8 MB free (`MOHRS_HEAP_EXTRA_MB` sets it, 0 off); the larger block is tried with the SDK's
+  allocator first, as the game stops on a failed one. The XDK's D3D masks physical addresses to 28 bits. An archive grows by at most that less 3 MB, a
+  weapon at a time. Co-op has no heap hook, so it gets no weapons from other levels.
+
+| | default.xbe |
+|---|---:|
+| Level load steps (`{1, function}`), the bank load among them | `0x1FF54C` |
+| Animation bank load, lookup (cdecl out, hash or index, bank), release | `0x68BD0`, `0x68CE0`, `0x68BA0` |
+| Bank in memory (data, size), its EAGL object, its `AnimationBank` | `0x390B3C`, `0x390B40`, `0x269CC8`, `0x269CC0` |
+| Hash → index table (8 bytes each, 0x400 room), count | `0x267CC0`, `0x267CB8` |
+| Level archive file (cdecl name, size out) | `0x114120` |
+| Database loader, template table build | `0x114370`, `0xCB5E0` |
+| XPhysicalAlloc (stdcall size, address, alignment, protection), main heap setup | `0x1A60FA`, `0x10FFD0` |
+
+| | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| Holder insert (thiscall player, hash; ret 4) | `0xDF320` | `0xD3400` |
+| Give-weapon script native | `0x39E60` | `0x39A00` |
+| Give ammo (thiscall weapon, amount; ret 4) | `0x150170` | `0x149540` |
+| Reload (fastcall holder) | `0xE2520` | `0xDA640` |
+| Current weapon (fastcall player, 0 for none) | `0xD6560` | `0xCB2A0` |
+| Player: ring head | `+0xE70` | `+0xF50` |
+| Weapon: definition, WeaponType | `+0x2F0`, `+0x310` | `+0x300`, `+0x320` |
+| Holder: weapon `+0x2BC`, next `+0x2B4`, flags `+0x3C0` | same | same |
 
 ## Mouse in menus
 

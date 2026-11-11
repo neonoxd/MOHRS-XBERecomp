@@ -20,7 +20,8 @@ see [frame timing and settings](docs/frame-timing.md). The game uses XDK 5455, s
 Adjustable [field of view](docs/fov.md) is available through `fov` in `settings.toml` (70 is the original view).
 See [renderer performance](docs/performance.md) for the optimizations and benchmark commands.
 Display, frame rate, field of view and mouse settings can also be changed in the game's own menus under
-[PC Options](docs/menus.md), in Options and in the pause screen's Preferences. Menus also take hover/click
+[PC Options](docs/menus.md), in Options and in the pause screen's Preferences, which also has
+[Cheats](docs/menus.md#cheats). Menus also take hover/click
 navigation, settings arrows and wheel control, and clickable pause headings.
 For testing, F5 and F9 [quick save and load](docs/quick-save.md) the whole machine in single player.
 Crash dumps, probe scripts and diagnostic switches are in [debugging](docs/debugging.md).

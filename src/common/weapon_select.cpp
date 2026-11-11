@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 
 #include "common/mouse_keyboard.h"
 #include "core/log.h"
@@ -106,6 +107,16 @@ uint32_t KeyboardPlayer(uint32_t index, const WeaponLayout& l) {
 
 void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const WeaponLayout& l) {
     if (action != kSwitchAction || ctx.eax) return;
+    // MOHRS_WEAPON_CYCLE (tests, docs/debugging.md): the switch pressed every 2.5 s for player 0, as Q would
+    static const bool cycle = std::getenv("MOHRS_WEAPON_CYCLE") != nullptr;
+    if (cycle && index == 0) {
+        static uint64_t next = NowMs() + 8000;
+        if (NowMs() >= next) {
+            next = NowMs() + 2500;
+            ctx.eax = 1;
+            return;
+        }
+    }
     uint32_t player = KeyboardPlayer(index & 0xFF, l);
     if (!Pointer(player)) return;
     input::WeaponRequest request = input::TakeWeaponRequest();

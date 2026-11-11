@@ -65,7 +65,7 @@ runtime, `d3dcompiler_47.dll`, licenses and `docs/player-readme.txt` as `README.
 | Widescreen (Hor+), render scale, display mode, anisotropic filtering, skip intros/cutscenes | [player-readme.txt](player-readme.txt) |
 | 60 FPS and unlocked frame rate | [frame-timing.md](frame-timing.md) |
 | Field of view | [fov.md](fov.md) |
-| PC Options screen and mouse in menus | [menus.md](menus.md) |
+| PC Options screen, pause Cheats screen and mouse in menus | [menus.md](menus.md) |
 | Quick save and load (testing) | [quick-save.md](quick-save.md) |
 | Renderer CPU overhead | [performance.md](performance.md) |
 

@@ -73,6 +73,11 @@ Other scripts: `tools/start_level.ps1`, `tools/level_tour.ps1`, `tools/screensho
 | `XBE_SNAPSHOT_TRACE` | each parked thread's waits at a quick load |
 | `XBE_SNAPSHOT_ANY_BUILD=1` | quick load skips the call chain check |
 | `MOHRS_START_LEVEL` | start this mission_level instead of 1_1 |
+| `MOHRS_CHEATS` | the pause Cheats switches, hex bit mask (1 Give All Weapons, 2 Infinite Ammo, 4 God Mode, 8 One Shot Kills); set by the game for the instance it relaunches into |
+| `MOHRS_LEVEL_WEAPONS=0` | campaign levels as they are on the disc with Give All Weapons on (no weapons from other levels) |
+| `MOHRS_HEAP_EXTRA_MB` | the main heap's extra megabytes (default up to 12, 0 none) |
+| `MOHRS_SOUND_TRACE` | logs every sound event lookup (`0x108370`): its hash and the result, -1 when the level has no such event |
+| `MOHRS_WEAPON_CYCLE` | presses the weapon switch for player 0 every 2.5 s from 8 s on (with `-Pad` `fire` words: every weapon switched to and fired) |
 | `MOHRS_TIMING=1` (or `0.1` for ten reports a second) | frame rate, ticks, look updates, mission ticks, player position |
 | `MOHRS_QUICKSAVE_PROBE`, `MOHRS_MENU_PROBE` | scripted quick save/load and controller presses (set by the probe scripts) |
 | `MOHRS_MENU_MOUSE_PROBE="8:Preferences text,10:Audio button"` | hover/click named rendered objects, timed from the first FEng input update |

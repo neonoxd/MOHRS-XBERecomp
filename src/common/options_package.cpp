@@ -8,7 +8,6 @@ namespace game::menu {
 
 namespace {
 
-constexpr char kEntry[] = "PC Options button";
 constexpr float kRowPitch = 28.0f;    // the screen's rows; HUD.fng's two are 32 and 37 apart, with room for two only
 constexpr float kShellPitch = 28.0f;  // Option_overlay.fng's entries, Audio to Difficulty
 constexpr float kPausePitch = 40.0f;  // Preferences.fng's
@@ -26,7 +25,8 @@ std::string Folder(const std::string& path) {
 
 std::string RowObject(size_t row, const char* part) { return "PC Row " + std::to_string(row) + " " + part; }
 
-std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vector<std::string>& labels) {
+std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vector<std::string>& labels,
+                                const ScreenSpec& spec) {
     std::optional<feng::Package> parsed = feng::Package::Parse(hud, size);
     if (!parsed || labels.empty()) return {};
     feng::Package& p = *parsed;
@@ -77,24 +77,24 @@ std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vect
     for (const char* gone : kHudRows) p.Remove(gone);
     size_t insert = std::min(p.Index("HUD Choreography"), p.objects.size());
     p.objects.insert(p.objects.begin() + insert, rows.begin(), rows.end());
-    if (feng::Object* title = p.Find("FEFont28")) title->SetText("PC OPTIONS", "PC_OPTIONS_CAPS");
-    p.SetName(kScreen, Folder(p.Path()) + kScreen);
+    if (feng::Object* title = p.Find("FEFont28")) title->SetText(spec.title, spec.title_label);
+    p.SetName(spec.file, Folder(p.Path()) + spec.file);
     return p.Write();
 }
 
-std::vector<uint8_t> AddEntry(const uint8_t* list, size_t size) {
+std::vector<uint8_t> AddEntry(const uint8_t* list, size_t size, const ScreenSpec& spec) {
     std::optional<feng::Package> parsed = feng::Package::Parse(list, size);
     if (!parsed) return {};
     feng::Package& p = *parsed;
     bool shell = p.Find("Audio text") != nullptr;
     size_t at = p.Index(shell ? "Audio text" : "Audio button");
-    if (at == p.objects.size() || p.Find(kEntry)) return {};
+    if (at == p.objects.size() || p.Find(spec.entry)) return {};
     feng::Object e = p.objects[at];
     uint32_t like = e.Guid();
-    e.SetName(kEntry);
+    e.SetName(spec.entry);
     e.SetGuid(p.NextGuid());
-    e.SetText("PC Options", "PC_OPTIONS");
-    e.SetPathFile(kScreen);
+    e.SetText(spec.entry_text, spec.entry_label);
+    e.SetPathFile(spec.file);
     float y = e.Y();
     if (shell) {
         // a row under Audio, the entries below it move down
@@ -102,7 +102,7 @@ std::vector<uint8_t> AddEntry(const uint8_t* list, size_t size) {
             if (o.IsButton() && !o.Parent() && o.Y() > y) o.Move(0.0f, kShellPitch);
         e.Move(0.0f, kShellPitch);
     } else {
-        // the pause screen's list ends with HUD Options: under it
+        // the pause screen's list ends with HUD Options (then the entries added): under it
         float low = y;
         for (const feng::Object& o : p.objects)
             if (o.IsButton() && !o.Parent()) low = std::max(low, o.Y());
