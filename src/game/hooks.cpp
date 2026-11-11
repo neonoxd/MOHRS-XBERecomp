@@ -113,6 +113,20 @@ X86_FUNC(sub_00082BA0) {
     game::AdjustPlayerFov(camera, kPlayers, 0x1FC658, 0x1150);
 }
 
+// The player's near plane pulled in while the view is wider than the original (src/common/fov.h, docs/fov.md):
+// the camera's frustum build 0x82E50 (fastcall camera) and the view's projection build 0x84290 (thiscall (flag),
+// ret 4, camera at [view + 0xE4]) are what read it
+X86_EXTERN_FUNC(__imp__sub_00082E50);
+X86_FUNC(sub_00082E50) {
+    game::PlayerNearPlane near(ctx.ecx, kPlayers, 0x1FC658, 0x1150);
+    __imp__sub_00082E50(ctx, base);
+}
+X86_EXTERN_FUNC(__imp__sub_00084290);
+X86_FUNC(sub_00084290) {
+    game::PlayerNearPlane near(R32(ctx.ecx + 0xE4), kPlayers, 0x1FC658, 0x1150);
+    __imp__sub_00084290(ctx, base);
+}
+
 // 60 fps (src/common/test_hooks.h): [[hook]]s on the frame's end compares of the blanks passed with 2, eax at 0x13AAF and
 // ecx at 0x13ACA
 void FrameWaitEax(X86Context& ctx, uint8_t*) { game::FrameWait(ctx.eax); }

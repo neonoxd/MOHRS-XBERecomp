@@ -30,6 +30,20 @@ computed tangents, so nothing accumulates. `src/common/fov.{h,cpp}`.
 | World camera within player | `+0x1150` | `+0x1230` |
 | Camera horizontal / vertical tangent | `+0x40` / `+0x44` | `+0x40` / `+0x44` |
 
+## Near plane
+
+The player camera's near plane is 0.4 (camera `+0x38`, far 200 at `+0x3C`; set for each player at level start,
+`0xA2C29`). The original 4:3 view's near plane is 0.28 wide on each side; widened, its sides reach further (0.37 with
+widescreen at `fov` 70, 0.49 at 85) and cut into a wall the player stands against, showing what is behind it. While
+widescreen is on or `fov` is not 70, the near plane is pulled in by `min(tan 35° / across, tan 26.25° / down)`, so
+its half width and height never exceed the original's (0.229 at 85 on 16:9). Aiming and scopes (narrower) keep 0.4.
+
+It is changed only for the duration of the two builds that read it, the camera's frustum (`0x82E50`, co-op
+`0x757A0`) and the view's projection (`0x84290`, co-op `0x76BE0`, camera at `[view + 0xE4]`), and put back after, so
+the game keeps and saves its own value. Only registered player world cameras; the first-person-model camera copies
+the world camera's 0.4. The host depth buffer is D24S8, so the closer near plane costs no visible precision.
+`MOHRS_NEAR_PLANE_ORIGINAL=1` keeps 0.4.
+
 ## Tests
 
 ```powershell
@@ -38,6 +52,6 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -Isrc tests/fov_test.cpp -o re/fov_test
 ```
 
 Covers default identity, bounds, requested hip FoV, projection aspect, finite widescreen angles and zoom ratios for
-several aimed/scoped values. `MOHRS_FOV_TRACE=1` logs the horizontal and vertical angles before and after the
-adjustment once a second (`tools/fps_probe.ps1 -Fov 90` sets the FoV for a probe). Not covered: aiming, scopes,
+several aimed/scoped values, and that the scaled near plane is never wider or taller than the original.
+`MOHRS_FOV_TRACE=1` logs the horizontal and vertical angles before and after the adjustment once a second (`tools/fps_probe.ps1 -Fov 90` sets the FoV for a probe). Not covered: aiming, scopes,
 mounted guns and two-controller split screen in game.

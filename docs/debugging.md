@@ -79,6 +79,7 @@ Other scripts: `tools/start_level.ps1`, `tools/level_tour.ps1`, `tools/screensho
 | `MOHRS_MENU_MOUSE_TRACE=1` | packages, rectangles and clicks of the menu mouse adapter |
 | `MOHRS_MENU_TRACE` | every screen the game makes, by package name |
 | `MOHRS_FOV_TRACE=1` | camera angles before and after the FoV adjustment |
+| `MOHRS_NEAR_PLANE_ORIGINAL=1` | keep the player camera's near plane at 0.4 when the view is widened (walls clip at the sides) |
 | `MOHRS_EVENT_TRACE=1` | every animation event handled, with the guest call chain |
 | `MOHRS_ANIM_TRACE=<event tables>` or `all` | animation channels playing them and who starts them |
 | `MOHRS_GRAPH_TRACE` | animation graph state requests (`0x6A120`, `0xCE030`) |
