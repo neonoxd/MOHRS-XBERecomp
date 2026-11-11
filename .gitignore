@@ -32,6 +32,7 @@ settings.toml
 # session handover notes, local only
 /HANDOVER.md
 /CLAUDE.md
+.claude/
 
 dumps/
 
