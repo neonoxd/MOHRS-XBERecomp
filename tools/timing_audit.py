@@ -148,8 +148,25 @@ def audit_kick(image, config, block, end, steps):
     print(f"{image}: the mounted gun kick block and its {len(steps)} oscillator steps verified")
 
 
+def audit_refire(image, config, update, timer, add):
+    # a weapon's state update (thiscall (time, flag), ret 8; push ebp; mov ebp,esp; ...; mov esi,ecx; mov cl,[esi+flags]),
+    # overridden for its time; in the fire routine, cvtsi2ss xmm0,ecx then addss xmm0,[esi+timer], where RefireTime hooks
+    base, data, _ = load(str(ROOT / "assets/xbe" / image))
+    text = (ROOT / "config" / config).read_text()
+    prologue = bytes.fromhex("558bec83e4f081ecf400000053568bf18a8e")
+    assert data[update - base:update - base + len(prologue)] == prologue, f"{image}: weapon update prologue"
+    code = bytes.fromhex("f30f2ac1f30f5886") + struct.pack("<I", timer)
+    assert data[add - 4 - base:add - 4 - base + len(code)] == code, f"{image}: refire add at {add:X}"
+    assert f'at = 0x{add:X}\ncall = "RefireTime"' in text, f"{image}: RefireTime hook"
+    source = (ROOT / "src" / ("game" if image == "default.xbe" else "coop") / "hooks.cpp").read_text()
+    assert f"X86_FUNC(sub_{update:08X})" in source and "WeaponUpdate(ctx)" in source, f"{image}: weapon update override"
+    print(f"{image}: the weapon update and its refire add verified")
+
+
 if __name__ == "__main__":
     audit_loader()
+    audit_refire("default.xbe", "game.toml", 0x151320, 0x300, 0x151234)
+    audit_refire("moh3rdc.xbe", "coop.toml", 0x14A6A0, 0x310, 0x14A5B2)
     audit_shake("default.xbe", 0xD6700, 0xD78, (0xDC90C, 0xE0AE9), 0xD6A49)
     audit_kick("default.xbe", "game.toml", 0xDDA3F, 0xDDC23, [(0xDDB92, "MountedKickStep", "0f28c3")])
     audit_kick("moh3rdc.xbe", "coop.toml", 0xD75F5, 0xD7848,

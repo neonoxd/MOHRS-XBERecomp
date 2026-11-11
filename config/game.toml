@@ -463,3 +463,9 @@ call = "ParticleDragTimed"
 [[hook]]
 at = 0xABD70
 call = "ParticleDragPooled"
+
+# A weapon fires on a frame that does not count down its refire timer, so above 30 FPS shots come up to twice
+# as fast (docs/frame-timing.md): add the rest of a console frame to each shot's refire ticks.
+[[hook]]
+at = 0x151234
+call = "RefireTime"

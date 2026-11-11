@@ -81,6 +81,14 @@ X86_FUNC(sub_000E2CF0) {
     else kernel::Return(ctx, ctx.eax, 0);
 }
 
+// a weapon's state update, thiscall (time, no-fire flag), ret 8: its time for RefireTime (docs/frame-timing.md)
+X86_EXTERN_FUNC(__imp__sub_00151320);
+X86_FUNC(sub_00151320) {
+    game::WeaponUpdate(ctx);
+    __imp__sub_00151320(ctx, base);
+    game::WeaponUpdateDone();
+}
+
 // the config's GetString(key, buffer, size), which reads data\game.cfg; true when the key exists
 X86_EXTERN_FUNC(__imp__sub_0010EA00);
 X86_FUNC(sub_0010EA00) {
@@ -141,6 +149,8 @@ void MountedKickStep(X86Context& ctx, uint8_t*) { game::MountedKickStep(ctx, ctx
 // [[hook]]s after keep = 1 - drag in the particle updates: 0xA7F16 (keep XMM7, seconds XMM3), 0xABD70 (XMM1, XMM0)
 void ParticleDragTimed(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[7].f[0], ctx.xmm[3].f[0]); }
 void ParticleDragPooled(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[1].f[0], ctx.xmm[0].f[0]); }
+// [[hook]] 0x151234 in a weapon's fire routine 0x1506C0, before the refire ticks in XMM0 are added to its timer
+void RefireTime(X86Context& ctx, uint8_t*) { game::RefireTime(ctx.xmm[0].f[0]); }
 
 // an entity's animation event listener (vtable 0x1E84F0 slot 1): dialogue lines start here (opcode 0xCAF0)
 X86_EXTERN_FUNC(__imp__sub_000CF780);

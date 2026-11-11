@@ -121,6 +121,17 @@ void MountedKickStep(X86Context& ctx, uint8_t*) { game::MountedKickStep(ctx, ctx
 // [[hook]]s after keep = 1 - drag in the particle updates: 0x9C156 (keep XMM7, seconds XMM3), 0xA06E0 (XMM1, XMM0)
 void ParticleDragTimed(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[7].f[0], ctx.xmm[3].f[0]); }
 void ParticleDragPooled(X86Context& ctx, uint8_t*) { game::ParticleDrag(ctx.xmm[1].f[0], ctx.xmm[0].f[0]); }
+// [[hook]] 0x14A5B2 in a weapon's fire routine 0x149A90 (default.xbe's 0x151234), before the refire ticks in XMM0 are
+// added to its timer
+void RefireTime(X86Context& ctx, uint8_t*) { game::RefireTime(ctx.xmm[0].f[0]); }
+
+// a weapon's state update, default.xbe's 0x151320 (thiscall (time, no-fire flag), ret 8): its time for RefireTime
+X86_EXTERN_FUNC(__imp__sub_0014A6A0);
+X86_FUNC(sub_0014A6A0) {
+    game::WeaponUpdate(ctx);
+    __imp__sub_0014A6A0(ctx, base);
+    game::WeaponUpdateDone();
+}
 
 // a weapon's muzzle puff, fastcall (weapon): at most once per console frame above 30 FPS (docs/frame-timing.md)
 X86_EXTERN_FUNC(__imp__sub_000DAE10);

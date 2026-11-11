@@ -64,6 +64,8 @@ advanced once at its conversion site, not per entity.
 | Timed particle update (`0xA7ED0` / `0x9C110`), hook after keep = 1 - drag | `0xA7F16` | `0x9C156` |
 | Pooled particle update (`0xABD10` / `0xA0690`), hook after keep = 1 - drag | `0xABD70` | `0xA06E0` |
 | Weapon muzzle puff spawn, function override | `0xE2CF0` | `0xDAE10` |
+| Weapon state update, function override (its time) | `0x151320` | `0x14A6A0` |
+| Its fire routine's refire add, hook before ADDSS XMM0,[ESI+timer] | `0x151234` | `0x14A5B2` |
 
 Addresses in the text below are default.xbe unless a co-op one is given.
 
@@ -180,6 +182,23 @@ from the weapon update `0xE3330`) spawns a 0.54 s emitter every frame while its 
 set: about 16 alive at 30 FPS, about 130 at 240, exhausting the pool so script effects failed (1_1: the floor-fire
 burst, hash `0xC4DE5EC2`, spawned through native `0x43830`, stopped by `0x38B90`). `MuzzlePuffFrame` spawns at most
 one puff per weapon per console frame. `MOHRS_PUFF_EVERY_FRAME`.
+
+### Weapon refire
+
+Every weapon (players, mounted guns, NPCs) runs a state update (`0x151320`, co-op `0x14A6A0`; from the weapon entity's
+update `0xE3330`, the player update for a mounted gun, and NPC code) once a frame with the whole frame's time. While
+the trigger is held (state `+0x304` = 0) it either counts the refire timer `+0x300` (co-op `+0x310`) down by the time
+or, at zero or below, fires (`0x1506C0`, co-op `0x149A90`), which adds the weapon's refire ticks (definition `+6`) to
+the timer, keeping the remainder. The firing frame's time is never counted, so a shot takes refire + one frame: refire
++ 2 ticks at 30 FPS, refire + 1 at 60, about refire unlocked. A gun with a 2-tick refire fired twice as fast.
+
+Bullets come from two pools of 64 (`[0x270100]` +0x10 and +0x50, objects of 0x1C0 bytes, built in `0x14A4A0`) shared
+by everyone; a bullet lives for its definition's time. With the faster fire the pool ran out, and a shot that gets no
+bullet jumps from `0x150CC6` to the refire add, skipping the bullet, the fire sound (`0x100CA0`), the ammo count and
+the AI noise: holding a mounted gun's trigger went silent while the gun still kicked. `RefireTime`, at the add,
+adds the rest of a console frame (2 - the update's time, when that is under 2 ticks), so the period is refire + 2 ticks
+at any frame rate; slower frames keep the game's own timing. In slow motion the added time is game time.
+`MOHRS_REFIRE_EVERY_FRAME`.
 
 ## Verification
 

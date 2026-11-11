@@ -201,6 +201,30 @@ bool MuzzlePuffFrame(uint32_t weapon) {
     return true;
 }
 
+namespace {
+thread_local float weapon_time[8];
+thread_local int weapon_depth = 0;
+}
+
+void WeaponUpdate(const X86Context& ctx) {
+    if (weapon_depth < int(std::size(weapon_time))) weapon_time[weapon_depth] = kernel::G<float>(ctx.esp + 4);
+    weapon_depth++;
+}
+
+void WeaponUpdateDone() {
+    if (weapon_depth > 0) weapon_depth--;
+}
+
+void RefireTime(float& refire) {
+    static const bool off = std::getenv("MOHRS_REFIRE_EVERY_FRAME") != nullptr;  // test runs: the old behavior
+    if (off || (!Opt().unlocked_fps && !Opt().fps60)) return;
+    if (weapon_depth < 1 || weapon_depth > int(std::size(weapon_time))) return;
+    float dt = weapon_time[weapon_depth - 1];
+    // the console's firing frame took two ticks the timer never counted; this frame took dt. Slower frames than the
+    // console's keep the game's own timing.
+    if (dt >= 0 && dt < 2) refire += 2 - dt;
+}
+
 void ParticleDrag(float& keep, float seconds) {
     static const bool off = std::getenv("MOHRS_PARTICLE_DRAG_EVERY_FRAME") != nullptr;  // test runs: the old behavior
     if (off || (!Opt().unlocked_fps && !Opt().fps60)) return;

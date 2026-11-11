@@ -55,6 +55,16 @@ void ParticleDrag(float& keep, float seconds);
 // ten free slots silently fails to spawn (1_1's floor-fire burst, a level-script spawn, failed at 60 FPS). True at most
 // once per console frame (1/30 s) per weapon.
 bool MuzzlePuffFrame(uint32_t weapon);
+// A weapon's state update (default 0x151320, co-op 0x14A6A0; thiscall (time, no-fire flag), ret 8), once a frame for
+// every weapon (players, mounted guns, NPCs), either counts its refire timer (+0x300, co-op +0x310) down by the time
+// or, at zero or below, fires (0x1506C0, co-op 0x149A90), which adds the refire ticks to the timer: never both in one
+// frame. The firing frame's time is not counted, so a shot takes refire + one frame: refire + 2 ticks at 30 FPS,
+// about refire unlocked (up to twice the console's rate), and the extra bullets fill the 64-bullet pool, where a
+// shot silently makes no bullet, sound or ammo use. WeaponUpdate keeps the update's time (WeaponUpdateDone after it);
+// RefireTime, before the fire routine adds the refire ticks in XMM0, adds the rest of a console frame.
+void WeaponUpdate(const X86Context& ctx);
+void WeaponUpdateDone();
+void RefireTime(float& refire);
 // The entity manager's update (default 0xFAB00, co-op 0xF35D0; thiscall, its time at [esp+4], ret 4) only runs a
 // zero-length physics step and skips the post-step updates when a step is under 1/64 tick. Slow motion (0xA4F30 scales
 // the frame's time) at high frame rates goes below that, so nothing moved (1_1's ending). EntityStep is false while
