@@ -6,6 +6,7 @@
 #include "common/frame_timing.h"
 #include "common/options_menu.h"
 #include "common/menu_mouse.h"
+#include "common/stream_lock.h"
 #include "common/test_hooks.h"
 #include "common/weapon_select.h"
 #include "common/widescreen.h"
@@ -22,6 +23,10 @@ X86_FUNC(sub_0015AA90) {
     input::SetFrontEnd(kernel::G<uint8_t>(0x23E5B1) != 0);
     __imp__sub_0015AA90(ctx, base);
 }
+
+// the EA stream library's packet take, default.xbe's 0x165390, under its stream's lock (src/common/stream_lock.h)
+X86_EXTERN_FUNC(__imp__sub_0015E760);
+X86_FUNC(sub_0015E760) { game::LockedStreamTake(ctx, base, __imp__sub_0015E760, game::kCoopStreams); }
 
 // Weapon keys (src/common/weapon_select.h): the input manager's action query and the weapon select, default.xbe's
 // 0xB83E0 and 0xD8720
