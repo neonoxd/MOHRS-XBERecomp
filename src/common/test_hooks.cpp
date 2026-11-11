@@ -187,9 +187,13 @@ void TraceNative(const X86Context& ctx) {
 }
 
 void TraceMessage(const X86Context& ctx) {
-    static const bool on = std::getenv("MOHRS_MESSAGE_TRACE") != nullptr;
+    static const char* value = std::getenv("MOHRS_MESSAGE_TRACE");
+    // a message number (0x28) logs only that message
+    static const uint32_t only =
+        value && std::strncmp(value, "0x", 2) == 0 ? uint32_t(std::strtoul(value + 2, nullptr, 16)) : 0;
     static uint32_t lines = 0;
-    if (!on || lines > 400000) return;
+    if (!value || lines > 400000) return;
+    if (only && (R32(ctx.esp + 8) & 0xFFFF) != only) return;
     lines++;
     LOGR("message: to %08X msg %X arg %08X sender %08X flag %X from %06X", R32(ctx.esp + 4), R32(ctx.esp + 8) & 0xFFFF,
          R32(ctx.esp + 12), R32(ctx.esp + 16), R32(ctx.esp + 20), R32(ctx.esp));

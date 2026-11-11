@@ -48,7 +48,8 @@ void TraceGraphPlay(const X86Context& ctx);
 // Development: MOHRS_NATIVE_TRACE=find logs the script owner calling native 0x303A0 (play animation state);
 // MOHRS_NATIVE_TRACE=<owner hex> logs every native that owner's script calls (0x497F3: index, function, frame time).
 void TraceNative(const X86Context& ctx);
-// Development: MOHRS_MESSAGE_TRACE logs each message posted through 0x4ADB0 with its target, sender and caller.
+// Development: MOHRS_MESSAGE_TRACE logs each message posted through 0x4ADB0 with its target, sender and caller
+// (MOHRS_MESSAGE_TRACE=0x28: only that message).
 void TraceMessage(const X86Context& ctx);  // 0xCE030 (thiscall character, state, arg)  // 0x6A120 (thiscall graph, name, value, ...): MOHRS_GRAPH_TRACE  // 0x6F9A0 (thiscall channel, count, table): the guest call chain
 // Development: MOHRS_STEP_TRACE="x,y,radius" logs the player's collision resolve (0xD8260, fastcall player) within
 // radius of x,y: position before and after, step dt (+0x10C8), velocities (+0x230, +0x240), result and flags.

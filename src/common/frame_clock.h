@@ -48,6 +48,32 @@ struct KeyedTickRemainder {
     }
 };
 
+// A multiplayer bot's AI update: at 30 FPS it ran on every other frame, alternating bots by the parity of their
+// number, so once each 4 ticks with 4 ticks of time. Due is true once per 4 ticks of the bot's own time, odd bots
+// half a period after even ones; time is then the ticks since its last AI update.
+struct BotThinkClock {
+    static constexpr double kPeriod = 4;
+    double total = 0, ran = 0;  // ticks plus the bot's phase
+    int64_t periods = 0;
+    bool started = false;
+
+    bool Due(float ticks, bool odd, float& time) {
+        if (!started) {
+            total = odd ? kPeriod / 2 : 0;
+            ran = 0;  // the first update gets a full period, as on the console
+            periods = 0;
+            started = true;
+        }
+        total += std::max(0.0f, ticks);
+        auto period = int64_t(total / kPeriod);
+        if (period <= periods) return false;
+        periods = period;
+        time = float(total - ran);
+        ran = total;
+        return true;
+    }
+};
+
 // A post to the script system's message queue: its queue function's stack arguments (target, handler entry,
 // argument, its word, argument object, sender, message), the two 16-bit ones masked.
 struct QueuedPost {

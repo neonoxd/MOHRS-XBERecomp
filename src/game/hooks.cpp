@@ -174,6 +174,9 @@ void MessageTicks(X86Context& ctx, uint8_t*) { game::MessageTicks(ctx); }
 void BrainTicks(X86Context& ctx, uint8_t*) { game::BrainTicks(ctx); }
 void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
 void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
+// [[hook]]s in the multiplayer bot update 0x65A80: its AI update test at 0x65A95, the AI update's time at 0x65ABA
+void BotThink(X86Context& ctx, uint8_t*) { game::BotThink(ctx, 0x270140); }
+void BotThinkTime(X86Context& ctx, uint8_t*) { game::BotThinkTime(ctx); }
 void TraceNative(X86Context& ctx, uint8_t*) { game::TraceNative(ctx); }
 // [[hook]] 0x162E70, the top of the resource loader worker's loop (0x162E30): its slot from the table at [0x399758]
 // again, the worker's index being its argument at [esp+0x24] there, so a quick load's table is the one it serves

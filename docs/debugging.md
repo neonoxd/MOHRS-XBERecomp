@@ -84,13 +84,13 @@ Other scripts: `tools/start_level.ps1`, `tools/level_tour.ps1`, `tools/screensho
 | `MOHRS_ANIM_TRACE=<event tables>` or `all` | animation channels playing them and who starts them |
 | `MOHRS_GRAPH_TRACE` | animation graph state requests (`0x6A120`, `0xCE030`) |
 | `MOHRS_NATIVE_TRACE=find\|<owner>` | a script's native calls |
-| `MOHRS_MESSAGE_TRACE` | posted script messages (`0x4ADB0`) |
+| `MOHRS_MESSAGE_TRACE` (or `=0x28` for one message) | posted script messages (`0x4ADB0`) |
 | `MOHRS_ENTITY_DUMP=<seconds>[:<radius>]` | entities near the player, once; `MOHRS_DUMP=<addr>:<bytes>` adds a memory dump |
 | `MOHRS_CONTACT_TRACE` | objects the player's contact handler (`0xDEFA0`) sees |
 | `MOHRS_STEP_TRACE=x,y,radius` | movement steps (`0xE0E50`) and collision resolves (`0xD8260`) near a point |
 | `MOHRS_WATCH=<from>-<to>:<addr>:<bytes>,...` | each dword's summed changes over a window; `MOHRS_SERIES=<addr>:<n>,...` prints floats every frame of it |
 | `MOHRS_HANG_TRACE=<seconds>` | every guest thread's stack pointer and stack code addresses, periodically; `MOHRS_HANG_HANDLES=<hex>,...` adds object types and signal state, `MOHRS_HANG_DUMP=[*]<addr>:<bytes>,...` memory |
-| `MOHRS_*_EVERY_FRAME` (`SCRIPT`, `SHAKE`, `PARTICLE_DRAG`, `PUFF`) | old per-frame behaviour of a [frame timing](frame-timing.md) fix |
+| `MOHRS_*_EVERY_FRAME` (`SCRIPT`, `SHAKE`, `PARTICLE_DRAG`, `PUFF`, `BOT`) | old per-frame behaviour of a [frame timing](frame-timing.md) fix |
 
 `MOHRS_CONTACT_TRACE` and `MOHRS_STEP_TRACE` override game functions, so the DLL must be relinked after the
 executable for them to take effect.

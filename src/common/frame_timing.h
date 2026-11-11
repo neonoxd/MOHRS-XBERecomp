@@ -40,6 +40,18 @@ bool ScriptFrame(X86Context& ctx);
 // target (+0x24 == -1), which also releases a pooled argument object.
 using QueueFunction = void (*)(X86Context&, uint8_t*);
 void QueuePost(X86Context& ctx, uint8_t* base, QueueFunction original, uint32_t free_list);
+// A multiplayer bot's update (default.xbe 0x65A80, thiscall (time); moh3rdc.xbe has no bots) runs its AI when the
+// frame counter (0x270140) and the bot's number (+0x1938) differ in parity, with twice the frame's time: at 30 FPS
+// once each 4 ticks, alternating bots. Its checks count AI updates (0x62380, counter +0x1D40): a bot not getting
+// closer to its goal jumps after 8, picks a new goal after 30 and goes into recovery after 60; recovery (0x5BD80)
+// posts the bot 100 damage (message 0x28, a suicide) after 150 more, 10 s on the console. Every 15 updates the
+// below-the-floor check (0x62260) counts too, with the same suicide past 30. At 1,700 FPS the AI ran 800 times a
+// second and recovery ended in a suicide 0.2 s in: 705 in a minute of a 7-bot match, none with this.
+// BotThink, at xor ecx,[0x270140] (0x65A95), sets ECX so the parity test passes once per 4 ticks of that
+// bot's time (BotThinkClock); BotThinkTime, after the doubled time is in XMM0 (0x65ABA), sets the time since that
+// bot's last AI update.
+void BotThink(X86Context& ctx, uint32_t frame_counter);
+void BotThinkTime(X86Context& ctx);
 // The player's view shake and recoil update (default 0xD6700, co-op 0xCB440; thiscall (yaw offset*, pitch offset*,
 // time), ret 0xC), called each frame on foot and on a mounted gun. Each call adds a random jolt to the view offsets at
 // +0x284/+0x288, which persist, and steps a mounted gun's firing shake by a fixed amount: more frames, more jolts

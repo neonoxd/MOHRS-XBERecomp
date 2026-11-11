@@ -11,7 +11,8 @@ fps_counter = true
 ```
 
 The 2400 FPS ceiling keeps frames longer than the entity manager's smallest step (1/64 tick, about 3,840 FPS).
-Both executables have every hook below. The original 30 FPS mode runs unchanged guest code for all of them.
+Both executables have every hook below except the multiplayer bots', which only default.xbe has. The original
+30 FPS mode runs unchanged guest code for all of them.
 
 ## Mechanism
 
@@ -52,6 +53,8 @@ advanced once at its conversion site, not per entity.
 | Profile/save popup float phase, hook after CVTSI2SS | `0xF6C5A` | `0xEF67A` |
 | Soldier brain goal ticks, hook after CVTTSS2SI | `0x197C6` | `0x19056` |
 | Threat memory decay, hook after the 0.01 load | `0x223A8` | `0x21F58` |
+| Multiplayer bot AI update test, hook at XOR ECX,[0x270140] | `0x65A95` | none (no bots) |
+| Its time, hook after MULSS by 2 | `0x65ABA` | none |
 | Player floor ray: collision world before the cast | `0xDAC19` | `0xD1581` |
 | Player floor ray result, hook at cmp edi, 1 | `0xDAC2A` | `0xD1592` |
 | Script system frame update, function override | `0x4C0F0` | `0x4F220` |
@@ -120,6 +123,20 @@ every event with the guest call chain.
   its delta (`ret 4`): 6.7 s at 30 FPS, 1.4 s at 144. `ThreatDecay` scales the step by ticks / 2.
 
 Both apply in the 60 FPS and unlocked modes; at 60 FPS the exact one-tick frames give the same goal timing as before.
+
+### Multiplayer bots
+
+A bot's update (`0x65A80`, thiscall (time); moh3rdc.xbe has no bots) runs its AI when the frame counter
+(`0x270140`) and the bot's number (`+0x1938`) differ in parity, with twice the frame's time: at 30 FPS once each
+4 ticks, alternating bots. Its checks count AI updates (`0x62380`, counter `+0x1D40`). A bot not getting closer to
+its goal jumps after 8 updates, picks a new goal after 30 and goes into recovery after 60. Recovery (`0x5BD80`) posts
+the bot 100 damage (message `0x28`, argument `0x267C18`) after 150 more (`[0x1FE6E4]`), 10 s on the console: a
+suicide, which costs the bot a point. Every 15 updates a below-the-floor check (`0x62260`: under its nav area's
+lowest node by 1.5) adds one to `+0x1E10` or takes one off, with the same suicide past 30 (`[0x1FE930]`). Above
+30 FPS the AI ran every other frame: at 1,700 FPS recovery ended 0.2 s in, and a 7-bot match had 705 suicides in
+a minute. `BotThink` (at the XOR, `0x65A95`) sets ECX so the parity test passes once per 4 ticks of that bot's
+time, odd bots half a period after even ones; `BotThinkTime` (`0x65ABA`) puts the time since that bot's last AI
+update in XMM0. With it the same minute had none. `MOHRS_BOT_EVERY_FRAME`.
 
 ### Player floor ray
 

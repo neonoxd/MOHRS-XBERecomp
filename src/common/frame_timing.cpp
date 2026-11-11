@@ -180,6 +180,32 @@ void QueuePost(X86Context& ctx, uint8_t* base, QueueFunction original, uint32_t 
 }
 
 namespace {
+thread_local std::unordered_map<uint32_t, BotThinkClock> bot_clocks;  // by bot
+thread_local float bot_time = 0;
+bool BotEveryFrame() {
+    static const bool off = std::getenv("MOHRS_BOT_EVERY_FRAME") != nullptr;  // test runs: the old behavior
+    return off || (!Opt().unlocked_fps && !Opt().fps60);
+}
+}
+
+void BotThink(X86Context& ctx, uint32_t frame_counter) {
+    if (BotEveryFrame()) {
+        bot_clocks.clear();
+        return;
+    }
+    if (bot_clocks.size() > 256) bot_clocks.clear();  // bots are made once per match; a new match starts over
+    uint32_t bot = ctx.esi;
+    float ticks = kernel::G<float>(ctx.esp + 0x10);  // the update's time, below three pushes
+    bool due = bot_clocks[bot].Due(ticks, kernel::R32(bot + 0x1938) & 1, bot_time);
+    // the next instruction XORs ECX with the frame counter and tests bit 0: set means an AI update
+    ctx.ecx = kernel::R32(frame_counter) ^ (due ? 1u : 0u);
+}
+
+void BotThinkTime(X86Context& ctx) {
+    if (!BotEveryFrame()) ctx.xmm[0].f[0] = bot_time;
+}
+
+namespace {
 struct ShakeClock {
     double total = 0, ran = 0;
     int64_t frames = 0;

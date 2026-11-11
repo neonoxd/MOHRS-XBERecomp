@@ -163,8 +163,40 @@ def audit_refire(image, config, update, timer, add):
     print(f"{image}: the weapon update and its refire add verified")
 
 
+def audit_bots(image, config, gate, time):
+    """The multiplayer bot update's AI parity test and its doubled time (default.xbe only: co-op has no bots)."""
+    base, data, _ = load(str(ROOT / "assets/xbe" / image))
+    text = (ROOT / "config" / config).read_text()
+    # mov ecx,[esi+0x1938] | xor ecx,[0x270140]; xor ebx,ebx; test cl,1; jz
+    assert data[gate - 6 - base:gate - base] == bytes.fromhex("8b8e38190000"), f"{image}: expected the bot number"
+    assert data[gate - base:gate - base + 6] == bytes.fromhex("330d40012700"), f"{image}: expected xor ecx,[frame]"
+    assert data[gate + 6 - base:gate + 13 - base] == bytes.fromhex("33dbf6c1010f84"), f"{image}: expected the test"
+    assert f'at = 0x{gate:X}\ncall = "BotThink"' in text, f"{image}: BotThink hook"
+    # movss xmm0,[esp+0x10]; mulss xmm0,[2.0] | the hook
+    assert data[time - 14 - base:time - 8 - base] == bytes.fromhex("f30f10442410"), f"{image}: expected the time"
+    assert data[time - 8 - base:time - 4 - base] == bytes.fromhex("f30f5905"), f"{image}: expected mulss xmm0"
+    constant = struct.unpack_from("<I", data, time - 4 - base)[0]
+    assert struct.unpack_from("<f", data, constant - base)[0] == 2.0, f"{image}: bot time constant"
+    assert f'at = 0x{time:X}\ncall = "BotThinkTime"' in text, f"{image}: BotThinkTime hook"
+    print(f"{image}: the bot AI update test and time verified")
+
+
+def audit_queue(image, function, free_list):
+    """The script message queue function: its free list read at +0x5E, and the override."""
+    base, data, _ = load(str(ROOT / "assets/xbe" / image))
+    read = bytes.fromhex("a1") + struct.pack("<I", free_list) + bytes.fromhex("8b5008")
+    assert data[function + 0x5E - base:function + 0x66 - base] == read, f"{image}: expected the free list read"
+    source = (ROOT / "src" / ("game" if image == "default.xbe" else "coop") / "hooks.cpp").read_text()
+    assert f"X86_FUNC(sub_{function:08X}) {{ game::QueuePost(ctx, base, __imp__sub_{function:08X}, 0x{free_list:X}); }}" \
+        in source, f"{image}: queue function override"
+    print(f"{image}: the script message queue function verified")
+
+
 if __name__ == "__main__":
     audit_loader()
+    audit_bots("default.xbe", "game.toml", 0x65A95, 0x65ABA)
+    audit_queue("default.xbe", 0x481F0, 0x255748)
+    audit_queue("moh3rdc.xbe", 0x4B340, 0x24D974)
     audit_refire("default.xbe", "game.toml", 0x151320, 0x300, 0x151234)
     audit_refire("moh3rdc.xbe", "coop.toml", 0x14A6A0, 0x310, 0x14A5B2)
     audit_shake("default.xbe", 0xD6700, 0xD78, (0xDC90C, 0xE0AE9), 0xD6A49)

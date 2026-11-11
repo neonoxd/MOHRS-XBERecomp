@@ -413,6 +413,16 @@ call = "BrainTicks"
 at = 0x223A8
 call = "ThreatDecay"
 
+# Multiplayer bot AI (docs/frame-timing.md): once per 4 ticks per bot, set at the parity test's xor ecx,[0x270140]
+# in 0x65A80, with the time since the bot's last AI update after its time is doubled.
+[[hook]]
+at = 0x65A95
+call = "BotThink"
+
+[[hook]]
+at = 0x65ABA
+call = "BotThinkTime"
+
 # Loading medal/stars: reset on texture initialization, replace float phase after the draw-counter conversion.
 [[hook]]
 at = 0xFC9FD

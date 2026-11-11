@@ -117,6 +117,30 @@ int main() {
         animation = {};
         Check(animation.Sample(9000000000LL) == 0, "a new loading screen must reset the phase");
     }
+    for (int fps : {30, 60, 144, 1700}) {
+        // a multiplayer bot's AI: 150 updates in 10 seconds at any frame rate, odd bots half a period later
+        game::BotThinkClock even, odd;
+        float ticks = 60.0f / fps, time = 0, even_time = 0, odd_time = 0;
+        int even_runs = 0, odd_runs = 0, first_even = -1, first_odd = -1;
+        for (int frame = 0; frame < fps * 10; frame++) {
+            if (even.Due(ticks, false, time)) {
+                even_runs++;
+                even_time += time;
+                if (first_even < 0) first_even = frame;
+            }
+            if (odd.Due(ticks, true, time)) {
+                odd_runs++;
+                odd_time += time;
+                if (first_odd < 0) first_odd = frame;
+                Check(std::abs(time - 4) <= ticks + 0.001f, "a bot's AI update must get the 4 ticks since its last");
+            }
+        }
+        Check(even_runs >= 149 && even_runs <= 150 && odd_runs >= 149 && odd_runs <= 150,
+              "bots must run their AI 15 times a second at every frame rate");
+        Check(std::abs(even_time - 4 * even_runs) < 0.5f, "the AI updates' time must add up to their period");
+        Check(first_odd < first_even, "odd bots must run half a period apart from even ones");
+        std::printf("%d FPS: bot AI %d/%d updates in 10 s\n", fps, even_runs, odd_runs);
+    }
     {
         // the multiplayer player's stand message: 300 to its script, one entry per handler, every frame
         game::RepeatedPosts posts;
