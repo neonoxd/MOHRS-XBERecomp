@@ -29,6 +29,7 @@ void SetMenuInput(bool active);  // explicit FEng ownership, independent of the 
 void UseMenuMouse();
 void MenuResume();             // a short Start press through the normal pause handling
 void SetFrontEnd(bool front_end);  // guest thread: in the front-end shell the pause key goes back instead
+void SetSaveMenu(bool save_menu);  // guest thread: so it does on the in-game save screens (a save machine's)
 // what the weapon keys asked for in play since the last call: a group (1 primary, 2 secondary, 3 special), or steps
 // through every weapon (next positive, previous negative), or nothing; a press waits a moment for the game to take it
 struct WeaponRequest {

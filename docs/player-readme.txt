@@ -63,8 +63,8 @@ In menus, hover and left click to select an entry; right click goes back. The wh
 settings screens, click a label or displayed value to select its row, then click the arrows or use the wheel to
 change the value. Click the select/confirm hint to save or
 the back hint to cancel. Pause headings are clickable; right click on a pause page resumes.
-The arrow keys also move, Enter confirms, Backspace goes back, and so does Escape in the main menus (in the
-pause menu Escape resumes). Gameplay bindings can be changed in the [keys]
+The arrow keys also move, Enter confirms, Backspace goes back, and so does Escape in the main menus and on the
+save screens (in the pause menu Escape resumes). Gameplay bindings can be changed in the [keys]
 table of settings.toml.
 
 

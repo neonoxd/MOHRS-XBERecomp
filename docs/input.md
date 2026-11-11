@@ -65,7 +65,11 @@ walk at 27%.
 
 Escape (the `pause` binding) presses Start in play and on pause pages, which pauses and resumes. In the front-end
 shell (byte `0x2463B1`, co-op `0x23E5B1`, published by the controller-update override) it presses B instead, so it
-goes back like Backspace rather than accepting. Which button a press sends is decided when the key goes down.
+goes back like Backspace rather than accepting. It does the same on the in-game save screens, whatever the mouse
+did last: the save machine's slot select and the end-of-level save, where Start accepts and B (`Pad_Back`) cancels.
+Those set byte `+9` of the in-game menu manager (`0x244770`, co-op `0x23C950`): `0x244779` / `0x23C959`, set by
+`0x11D9E0` / `0x117E10` (opens `SaveSlotSelect.fng`) and `0x11CFF0` / `0x117410`, read by the game loop to stop the
+world and run FEng. Which button a press sends is decided when the key goes down.
 
 ### Weapon keys
 

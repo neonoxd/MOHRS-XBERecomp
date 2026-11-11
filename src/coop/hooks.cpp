@@ -21,6 +21,7 @@ X86_EXTERN_FUNC(__imp__sub_0015AA90);
 X86_FUNC(sub_0015AA90) {
     game::UpdateControllerMode({0x23E5B1, 0x23A615, 0x23A616, 0x206F90, 0x206F91});
     input::SetFrontEnd(kernel::G<uint8_t>(0x23E5B1) != 0);
+    input::SetSaveMenu(kernel::G<uint8_t>(0x23C959) != 0);  // the in-game menu's save byte (docs/input.md)
     __imp__sub_0015AA90(ctx, base);
 }
 

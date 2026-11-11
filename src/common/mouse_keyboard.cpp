@@ -35,6 +35,7 @@ std::atomic<uint32_t> g_menu_pressed{0}, g_block_mouse{0};
 std::atomic<int> g_menu_wheel{0};
 std::atomic<uint64_t> g_resume_until{0};
 std::atomic<bool> g_front_end{false};
+std::atomic<bool> g_save_menu{false};
 // what the weapon keys and the wheel asked for, taken by the game's switch query (src/common/weapon_select.h)
 std::mutex g_weapon_lock;
 WeaponRequest g_weapon;
@@ -312,10 +313,11 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
 std::atomic<bool> g_pause_held{false}, g_pause_back{false};
 std::atomic<uint32_t> g_weapons_held{0}, g_cycle_held{0};
 
-// The pause key presses Start, which pauses and resumes; in the front end, where Start accepts, it presses B to go
-// back. What it presses is decided when it goes down, so a hold across loading does not turn into the other button.
+// The pause key presses Start, which pauses and resumes; in the front end and on the in-game save screens, where
+// Start accepts, it presses B to go back. What it presses is decided when it goes down, so a hold across loading
+// does not turn into the other button.
 void PressPause(bool held, bool play, Pad& p) {
-    if (!g_pause_held.exchange(held) && held) g_pause_back = g_front_end && !play;
+    if (!g_pause_held.exchange(held) && held) g_pause_back = (g_front_end && !play) || g_save_menu;
     if (!held) return;
     if (g_pause_back) p.analog[1] = 0xFF;
     else p.buttons |= uint16_t(1u << (kStart - kFirstButtonBit));
@@ -507,6 +509,7 @@ void SetMenuInput(bool active) {
 
 void UseMenuMouse() { SetKeyboard(true); }
 void SetFrontEnd(bool front_end) { g_front_end = front_end; }
+void SetSaveMenu(bool save_menu) { g_save_menu = save_menu; }
 
 WeaponRequest TakeWeaponRequest() {
     std::lock_guard lock(g_weapon_lock);

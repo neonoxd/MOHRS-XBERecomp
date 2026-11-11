@@ -75,6 +75,15 @@ int main() {
     Poll(0, true);
     Check(Back(Poll(VK_BACK, false)), "Backspace still backs out of menus");
     Poll(0, false);
+    input::SetSaveMenu(true);
+    Check(Back(Poll(VK_ESCAPE, true)) && !Start(Poll(VK_ESCAPE, true)), "on a save screen Escape is B, even in play");
+    Poll(0, false);
+    Check(Back(Poll(VK_ESCAPE, false)), "and out of play");
+    input::SetSaveMenu(false);
+    Check(Back(Poll(VK_ESCAPE, false)), "held off the save screen it stays B");
+    Poll(0, true);
+    Check(Start(Poll(VK_ESCAPE, true)), "back in play Escape pauses again");
+    Poll(0, true);
 
     // weapon keys: a press in play, once
     Check(input::TakeWeaponRequest().group == 0, "no key");
