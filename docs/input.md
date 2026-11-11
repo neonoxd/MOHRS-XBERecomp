@@ -51,6 +51,16 @@ Input manager entries are `0x8F8` bytes, each starting with its guest port; `+0x
 default.xbe `0xB8200` assigns the port, `0xB82D0` reads it and `0xB8280` reads the controller with it. Player
 `+0x10DC` is a player index and `+0x10D8` a viewport index; neither identifies a physical controller.
 
+## Keyboard movement
+
+On foot the game sets velocity from move actions 6 (forward) and 7 (strafe) with no length clamp (`0xDD070`), so
+speed is linear in each action. Each axis is mapped on its own: `|f| < 0.25` is zeroed (`0x1616C0`), the byte
+`trunc((f + 1) * 127) - 128` loses a deadzone of 38 and the rest is stretched to 127 (`0xB8A16`, enabled by
+`0x1FF855`; action table `0x1FF858`, co-op `0x1F7978`, same entries for 6 and 7). `MoveAxis` in
+`src/common/mouse_keyboard.cpp` inverts that, so a held diagonal (each axis at 1/√2) and `walk_speed` give the
+speed asked for. A plain scale of the stick value lands lower: 0.707 per axis moved diagonally at 79%, and a 50%
+walk at 27%.
+
 ## Mouse look
 
 Raw mouse counts are added to the KBM player's angles before the native stick integration; the game then applies

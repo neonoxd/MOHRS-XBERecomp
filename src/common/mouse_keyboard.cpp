@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <iterator>
 #include <mutex>
 #include <vector>
@@ -59,6 +60,26 @@ constexpr int kStart = 12;
 constexpr int kFirstMoveKey = 16;
 constexpr int kFirstLookKey = 20;
 constexpr int kStickMax = 32767;
+
+// The stick value that moves the player at `share` (-1..1) of full speed along one axis. On foot both images set
+// velocity from the two move actions (6, 7) with no length clamp (default.xbe 0xDD070), and each axis is mapped
+// separately: f = (raw + 0.5) / 32767.5 (0x1616C0), byte b = trunc((f + 1) * 127) (0xB7390), v = b - 128, then
+// the action is trunc((|v| - 38) * 127 / 89) with the sign of v, 0 inside the deadzone of 38 (0xB8A16; table
+// 0x1FF858, co-op 0x1F7978). Full stick gives v = 126 (125) or -128 (-127). Inverting that keeps diagonals and
+// the walk speed at the speed asked for; a plain scale lands too low after the deadzone.
+int16_t MoveAxis(float share) {
+    if (share >= 1.0f) return int16_t(kStickMax);
+    if (share <= -1.0f) return int16_t(-kStickMax);
+    if (share == 0.0f) return 0;
+    constexpr int kDeadzone = 38;
+    int span = share > 0.0f ? 126 - kDeadzone : 127 - kDeadzone;
+    int v = kDeadzone + std::max(1, int(std::lround(std::fabs(share) * float(span))));
+    if (share < 0.0f) v = -v;
+    // the middle of the byte's range, so truncation lands on b either way
+    double f = (double(v + 128) + 0.5) / 127.0 - 1.0;
+    long raw = std::lround(f * 32767.5 - 0.5);
+    return int16_t(std::clamp(raw, long(-kStickMax), long(kStickMax)));
+}
 // named after the game's default controller layout, MOH Sharpshooter; another layout picked in the game's options
 // changes what the buttons do, not which buttons the keys press
 constexpr Target kActions[] = {
@@ -346,8 +367,12 @@ void Keyboard(Pad& p) {
     }
     const int* stick = held.stick;
     float speed = held.walk ? float(std::clamp(game::Opt().walk_speed, 10u, 100u)) / 100.0f : 1.0f;
-    if (int x = stick[3] - stick[2]) p.lx = int16_t(float(x) * speed * float(kStickMax));
-    if (int y = stick[0] - stick[1]) p.ly = int16_t(float(y) * speed * float(kStickMax));
+    int move_x = stick[3] - stick[2];
+    int move_y = stick[0] - stick[1];
+    // both axes at full speed would move diagonally 1.41 times as fast
+    if (move_x && move_y) speed *= 0.70710678f;
+    if (move_x) p.lx = MoveAxis(float(move_x) * speed);
+    if (move_y) p.ly = MoveAxis(float(move_y) * speed);
     if (int x = stick[7] - stick[6]) p.rx = int16_t(x * kStickMax);
     if (int y = stick[4] - stick[5]) p.ry = int16_t(y * kStickMax);
     if (fixed_down || held.used) SetKeyboard(true);
