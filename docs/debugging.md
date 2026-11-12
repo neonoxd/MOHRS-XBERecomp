@@ -60,6 +60,42 @@ powershell -NoProfile -File tools/menu_probe.ps1 -Level 1_1 -Script "8:start,10:
 
 Other scripts: `tools/start_level.ps1`, `tools/level_tour.ps1`, `tools/screenshot.ps1`, `tools/run_test.ps1`.
 
+## Hitch recorder
+
+`XBE_HITCH` (`sdk/runtime/core/hitch.cpp`) keeps the last 32,768 timed host events in a ring:
+
+| Event | Where | Recorded |
+|---|---|---|
+| shader | `D3D12Backend::Compile` (`D3DCompile` on a cache miss), profile, hash, HLSL size | always |
+| pipeline | `EnsurePipeline` (`CreateGraphicsPipelineState` on a cache miss) | always |
+| texture, target | `CreateTexture`, `EnsureTarget` making a resource | always |
+| upload | texture bytes converted and uploaded | 0.2 ms or longer |
+| buffer | an upload too big for the frame's ring, given its own buffer | always |
+| open, read | `NtCreateFile`/`NtOpenFile`, `NtReadFile`/`NtWriteFile` (and scatter/gather), with path, size and offset | always |
+| title wait | the title waiting for the render thread, with the cause | 0.5 ms or longer |
+| swap, gpu wait, read-back | swap chain `Present`, frame fence wait, GPU pixels brought back | 1 ms, 1 ms, 0.5 ms |
+| frame, title frame | present to present on the render thread and on the title | always |
+| stack | each guest thread's stack: esp and the code addresses on it, `[wait]` inside a kernel wait | while a present is overdue |
+| precompile | a vertex program compiled (or read from the disk cache) on a background thread | always |
+
+A present later than the threshold logs a line in `logs\mohrs.log`: the frame's length, the totals by kind, then
+its 12 longest events (time from the frame's start, thread, kind, length, detail) and the first stack sample of the
+threads not waiting. Without a number the threshold is the largest of 10 ms, 1.75 times the median of the last 256
+frames and the median plus 5 ms. The first 64 frames are not checked; past four slow frames in a second only the
+summary line is logged, past 20 nothing. A sampler thread checks every 2 ms and samples the stacks up to six times
+per overdue present, at least half the threshold (8 ms minimum) apart.
+
+F8 samples the stacks, writes `logs\hitch_<date>_<time>.txt` and beeps. The file has every slow frame of the last
+6 s described as in the log, every event by start time (seconds before the press) and every frame and title frame
+interval. Times in both are seconds since the recorder started.
+
+```powershell
+$env:XBE_HITCH = "1"; & outuild
+elease\MOHRS.exe
+```
+
+`tests/hitch_test.cpp` runs the recorder with a faked kernel.
+
 ## Threads that ran one at a time on the Xbox
 
 Guest threads run on host threads at once, where the Xbox's one CPU switched between them. Code that relied on no
@@ -75,6 +111,11 @@ switch landing in a short window races here; these run under a lock:
 | Variable | Effect |
 |---|---|
 | `XBE_PERF=1` | per-second renderer timings and Present interval percentiles in release builds |
+| `XBE_HITCH=1` (or `=<ms>`) | the [hitch recorder](#hitch-recorder): slow frames logged with what ran in them, F8 writes the last 6 s; a number of 2 or more is the slow frame threshold in ms |
+| `XBE_SHADER_CACHE=0` | no [disk shader cache](performance.md#shader-cache): every shader compiled, nothing written |
+| `XBE_SHADER_PRECOMPILE=0` | vertex programs compiled at their first draw only, not when created |
+| `XBE_SHADER_OPT=0`..`3` or `skip` | `D3DCompile` optimization level (default 1); the cache keeps each setting in its own folder |
+| `XBE_SHADER_SOURCES=<folder>` | each shader's HLSL, once a run, as `<hash>_<entry>_<profile>.hlsl` (for `tests/shader_compile_bench.cpp`) |
 | `XBE_LOG_INFO` | release builds also log info and warnings |
 | `XBE_MUTE` | no sound output |
 | `XBE_CAPTURE_DIR` | folder for F3 frame captures |

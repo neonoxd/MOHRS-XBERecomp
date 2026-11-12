@@ -881,6 +881,7 @@ HLE_STDCALL(D3DDevice_CreateVertexShader, 4) {
         for (uint32_t i = 0; i < n * 4; i++) vs->program.push_back(R32(func + 4 + i * 4));
     }
     gpu::ParseDeclaration(*vs);
+    gpu::PrecompileVertexProgram(*vs);
     uint32_t rec = mem::AllocSystem(16, 16);
     vs->handle = rec | 1;
     g_vs[vs->handle] = vs;
@@ -1699,6 +1700,7 @@ VsRef ReadShader(snapshot::Reader& r) {
     std::vector<VsConstant> c;
     r.Vec(c);
     for (const VsConstant& k : c) vs->constants.push_back({k.reg, k.v});
+    gpu::PrecompileVertexProgram(*vs);
     return vs;
 }
 

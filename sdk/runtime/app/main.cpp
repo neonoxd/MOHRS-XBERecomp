@@ -22,6 +22,7 @@
 #include <backends/imgui_impl_win32.h>
 
 #include "app/app.h"
+#include "core/hitch.h"
 #include "core/input.h"
 #include "core/log.h"
 #include "gpu/backend.h"
@@ -236,6 +237,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
         case WM_KEYDOWN:
             if (wp == VK_F3) DumpThreads();
+            // XBE_HITCH: F8 writes the last seconds' events, a held key only once
+            if (wp == VK_F8 && !(lp & 0x40000000)) hitch::Mark();
             return 0;
         case WM_ACTIVATE:
             if (LOWORD(wp) == WA_INACTIVE) {

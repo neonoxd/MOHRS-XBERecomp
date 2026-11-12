@@ -143,6 +143,10 @@ struct VertexShader {
     std::array<Input, 16> inputs{};
     std::array<uint32_t, 16> stream_stride{};  // bytes consumed per stream by the declaration
     std::vector<std::pair<uint32_t, std::array<float, 4>>> constants;  // D3DVSD_CONST tokens
+    // what PrecompileVertexProgram compiled the program for (PredictInputs), to name a draw that reads it otherwise
+    bool precompiled = false;
+    uint16_t precompiled_regs = 0;
+    uint64_t precompiled_decode = 0;
 };
 
 struct PixelShader {

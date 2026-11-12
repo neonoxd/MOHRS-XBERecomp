@@ -21,6 +21,8 @@
 #include <filesystem>
 #include <mutex>
 #include <optional>
+#include <thread>
+#include <condition_variable>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -30,9 +32,11 @@
 
 #include "app/app.h"
 #include "core/diag.h"
+#include "core/hitch.h"
 #include "core/log.h"
 #include "gpu/backend.h"
 #include "gpu/ext.h"
+#include "gpu/shader_cache.h"
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
 #include "gpu/texturedumper.h"
@@ -94,6 +98,8 @@ struct Perf {
     uint64_t syncs = 0;
     uint64_t psos = 0;
     uint64_t shaders = 0;
+    uint64_t cached = 0;       // shaders read from the disk cache
+    uint64_t precompiled = 0;  // shaders PrecompileVertexProgram had ready
     uint64_t raw = 0;
     uint64_t lates = 0;
 };
@@ -1021,6 +1027,8 @@ D3D12Backend::Alloc D3D12Backend::Upload(uint64_t size, uint64_t align) {
     }
     // too big for the ring: a buffer of its own, released with the frame
     g_perf.overflow++;
+    hitch::Scope hs(hitch::Kind::Buffer);
+    hs.Text("%llu KB", (unsigned long long)(size >> 10));
     ComPtr<ID3D12Resource> r;
     D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_UPLOAD};
     constexpr uint64_t kOwnAlign = 0x10000;  // a committed buffer's size granularity
@@ -1172,6 +1180,8 @@ Target* D3D12Backend::EnsureTarget(const Surface& s, bool depth) {
         return &slot.it->second;
     }
     if (slot.it != targets_.end()) ReleaseTarget(slot.it);
+    hitch::Scope hs(hitch::Kind::Target);
+    hs.Text("%08X %ux%u%s", s.data, slot.gw, slot.gh, depth ? " depth" : "");
     Target t;
     t.depth = depth;
     t.gw = slot.gw;
@@ -1413,25 +1423,192 @@ void D3D12Backend::Blit(ID3D12Resource* src, DXGI_FORMAT fmt, const float uvrect
     DrawFullScreen(EnsureBlitPipeline(o.rtv, o.over), cb.gpu, slot, si);
 }
 
-ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const char* profile, uint64_t& hash) {
-    // one source can hold several entry points
+// XBE_SHADER_OPT: 0 to 3 an optimization level, skip none at all; level 1 otherwise
+UINT CompileFlags() {
+    static const UINT flags = [] {
+        const char* v = std::getenv("XBE_SHADER_OPT");
+        if (!v) return UINT(D3DCOMPILE_OPTIMIZATION_LEVEL1);
+        if (!std::strcmp(v, "skip")) return UINT(D3DCOMPILE_SKIP_OPTIMIZATION);
+        switch (std::atoi(v)) {
+            case 0: return UINT(D3DCOMPILE_OPTIMIZATION_LEVEL0);
+            case 2: return UINT(D3DCOMPILE_OPTIMIZATION_LEVEL2);
+            case 3: return UINT(D3DCOMPILE_OPTIMIZATION_LEVEL3);
+            default: return UINT(D3DCOMPILE_OPTIMIZATION_LEVEL1);
+        }
+    }();
+    return flags;
+}
+
+// shaders compiled in earlier runs, beside the executable; XBE_SHADER_CACHE=0 leaves it off
+const ShaderCache& DiskShaders() {
+    static const ShaderCache cache = [] {
+        ShaderCache c;
+        const char* v = std::getenv("XBE_SHADER_CACHE");
+        if (v && !std::strcmp(v, "0")) return c;
+        // the folder's tag: the cache's layout, the flags and the compiler DLL's build (its link time and size)
+        constexpr uint32_t kLayout = 1;
+        uint32_t tag[4] = {kLayout, CompileFlags(), 0, 0};
+        if (HMODULE m = GetModuleHandleW(L"d3dcompiler_47.dll")) {
+            auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(m);
+            auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(reinterpret_cast<const uint8_t*>(m) + dos->e_lfanew);
+            tag[2] = nt->FileHeader.TimeDateStamp;
+            tag[3] = nt->OptionalHeader.SizeOfImage;
+        }
+        c.Open(app::ExeDir() / "shadercache", Hash(tag, sizeof tag));
+        if (c.On()) LOGR("shader cache: %s", c.Dir().string().c_str());
+        return c;
+    }();
+    return cache;
+}
+
+// XBE_SHADER_SOURCES=<folder>: each shader's HLSL the first time a run asks for it, <hash>_<entry>_<profile>.hlsl
+void DumpSource(const std::string& src, const char* entry, const char* profile, uint64_t hash) {
+    static const char* dir = std::getenv("XBE_SHADER_SOURCES");
+    if (!dir) return;
+    char name[96];
+    std::snprintf(name, sizeof name, "%016llX_%s_%s.hlsl", (unsigned long long)hash, entry, profile);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (FILE* f = std::fopen((std::filesystem::path(dir) / name).string().c_str(), "wb")) {
+        std::fwrite(src.data(), 1, src.size(), f);
+        std::fclose(f);
+    }
+}
+
+// Compile's key, also the disk cache's: one source can hold several entry points
+uint64_t ShaderKey(const std::string& src, const char* entry, const char* profile) {
     uint64_t profile_seed = Hash(profile, std::strlen(profile));
     uint64_t entry_seed = Hash(entry, std::strlen(entry), profile_seed);
-    hash = Hash(src.data(), src.size(), entry_seed);
+    return Hash(src.data(), src.size(), entry_seed);
+}
+
+// vertex programs compiled on background threads (PrecompileVertexProgram), by their Compile key
+class Precompiler {
+public:
+    void Add(uint64_t key, std::string src) {
+        std::lock_guard lock(m_);
+        if (jobs_.count(key)) return;
+        jobs_[key].src = std::move(src);
+        queue_.push_back(key);
+        if (!started_) {
+            started_ = true;
+            // a few threads beside the level load, below the title's priority
+            unsigned n = std::clamp(std::thread::hardware_concurrency() / 4, 1u, 3u);
+            for (unsigned i = 0; i < n; i++) std::thread([this] { Work(); }).detach();
+        }
+        work_cv_.notify_one();
+    }
+
+    // the key's shader when it was queued, waiting for one being compiled; false for one not started yet (the caller
+    // compiles it and the queue drops it) or never queued; out is null when the compile failed
+    bool Take(uint64_t key, ComPtr<ID3DBlob>& out) {
+        std::unique_lock lock(m_);
+        auto it = jobs_.find(key);
+        if (it == jobs_.end()) return false;
+        if (it->second.stage == Stage::Queued) {
+            jobs_.erase(it);
+            return false;
+        }
+        done_cv_.wait(lock, [&] { return jobs_[key].stage == Stage::Done; });
+        out = jobs_[key].blob;
+        jobs_.erase(key);
+        return true;
+    }
+
+private:
+    enum class Stage { Queued, Running, Done };
+    struct Job {
+        Stage stage = Stage::Queued;
+        std::string src;
+        ComPtr<ID3DBlob> blob;
+    };
+
+    void Work() {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+        hitch::NameThread("precompile");
+        for (;;) {
+            uint64_t key;
+            std::string src;
+            {
+                std::unique_lock lock(m_);
+                work_cv_.wait(lock, [&] { return !queue_.empty(); });
+                key = queue_.front();
+                queue_.pop_front();
+                auto it = jobs_.find(key);
+                if (it == jobs_.end() || it->second.stage != Stage::Queued) continue;  // taken by a draw
+                it->second.stage = Stage::Running;
+                src = std::move(it->second.src);
+            }
+            hitch::Scope hs(hitch::Kind::Precompile);
+            ComPtr<ID3DBlob> code;
+            std::vector<uint8_t> cached;
+            if (DiskShaders().Load(key, cached) && SUCCEEDED(D3DCreateBlob(cached.size(), &code))) {
+                std::memcpy(code->GetBufferPointer(), cached.data(), cached.size());
+                hs.Text("vs_5_0 %016llX from the cache", (unsigned long long)key);
+            } else {
+                hs.Text("vs_5_0 %016llX, %zu bytes of HLSL", (unsigned long long)key, src.size());
+                ComPtr<ID3DBlob> err;
+                code.Reset();
+                if (SUCCEEDED(D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, "main", "vs_5_0",
+                                         CompileFlags(), 0, &code, &err)))
+                    DiskShaders().Store(key, code->GetBufferPointer(), code->GetBufferSize());
+                else
+                    code.Reset();  // the draw compiles it again and logs the error
+            }
+            {
+                std::lock_guard lock(m_);
+                Job& j = jobs_[key];
+                j.blob = code;
+                j.stage = Stage::Done;
+            }
+            done_cv_.notify_all();
+        }
+    }
+
+    std::mutex m_;
+    std::condition_variable work_cv_, done_cv_;
+    std::deque<uint64_t> queue_;
+    std::unordered_map<uint64_t, Job> jobs_;
+    bool started_ = false;
+};
+
+Precompiler g_precompiler;
+
+ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const char* profile, uint64_t& hash) {
+    hash = ShaderKey(src, entry, profile);
     auto it = blobs_.find(hash);
     if (it != blobs_.end()) return it->second.Get();
     ComPtr<ID3DBlob> code;
     ComPtr<ID3DBlob> err;
     PerfScope perf_compile{g_perf.compile};
+    hitch::Scope hs(hitch::Kind::Shader);
+    DumpSource(src, entry, profile, hash);
+    if (g_precompiler.Take(hash, code) && code) {
+        hs.Text("%s %016llX precompiled", profile, (unsigned long long)hash);
+        g_perf.precompiled++;
+        blobs_[hash] = code;
+        return code.Get();
+    }
+    code.Reset();
+    std::vector<uint8_t> cached;
+    if (DiskShaders().Load(hash, cached) && SUCCEEDED(D3DCreateBlob(cached.size(), &code))) {
+        std::memcpy(code->GetBufferPointer(), cached.data(), cached.size());
+        hs.Text("%s %016llX from the cache", profile, (unsigned long long)hash);
+        g_perf.cached++;
+        blobs_[hash] = code;
+        return code.Get();
+    }
+    hs.Text("%s %016llX, %zu bytes of HLSL", profile, (unsigned long long)hash, src.size());
     g_perf.shaders++;
-    HRESULT hr = D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, entry, profile,
-                            D3DCOMPILE_OPTIMIZATION_LEVEL1, 0, &code, &err);
+    HRESULT hr = D3DCompile(src.data(), src.size(), nullptr, nullptr, nullptr, entry, profile, CompileFlags(), 0,
+                            &code, &err);
     if (FAILED(hr)) {
         LOGE("d3d12: %s compile failed: %s", profile, err ? static_cast<const char*>(err->GetBufferPointer()) : "?");
         LOGE("%s", src.c_str());
         blobs_[hash] = nullptr;
         return nullptr;
     }
+    DiskShaders().Store(hash, code->GetBufferPointer(), code->GetBufferSize());
     blobs_[hash] = code;
     return code.Get();
 }
@@ -1649,6 +1826,8 @@ ID3D12PipelineState* D3D12Backend::EnsurePipeline(const PsoKey& k, ID3DBlob* vs,
     if (k.topo == uint32_t(Topology::Points)) ExpandPoints(d);
     ComPtr<ID3D12PipelineState> pso;
     g_perf.psos++;
+    hitch::Scope hs(hitch::Kind::Pipeline);
+    hs.Text("%016llX, %u inputs%s", (unsigned long long)h, n, k.topo == uint32_t(Topology::Points) ? ", points" : "");
     if (FAILED(dev_->CreateGraphicsPipelineState(&d, IID_PPV_ARGS(&pso)))) LOGE("d3d12: pipeline creation failed");
     psos_[h] = pso;
     return pso.Get();
@@ -1701,6 +1880,9 @@ bool SameTexture(const Tex& tx, const TextureDesc& d) {
 // false when the texture could not be made, its entry dropped
 bool D3D12Backend::CreateTexture(Tex& tx, const TextureDesc& d, const FormatInfo& fi, uint64_t key) {
     g_perf.newtex++;
+    hitch::Scope hs(hitch::Kind::Texture);
+    hs.Text("%08X %ux%ux%u, %u levels, format %02X%s", d.data, d.width, d.height, d.depth, d.levels, d.format,
+            d.cube ? ", cube" : "");
     if (tx.res) CurrentFrame().garbage.push_back(tx.res);
     tx = Tex{};
     tx.d = d;
@@ -1861,6 +2043,8 @@ ID3D12Resource* D3D12Backend::BindGuestTexture(const State& s, int stage, const 
         if (diag::Perf()) g_perf.sig += PerfMs(perf_t);
         if (sig != tx.sig || !same) {
             PerfScope perf_up{g_perf.texup};
+            hitch::Scope hs(hitch::Kind::Upload);
+            hs.Text("%08X %ux%u, %u KB%s", d.data, d.width, d.height, total >> 10, same ? "" : ", new");
             g_perf.texups++;
             g_perf.texup_bytes += total;
             tx.sig = sig;
@@ -2078,6 +2262,14 @@ void D3D12Backend::EnsureVertexShader(const State& s, const Assembled& a, DrawSh
         sh.vs_code = blobs_[vit->second].Get();
         sh.vh = vit->second;
         return;
+    }
+    if (sh.prog && s.vs->precompiled &&
+        (sh.quad || a.regs != s.vs->precompiled_regs || a.decode != s.vs->precompiled_decode)) {
+        static int reports = 0;  // the render thread's
+        if (reports++ < 32)
+            LOGR("shader precompile: program %016llX drawn with inputs %04X decode %016llX%s, precompiled for %04X "
+                 "%016llX", (unsigned long long)s.vs->hash, a.regs, (unsigned long long)a.decode,
+                 sh.quad ? " as a quad" : "", s.vs->precompiled_regs, (unsigned long long)s.vs->precompiled_decode);
     }
     std::string src = VertexHlsl(s, a, sh);
     sh.vs_code = Compile(sh.quad ? QuadHlsl(std::move(src)) : src, "main", "vs_5_0", sh.vh);
@@ -3137,6 +3329,8 @@ void D3D12Backend::ResetFrame() {
     Frame& f = CurrentFrame();
     if (f.fence && fence_->GetCompletedValue() < f.fence) {
         auto perf_wait = PerfStart();
+        hitch::Scope hs(hitch::Kind::Fence);
+        hs.Text("frame resources");
         WaitFence(f.fence);
         if (diag::Perf()) g_perf.wait += PerfMs(perf_wait);
     }
@@ -3193,11 +3387,12 @@ void LogPerf() {
              g_perf_sync_late.exchange(0) / n);
         LOGR("perf: per frame %.0f draws (%.0f raw) %.0fk verts %.1f MB upload %.1f overflow | %.0f checks %.2f MB "
              "hashed | %.1f tex uploads %.2f MB, %.1f new tex, %.1f new targets, %.1f target uploads, %.1f shrinks, "
-             "%.1f read-backs %.1f late | %llu shaders %llu psos this second",
+             "%.1f read-backs %.1f late | %llu shaders (%llu from the cache, %llu precompiled) %llu psos this second",
              p.draws / n, p.raw / n, p.verts / n / 1000.0, p.upload / n / 1048576.0, p.overflow / n, p.sigs / n,
              p.sig_bytes / n / 1048576.0, p.texups / n, p.texup_bytes / n / 1048576.0, p.newtex / n,
              p.targets / n, p.rtups / n, p.shrinks / n, p.syncs / n, p.lates / n,
-             (unsigned long long)p.shaders, (unsigned long long)p.psos);
+             (unsigned long long)p.shaders, (unsigned long long)p.cached, (unsigned long long)p.precompiled,
+             (unsigned long long)p.psos);
         if (!intervals.empty()) {
             std::sort(intervals.begin(), intervals.end());
             const auto percentile = [&](size_t percent) { return intervals[(intervals.size() - 1) * percent / 100]; };
@@ -3232,8 +3427,13 @@ void D3D12Backend::Present(const Surface& front) {
     DeliverReports();
     bool vsync = app::Get().vsync;
     auto perf_swap = PerfStart();
-    swap_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    {
+        hitch::Scope hs(hitch::Kind::Swap);
+        hs.Text("%s", vsync ? "vsync" : "no vsync");
+        swap_->Present(vsync ? 1 : 0, !vsync && tearing_ ? DXGI_PRESENT_ALLOW_TEARING : 0);
+    }
     if (diag::Perf()) g_perf.swap += PerfMs(perf_swap);
+    hitch::Present();
 
     presents_++;
     presents_seen_.store(presents_);
@@ -3285,6 +3485,8 @@ void D3D12Backend::Sync(uint32_t data, uint32_t) {
     auto it = targets_.find(TargetMapKey(data, false));
     if (it == targets_.end() || !it->second.drawn || TargetStale(data)) return;
     PerfScope perf_sync{g_perf.sync};
+    hitch::Scope hs(hitch::Kind::ReadBack);
+    hs.Text("%08X %ux%u", data, it->second.gw, it->second.gh);
     g_perf.syncs++;
     if (diag::Perf()) {
         LOG_FIRST(16, "perf: read-back of %08X (%ux%u guest, %ux%u host)", data, it->second.gw, it->second.gh,
@@ -3550,6 +3752,24 @@ void D3D12Backend::SetGamma(const uint8_t* ramp) {
 }
 
 }  // namespace
+
+void PrecompileVertexProgram(VertexShader& vs) {
+    static const bool on = [] {
+        const char* v = std::getenv("XBE_SHADER_PRECOMPILE");
+        return !(v && !std::strcmp(v, "0"));
+    }();
+    constexpr uint32_t kStateProgram = 0x7378;  // runs on its own, never drawn
+    if (!on || vs.program.empty() || vs.program_type == kStateProgram) return;
+    uint16_t regs;
+    uint64_t decode;
+    if (!PredictInputs(vs, regs, decode)) return;
+    vs.precompiled = true;
+    vs.precompiled_regs = regs;
+    vs.precompiled_decode = decode;
+    std::string src = VertexProgramHlsl(vs.program, regs, decode);
+    uint64_t key = ShaderKey(src, "main", "vs_5_0");
+    g_precompiler.Add(key, std::move(src));
+}
 
 std::unique_ptr<Backend> CreateBackend() { return std::make_unique<D3D12Backend>(); }
 

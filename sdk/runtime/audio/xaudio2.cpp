@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "audio/audio.h"
+#include "core/hitch.h"
 #include "core/log.h"
 
 namespace audio {
@@ -20,6 +21,7 @@ namespace audio {
 void StartOutput(std::function<void(float*, uint32_t)> render) {
     std::thread([render] {
         CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        hitch::NameThread("audio");
         IXAudio2* xa = nullptr;
         IXAudio2MasteringVoice* master = nullptr;
         IXAudio2SourceVoice* voice = nullptr;

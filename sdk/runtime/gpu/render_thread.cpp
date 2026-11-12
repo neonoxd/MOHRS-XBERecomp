@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "core/diag.h"
+#include "core/hitch.h"
 #include "core/log.h"
 #include "core/snapshot.h"
 #include "gpu/backend.h"
@@ -184,6 +185,7 @@ public:
         Use(front.header);
         uint64_t id = Submit();
         if (diag::Perf()) g_perf_capture_ns.fetch_add(Ns(t), std::memory_order_relaxed);
+        hitch::TitlePresent();
         // the title records one frame while the one before it draws
         Wait(last_present_, WaitFor::Frame, nullptr);
         last_present_ = id;
@@ -436,6 +438,9 @@ private:
         if (id >= cur_->id) id = Submit();
         auto t = PerfStart();
         {
+            static const char* const kinds[] = {"read-back", "resource", "fence", "flush", "copy", "next frame"};
+            hitch::Scope hs(hitch::Kind::TitleWait);
+            hs.Text("%s", why ? why : kinds[size_t(kind)]);
             std::unique_lock lock(m_);
             done_cv_.wait(lock, [&] { return done_.load() >= id; });
         }
@@ -455,6 +460,7 @@ private:
         if (auto set = reinterpret_cast<SetDescription>(
                 reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetThreadDescription"))))
             set(GetCurrentThread(), L"render");
+        hitch::NameThread("render");
         for (;;) {
             Batch* b;
             {

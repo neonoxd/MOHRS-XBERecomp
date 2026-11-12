@@ -98,6 +98,34 @@ int main() {
     Stream(s, 0, 0, 0x35, 12288 - 6, 6);
     Check(gpu::Assemble(s, 1, 0, 1, nullptr, a), "guarded final vertex failed");
     Position(a, 0, -123, 45, 32767);
+    // PredictInputs, for the declaration alone, matches what the draws assembled
+    {
+        gpu::State p;
+        p.vs_handle = 1;
+        p.vs = std::make_shared<gpu::VertexShader>();
+        Stream(p, 0, 0, 0x35, 512, 6);
+        Stream(p, 1, 3, 0x34, 1024, 3);
+        Stream(p, 2, 9, 0x22, 1536, 8);
+        p.vs->stream_stride = {6, 3, 8};
+        gpu::Assembled raw;
+        Check(gpu::Assemble(p, 6, 1, 3, nullptr, raw), "prediction draw failed");
+        uint16_t regs;
+        uint64_t decode;
+        Check(gpu::PredictInputs(*p.vs, regs, decode), "a declaration with inputs must predict");
+        Check(regs == raw.regs && decode == raw.decode, "raw draw inputs must match the prediction");
+        // a float pair one byte into its vertex is no host fetch: converted, nothing decoded
+        Stream(p, 2, 9, 0x22, 1536, 9);
+        p.vs->inputs[9].offset = 1;
+        p.vs->stream_stride[2] = 9;
+        gpu::Assembled converted;
+        Check(gpu::Assemble(p, 6, 1, 3, nullptr, converted), "converted prediction draw failed");
+        Check(!converted.vertices.empty(), "a misaligned element must convert the draw");
+        Check(gpu::PredictInputs(*p.vs, regs, decode), "the converted declaration must predict");
+        Check(regs == converted.regs && decode == converted.decode && decode == 0,
+              "converted draw inputs must match the prediction");
+        gpu::VertexShader none;
+        Check(!gpu::PredictInputs(none, regs, decode), "no inputs, no prediction");
+    }
     VirtualFree(kernel::g_base, 0, MEM_RELEASE);
     std::puts("Packed vertex checks passed");
 }

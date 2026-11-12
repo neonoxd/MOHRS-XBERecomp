@@ -458,6 +458,26 @@ void FvfInputs(uint32_t fvf, VertexShader& vs) {
     vs.stream_stride[0] = off;
 }
 
+bool PredictInputs(const VertexShader& vs, uint16_t& regs, uint64_t& decode) {
+    regs = 0;
+    decode = 0;
+    bool raw = kRawVertices;
+    for (int r = 0; r < 16; r++) {
+        const auto& in = vs.inputs[size_t(r)];
+        if (in.stream < 0 || !in.type || in.type == kTypeNone) continue;
+        regs |= uint16_t(1u << r);
+        // RawReadable with the declaration's stride
+        HostElement he = HostFormat(in.type);
+        uint32_t stride = vs.stream_stride[size_t(in.stream)];
+        raw = raw && he.format && stride && in.offset < kElementOffsetEnd &&
+              uint64_t(in.offset) + TypeBytes(in.type) <= stride && in.offset % std::min<uint32_t>(he.bytes, 4) == 0;
+        decode |= uint64_t(he.decode) << (r * 4);
+    }
+    // converted on the CPU: every element a float4, nothing to decode
+    if (!raw) decode = 0;
+    return regs != 0;
+}
+
 bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* ip, Assembled& out) {
     ResetAssembled(out);
     if (!count || prim < 1 || prim > 10) return false;

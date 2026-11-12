@@ -9,6 +9,7 @@
 #include <fstream>
 #include <map>
 
+#include "core/hitch.h"
 #include "core/snapshot.h"
 #include "kernel/disc.h"
 #include "kernel/crypto.h"
@@ -452,6 +453,8 @@ KERNEL_EXPORT(190, NtCreateFile, 9) {
     (void)access;
     uint32_t root;
     std::string name = ObjectName(attrs, &root);
+    hitch::Scope hs(hitch::Kind::FileOpen);
+    hs.Text("%s", name.c_str());
     Target t = Resolve(name, root);
     if (t.disc) return OpenOnDisc(t.entry, t.disc_path, name, handle_out, iosb, disposition, options);
     const std::string& host = t.host;
@@ -555,6 +558,8 @@ KERNEL_EXPORT(202, NtOpenFile, 6) {
     uint32_t handle_out = a[0], attrs = a[2], iosb = a[3], options = a[5];
     uint32_t root;
     std::string name = ObjectName(attrs, &root);
+    hitch::Scope hs(hitch::Kind::FileOpen);
+    hs.Text("%s", name.c_str());
     Target t = Resolve(name, root);
     if (t.disc) return OpenOnDisc(t.entry, t.disc_path, name, handle_out, iosb, 1, options);
     const std::string& host = t.host;
@@ -606,9 +611,11 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     auto f = FileFromHandle(h);
     if (!f || (!f->fp && !f->entry)) return kInvalidHandle;
     if (write && f->entry) return kAccessDenied;
+    hitch::Scope hs(hitch::Kind::FileRead);
     ResetEvent(*f);
     std::lock_guard<std::mutex> lock(f->io);
     uint64_t pos = Offset(*f, off);
+    hs.Text("%s%s, %u bytes at %llu", write ? "write " : "", f->xbox.c_str(), len, (unsigned long long)pos);
     if (f->fp) Seek(f->fp, pos);
     uint32_t n = 0;
     while (n < len) {

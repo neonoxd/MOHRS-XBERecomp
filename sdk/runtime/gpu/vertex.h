@@ -55,6 +55,10 @@ struct Assembled {
 // the FVF bits translated to the register layout the XDK's declarations use
 void FvfInputs(uint32_t fvf, VertexShader& out);
 
+// the input registers and VertexDecode a draw of vs reads when every stream its declaration names is bound with the
+// declaration's stride, as Assemble works them out; false when the declaration feeds no register
+bool PredictInputs(const VertexShader& vs, uint16_t& regs, uint64_t& decode);
+
 // false when there is nothing to draw
 // indices: the title's 16 bit indices, null for an unindexed draw
 bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices, Assembled& out);

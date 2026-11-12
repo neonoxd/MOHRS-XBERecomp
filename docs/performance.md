@@ -29,6 +29,35 @@ files still load. With `XBE_PERF` off, per-draw clock reads and atomic accountin
 Tried without gain: joining consecutive indexed draws (they almost always switch vertex buffer), x86-64-v3 for the
 game code.
 
+## Shader cache
+
+Shaders are HLSL made from the draw's state (vertex programs, fixed function, pixel combiners) and compiled with
+`D3DCompile` on the render thread the first time a draw needs them. One compile takes 17-96 ms, the longest for
+vertex programs of about 10 KB of HLSL (a grenade explosion's two took 94 and 96 ms, a 195 ms frame). The title
+waits for the render thread meanwhile.
+
+`gpu::ShaderCache` (`sdk/runtime/gpu/shader_cache.cpp`) keeps each compiled shader in
+`shadercache\<tag>\<key>.dxbc` beside the executable. The key is `Hash` of the profile, the entry point and the
+source, the same key the in-memory map uses. The tag is `Hash` of the cache layout, the compile flags and the
+compiler DLL's link time and image size; opening the cache removes the other tags' folders. A file that is not a
+whole DXBC container (its magic and the size in its header) is compiled again. Files are written under a name of
+their own and renamed, so the two executables can share the folder. A shader costs its compile the first time it is
+ever drawn, a file read after that. `XBE_PERF` reports compiled and cached shaders per second; `XBE_HITCH` lists
+cache reads as shader events "from the cache".
+
+Vertex programs are also compiled before their first draw. `D3DDevice_CreateVertexShader` (and a quick load's
+`ReadShader`) calls `gpu::PrecompileVertexProgram`, which predicts the draw's input registers and decode from the
+declaration alone (`gpu::PredictInputs`, `vertex.cpp`: every declared input bound, the declaration's stream
+strides, the same raw-readable test as `Assemble`), writes the program's HLSL and queues it. One to three threads
+(a quarter of the hardware threads), below normal priority, take the shader from the disk cache or compile and
+store it. `Compile` asks the queue first: a finished shader is used, one being compiled is waited for, one not
+started is dropped from the queue and compiled by the draw. A draw whose inputs differ from the prediction, or
+that draws the program as a quad (`QuadHlsl`), has another key and compiles as before; the first 32 are logged as
+`shader precompile: program ... drawn with inputs ...`. State programs (type `0x7378`) are not precompiled.
+Fixed function vertex shaders and pixel shaders depend on draw state and are compiled at the draw.
+
+Pipeline states (`CreateGraphicsPipelineState`) took 2 ms at most and are not cached.
+
 ## Measurements
 
 RTX 4090, release build, uncapped, vsync off, no input, mean of the one-second reports after loading:
@@ -67,6 +96,8 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -O2 -D_CRT_SECURE_NO_WARNINGS -Isdk/run
 & re/vertex_packing_test.exe
 cmd /c "tools\dev.bat clang++ -std=c++20 -O2 -Isdk/runtime tests/state_tracked_test.cpp -o re/state_tracked_test.exe"
 & re/state_tracked_test.exe
+cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isdk/runtime tests/shader_cache_test.cpp sdk/runtime/gpu/shader_cache.cpp sdk/runtime/core/log.cpp -ld3dcompiler -o re/shader_cache_test.exe"
+& re/shader_cache_test.exe
 ```
 
 The vertex packing test covers signed SHORT3 positions, independently packed three-byte colours, aligned UV

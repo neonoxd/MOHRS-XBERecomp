@@ -43,6 +43,11 @@ uint64_t FastHash(const void* p, size_t n, uint64_t h = 1469598103934665603ull);
 
 PixelKey MakePixelKey(const State& s, const TexInfo tex[4]);
 
+// A vertex program compiled on a background thread when the title creates it, for the inputs its declaration
+// gives (PredictInputs), into the disk cache and for the draw that asks for the same source; XBE_SHADER_PRECOMPILE=0
+// leaves it off
+void PrecompileVertexProgram(VertexShader& vs);
+
 // vertex program microcode to HLSL, regs is the bit mask of v registers the draw supplies
 // decode: VertexDecode per register, 4 bits each, for elements the input assembler hands over raw
 std::string VertexProgramHlsl(const std::vector<uint32_t>& program, uint16_t regs, uint64_t decode = 0);
