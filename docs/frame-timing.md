@@ -53,6 +53,7 @@ advanced once at its conversion site, not per entity.
 | Profile/save popup float phase, hook after CVTSI2SS | `0xF6C5A` | `0xEF67A` |
 | Soldier brain goal ticks, hook after CVTTSS2SI | `0x197C6` | `0x19056` |
 | Threat memory decay, hook after the 0.01 load | `0x223A8` | `0x21F58` |
+| Light update keyframe ticks, hook after CVTTSS2SI | `0x8599E` | `0x782EE` |
 | Multiplayer bot AI update test, hook at XOR ECX,[0x270140] | `0x65A95` | none (no bots) |
 | Its time, hook after MULSS by 2 | `0x65ABA` | none |
 | Player floor ray: collision world before the cast | `0xDAC19` | `0xD1581` |
@@ -123,6 +124,18 @@ every event with the guest call chain.
   its delta (`ret 4`): 6.7 s at 30 FPS, 1.4 s at 144. `ThreatDecay` scales the step by ticks / 2.
 
 Both apply in the 60 FPS and unlocked modes; at 60 FPS the exact one-tick frames give the same goal timing as before.
+
+### Lights
+
+A light entity's update (`0x85990`, co-op `0x782E0`; thiscall (time), slot 4 of both light vtables, `0x1E3EE8` for level
+lights and `0x1E4050` for the pooled ones) truncates its delta to whole ticks (`cvttss2si eax,[ebp+8]`) and steps its
+keyframe (`+0xE4`) through its definition (`+0xE0`: mode `+0x70`, keyframe count `+0x72`, colours `+0x74`, scales
+`+0x78`) into its colour (`+0xC8`..`+0xD4`). Mode 0 plays once and destroys the light after the last keyframe, mode 1
+loops, mode 2 goes back and forth. An explosion's flash is a pooled light: the grenade explosion (`0x14F770`) calls
+`0x14E7E0`, which takes light definition `0x9BCE1511` from the light block (`0x86360`, `g_pMOHLightBlock`) and places it
+at the blast. On frames shorter than a tick the truncation gave 0, so the flash kept its first keyframe and never ended
+(it only advanced on frames longer than a tick) and looping lamps froze. `LightTicks` gives each light whole ticks from
+a `KeyedTickRemainder` keyed by ECX. It applies in the 60 FPS and unlocked modes.
 
 ### Multiplayer bots
 

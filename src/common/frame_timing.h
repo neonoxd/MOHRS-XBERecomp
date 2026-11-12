@@ -22,6 +22,11 @@ void BrainTicks(X86Context& ctx);
 // Threat memory decay (0x223A0, co-op 0x21F50) after its 0.01 load into xmm2: one step per brain update, a 30 FPS
 // frame on the console; scaled by the update's ticks, its ignored stack argument.
 void ThreatDecay(X86Context& ctx);
+// A light entity's update (default 0x85990, co-op 0x782E0; thiscall (time), vtable slot 4 of both light classes:
+// level lamps and the pooled flashes of explosions) after cvttss2si eax,[ebp+8]: it steps its colour keyframe by
+// whole ticks, and a one-shot light frees itself after its last keyframe. Below one tick a frame the truncation gave
+// 0, so a grenade's flash stayed lit and looping lamps froze; ecx is the light, which keeps its own fraction.
+void LightTicks(X86Context& ctx);
 // The player's end-of-step floor check (default 0xDA7D0, co-op 0xD104A) casts a ray straight down from 0.39 above the
 // player; a miss (result 1) zeroes the velocity and puts the player back at the previous step's end. A seam in the
 // collision mesh (1_1's lip at x -41.88) misses too, and short steps keep landing in it: the player is stuck.

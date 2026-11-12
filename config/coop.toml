@@ -399,6 +399,11 @@ call = "BrainTicks"
 at = 0x21F58
 call = "ThreatDecay"
 
+# Light update, default.xbe's 0x8599E in 0x85990.
+[[hook]]
+at = 0x782EE
+call = "LightTicks"
+
 # Loading medal/stars, corresponding to default.xbe's 0xFC9FD / 0xFD3DC.
 [[hook]]
 at = 0xF550D

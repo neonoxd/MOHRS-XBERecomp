@@ -169,6 +169,8 @@ void MessageTicks(X86Context& ctx, uint8_t*) { game::MessageTicks(ctx); }
 // [[hook]]s in the soldier AI brain: goal timer ticks at 0x19056, threat memory decay at 0x21F58
 void BrainTicks(X86Context& ctx, uint8_t*) { game::BrainTicks(ctx); }
 void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
+// [[hook]] 0x782EE in the light update 0x782E0: its keyframe ticks
+void LightTicks(X86Context& ctx, uint8_t*) { game::LightTicks(ctx); }
 void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
 void FloorRayRetry(X86Context& ctx, uint8_t*) {
     game::FloorRayRetry(ctx, {0x90, 0xE0, 0x50, 0x13DF00, 0x13BBE0, 0x13BD80, 0x6D290});

@@ -413,6 +413,12 @@ call = "BrainTicks"
 at = 0x223A8
 call = "ThreatDecay"
 
+# Light update (docs/frame-timing.md): keyframe steps get whole ticks with the fraction kept per light, after
+# cvttss2si eax,[ebp+8] in 0x85990.
+[[hook]]
+at = 0x8599E
+call = "LightTicks"
+
 # Multiplayer bot AI (docs/frame-timing.md): once per 4 ticks per bot, set at the parity test's xor ecx,[0x270140]
 # in 0x65A80, with the time since the bot's last AI update after its time is doubled.
 [[hook]]
