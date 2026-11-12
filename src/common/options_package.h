@@ -12,7 +12,7 @@ inline constexpr char kScreen[] = "PCOptions.fng";
 inline constexpr size_t kRows = 10;
 // the pause screen's cheats (src/common/cheats.h), made the same way and listed under PC Options in Preferences.fng
 inline constexpr char kCheatsScreen[] = "Cheats.fng";
-inline constexpr size_t kCheatRows = 4;
+inline constexpr size_t kCheatRows = 8;
 
 // a screen made from HUD.fng and the list entry opening it
 struct ScreenSpec {

@@ -130,7 +130,11 @@ Row CheatRow(const char* label) {
 }
 const Row kCheatRows[] = {CheatRow<Cheat::GiveWeapons>("Give All Weapons"),
                           CheatRow<Cheat::InfiniteAmmo>("Infinite Ammo"), CheatRow<Cheat::GodMode>("God Mode"),
-                          CheatRow<Cheat::OneShotKills>("One Shot Kills")};
+                          CheatRow<Cheat::OneShotKills>("One Shot Kills"),
+                          CheatRow<Cheat::BulletShield>("Bullet Shield"),
+                          CheatRow<Cheat::AchillesHead>("Achilles Head"),
+                          CheatRow<Cheat::InvisibleSoldiers>("Invisible Soldiers"),
+                          CheatRow<Cheat::RubberGrenades>("Rubber Grenades")};
 static_assert(std::size(kCheatRows) == menu::kCheatRows);
 bool g_saved_cheats[size_t(Cheat::Count)];  // game thread
 

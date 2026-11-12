@@ -83,7 +83,7 @@ switch landing in a short window races here; these run under a lock:
 | `XBE_SNAPSHOT_TRACE` | each parked thread's waits at a quick load |
 | `XBE_SNAPSHOT_ANY_BUILD=1` | quick load skips the call chain check |
 | `MOHRS_START_LEVEL` | start this mission_level instead of 1_1 |
-| `MOHRS_CHEATS` | the pause Cheats switches, hex bit mask (1 Give All Weapons, 2 Infinite Ammo, 4 God Mode, 8 One Shot Kills); set by the game for the instance it relaunches into |
+| `MOHRS_CHEATS` | the pause Cheats switches, hex bit mask (1 Give All Weapons, 2 Infinite Ammo, 4 God Mode, 8 One Shot Kills, 10 Bullet Shield, 20 Achilles Head, 40 Invisible Soldiers, 80 Rubber Grenades); set by the game for the instance it relaunches into |
 | `MOHRS_CHEATS_AT=15:1` | sets the cheat switches (hex mask) that many seconds after the first gameplay frame, as the pause menu would |
 | `MOHRS_LEVEL_WEAPONS=0` | campaign levels as they are on the disc (no weapons from other levels) |
 | `MOHRS_HEAP_EXTRA_MB` | the main heap's extra megabytes (default up to 12, 0 none) |

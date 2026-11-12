@@ -75,8 +75,8 @@ render scale, frame rate (30, 60 or unlocked), FPS limit, VSync, field of view, 
 sensitivity and mouse inversion. Left and right change a row, confirm saves, back cancels.
 
 Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
-Mode and One Shot Kills. They last until the game is closed. Give All Weapons gives every weapon the current level
-has, and in single player the campaign's other weapons too. One Shot Kills also applies to your allies.
+Mode, One Shot Kills, Bullet Shield, Achilles Head, Invisible Soldiers and Rubber Grenades. They last until the game is closed. Give All Weapons gives every weapon the current level
+has, and in single player the campaign's other weapons too. One Shot Kills and Achilles Head also apply to your allies.
 
 Everything is also in settings.toml beside the executable, written on the first start. Some settings are only there:
 

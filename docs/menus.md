@@ -55,7 +55,7 @@ The screen is English in every language.
 
 The pause screen's **Preferences** gets a **Cheats** entry under PC Options (`Preferences.fng` only, so single
 player and co-op; not the multiplayer `MPPreferences.fng`). The screen is made from the pause archive's `HUD.fng`
-like PC Options, with four On/Off rows. Left/right switch a row at once, confirm keeps the rows, back puts them as
+like PC Options, with eight On/Off rows. Left/right switch a row at once, confirm keeps the rows, back puts them as
 they were on entry. The switches last for the session and are not written to `settings.toml` or the profile.
 
 | Row | What it does |
@@ -63,10 +63,14 @@ they were on entry. The switches last for the session and are not written to `se
 | Give All Weapons | Every player weapon of the level, with full reserve ammo, given once per level once the player holds a weapon. In single player the other campaign levels' weapons too |
 | Infinite Ammo | The game's unlimited ammo cheat: firing leaves the clip as it is |
 | God Mode | The game's invincibility cheat; health is refilled when it comes on |
-| One Shot Kills | The game's one-shot cheat: every hit on an AI character does 1000 damage |
+| One Shot Kills | The game's Silver Bullet cheat: every hit on an AI character does 1000 damage |
+| Bullet Shield | The game's Bullet Shield cheat: bullets that reach the player spark and do no harm |
+| Achilles Head | The game's Achilles Head cheat: hits on AI characters do no damage but to the head |
+| Invisible Soldiers | The game's Invisible Soldiers cheat: the characters' bodies are not drawn |
+| Rubber Grenades | The game's Rubber Grenades cheat: grenades bounce |
 
-Infinite Ammo, God Mode and One Shot Kills are the console's own unlockable cheats, each a byte the game reads where
-it applies. The cheat getter (`0x127600` / `0x121C20`, index 0 to 11) and setter (`0x1276B0` / `0x121CD0`) list
+All rows but Give All Weapons are the console's own unlockable cheats, each a byte the game reads where it applies,
+every time it applies, so each takes effect from the next frame. The cheat getter (`0x127600` / `0x121C20`, index 0 to 11) and setter (`0x1276B0` / `0x121CD0`) list
 all twelve. The game sets the bytes from the profile at a level's start (`0x9F710` / `0x92090`, not in co-op or
 multiplayer) and clears them on a profile load or reset (`0x133CC0`, `0xA0E70`). `src/common/cheats.cpp` sets each
 byte every frame while its row is on, at the main gameplay frame's entry (`0xA4A90` / `0x98A40`, once a frame in
@@ -79,12 +83,27 @@ a level and in the shell, paused too), and puts back the game's value when the r
 | Full health (fastcall player), called when invincibility comes on | `0xD7620` | `0xCC300` |
 | Unlimited ammo byte (cheat 1), read by the weapon fire | `0x20EDBD` | `0x206F9D` |
 | Weapon fire (fastcall weapon): `clip--` unless the byte is set | `0x1506C0` | `0x149A90` |
-| One-shot byte (cheat 2), read by the AI hit handler | `0x20EDC7` | `0x206FA7` |
-| AI hit handler: damage = 1000 (`0x1E0E78`) when set | `0xE9E30` | `0xE1E30` |
+| Silver Bullet byte (cheat 2), read by the AI hit handler | `0x20EDC7` | `0x206FA7` |
+| AI hit handler: damage = 1000 (`0x1E0E78`) when cheat 2 is set, 0 when cheat 7 is set and the part hit is not 0 or 1 | `0xE9E30` | `0xE1E30` |
+| Bullet Shield byte (cheat 3), read by the player's bullet contact | `0x20EDC4` | `0x206FA4` |
+| Player's bullet contact: an impact spark and no hit when set | `0xD23E0` | `0xC6E90` |
+| Rubber Grenades byte (cheat 4), read by the grenade update and its contact | `0x20EDC6` | `0x206FA6` |
+| Grenade update, grenade contact | `0x14DE80`, `0x14EAB0` | `0x147250`, `0x147E80` |
+| Achilles Head byte (cheat 7), read by the AI hit handler | `0x20EDC8` | `0x206FA8` |
+| Invisible Soldiers byte (cheat 8), read by the character draw | `0x20EDCA` | `0x206FAA` |
+| Character draw: the body skipped when set | `0xE9860` | `0xE18C0` |
 | Multiplayer match byte | `0x20EDB1` | `0x206F91` |
 | Player list, player count | `0x270108`, `0x1FC658` | `0x265278`, `0x1F54B8` |
 
-The one-shot cheat sets the damage of every hit on an AI character, whoever fired it, so allies die in one hit too.
+The Silver Bullet and Achilles Head cheats change every hit on an AI character, whoever fired it, so they apply to
+allies too.
+
+The other cheats are not rows. Unlock All Missions (cheat 0, `0x20EDCC` / `0x206FAC`, read by script native
+`0x40940`) and All Replay Items belong to the front end. Men With Hats (cheat 5, `0x20EDC5` / `0x206FA5`) is read
+only by the character template build at a level's load (`0xCB170`), which gives each character a random hat. Cheat
+6 (`0x20EDBE` / `0x206F9E`) hides the first-person weapon (`0xD7810`, `0xE33B0`). Cheat 9 (`0x20EDC9` /
+`0x206FA9`) makes every hit on the player do 1000 damage unless invincibility is on (`0xD7E90`, `0x14B020`). Cheat
+11 (`0x20EDBF` / `0x206F9F`) is read once, in `0xDB530`.
 
 ### Give All Weapons
 

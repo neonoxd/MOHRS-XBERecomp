@@ -33,7 +33,7 @@ struct Byte {
     bool forced = false;
     uint8_t was = 0;  // the game's value when forcing began
 };
-Byte g_bytes[3];
+Byte g_bytes[size_t(Cheat::Count)];
 bool g_god_applied = false;
 uint32_t g_ring_built[kMaxPlayers];  // players whose ring was (re)built and not given since
 bool g_give_all = false;             // Give All Weapons switched on: every player gets them once
@@ -154,9 +154,8 @@ void CheatFrame(X86Context& ctx, const CheatLayout& l) {
     bool play = !G<uint8_t>(l.multiplayer);
     bool in_level = play && !G<uint8_t>(l.front_end);
     bool god = play && CheatOn(Cheat::GodMode);
-    Force(g_bytes[0], l.god, god);
-    Force(g_bytes[1], l.ammo, play && CheatOn(Cheat::InfiniteAmmo));
-    Force(g_bytes[2], l.one_shot, play && CheatOn(Cheat::OneShotKills));
+    for (size_t c = 0; c < size_t(Cheat::Count); c++)
+        if (l.bytes[c]) Force(g_bytes[c], l.bytes[c], play && CheatOn(Cheat(c)));
 
     uint32_t count = in_level ? PlayerCount(l) : 0;
     // full health as the game's own cheat gives when it is switched on
