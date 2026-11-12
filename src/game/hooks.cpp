@@ -6,6 +6,7 @@
 #include "common/frame_timing.h"
 #include "common/level_weapons.h"
 #include "common/options_menu.h"
+#include "common/pool_lock.h"
 #include "common/quick_save.h"
 #include "common/menu_mouse.h"
 #include "common/stream_lock.h"
@@ -48,6 +49,12 @@ X86_FUNC(sub_000DF320) {
     game::CheatRingBuilt(ctx.ecx);
     __imp__sub_000DF320(ctx, base);
 }
+
+// the small-block pools' search and free, under one lock (src/common/pool_lock.h)
+X86_EXTERN_FUNC(__imp__sub_00111BE0);
+X86_FUNC(sub_00111BE0) { game::LockedPool(ctx, base, __imp__sub_00111BE0); }
+X86_EXTERN_FUNC(__imp__sub_00111C30);
+X86_FUNC(sub_00111C30) { game::LockedPool(ctx, base, __imp__sub_00111C30); }
 
 // the EA stream library's packet take, under its stream's lock (src/common/stream_lock.h)
 X86_EXTERN_FUNC(__imp__sub_00165390);

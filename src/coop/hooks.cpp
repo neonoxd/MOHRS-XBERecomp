@@ -6,6 +6,7 @@
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/options_menu.h"
+#include "common/pool_lock.h"
 #include "common/menu_mouse.h"
 #include "common/stream_lock.h"
 #include "common/test_hooks.h"
@@ -40,6 +41,12 @@ X86_FUNC(sub_000D3400) {
     game::CheatRingBuilt(ctx.ecx);
     __imp__sub_000D3400(ctx, base);
 }
+
+// the small-block pools' search and free, default.xbe's 0x111BE0 and 0x111C30 (src/common/pool_lock.h)
+X86_EXTERN_FUNC(__imp__sub_0010A760);
+X86_FUNC(sub_0010A760) { game::LockedPool(ctx, base, __imp__sub_0010A760); }
+X86_EXTERN_FUNC(__imp__sub_0010A7B0);
+X86_FUNC(sub_0010A7B0) { game::LockedPool(ctx, base, __imp__sub_0010A7B0); }
 
 // the EA stream library's packet take, default.xbe's 0x165390, under its stream's lock (src/common/stream_lock.h)
 X86_EXTERN_FUNC(__imp__sub_0015E760);

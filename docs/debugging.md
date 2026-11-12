@@ -60,6 +60,16 @@ powershell -NoProfile -File tools/menu_probe.ps1 -Level 1_1 -Script "8:start,10:
 
 Other scripts: `tools/start_level.ps1`, `tools/level_tour.ps1`, `tools/screenshot.ps1`, `tools/run_test.ps1`.
 
+## Threads that ran one at a time on the Xbox
+
+Guest threads run on host threads at once, where the Xbox's one CPU switched between them. Code that relied on no
+switch landing in a short window races here; these run under a lock:
+
+| | default.xbe | moh3rdc.xbe | |
+|---|---:|---:|---|
+| EA stream packet take, under its stream's lock (`src/common/stream_lock.cpp`) | `0x165390` | `0x15E760` | read a stream's count before its packet; crashed opening a level's intro movie |
+| Small-block pool search and free (operator new and MEM_alloc up to 0x40 bytes), under one host lock (`src/common/pool_lock.cpp`) | `0x111BE0`, `0x111C30` | `0x10A760`, `0x10A7B0` | a free bit tested and cleared with no lock: a level loading during its intro movie got a block another thread held (crash in a skeleton's bone map, `0x72410`) |
+
 ## Environment variables
 
 | Variable | Effect |
@@ -74,7 +84,8 @@ Other scripts: `tools/start_level.ps1`, `tools/level_tour.ps1`, `tools/screensho
 | `XBE_SNAPSHOT_ANY_BUILD=1` | quick load skips the call chain check |
 | `MOHRS_START_LEVEL` | start this mission_level instead of 1_1 |
 | `MOHRS_CHEATS` | the pause Cheats switches, hex bit mask (1 Give All Weapons, 2 Infinite Ammo, 4 God Mode, 8 One Shot Kills); set by the game for the instance it relaunches into |
-| `MOHRS_LEVEL_WEAPONS=0` | campaign levels as they are on the disc with Give All Weapons on (no weapons from other levels) |
+| `MOHRS_CHEATS_AT=15:1` | sets the cheat switches (hex mask) that many seconds after the first gameplay frame, as the pause menu would |
+| `MOHRS_LEVEL_WEAPONS=0` | campaign levels as they are on the disc (no weapons from other levels) |
 | `MOHRS_HEAP_EXTRA_MB` | the main heap's extra megabytes (default up to 12, 0 none) |
 | `MOHRS_SOUND_TRACE` | logs every sound event lookup (`0x108370`): its hash and the result, -1 when the level has no such event |
 | `MOHRS_WEAPON_CYCLE` | presses the weapon switch for player 0 every 2.5 s from 8 s on (with `-Pad` `fire` words: every weapon switched to and fired) |
