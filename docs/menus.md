@@ -60,7 +60,7 @@ they were on entry. The switches last for the session and are not written to `se
 
 | Row | What it does |
 |---|---|
-| Give All Weapons | Every player weapon of the level, with full reserve ammo, given once per level once the player holds a weapon. In single player the other campaign levels' weapons are added to the levels loaded while it is on |
+| Give All Weapons | Every player weapon of the level, with full reserve ammo, given once per level once the player holds a weapon. In single player the other campaign levels' weapons too |
 | Infinite Ammo | The game's unlimited ammo cheat: firing leaves the clip as it is |
 | God Mode | The game's invincibility cheat; health is refilled when it comes on |
 | One Shot Kills | The game's one-shot cheat: every hit on an AI character does 1000 damage |
@@ -106,11 +106,11 @@ for a hash the level has no template for. Weapons from other levels are added be
 
 ### Weapons from other levels
 
-In single player, while Give All Weapons is on, a campaign level (`data_N\level.viv`) is read from the disc
-image with the other campaign levels' player weapons added, so they are in the ring like the level's own. It takes
-effect when a level loads: switching the row on in a level gives that level's weapons now and the others' from the
-next level or restart. The switches are kept in the `MOHRS_CHEATS` environment variable, which the instance a level
-or the front end relaunches into inherits.
+In single player every campaign level (`data\1\1_N\level.viv`) is read from the disc image with the other
+campaign levels' player weapons added, whether the cheat is on or not, so they are in the ring like the level's own:
+unowned, as a level's weapons are until its scripts give them, until Give All Weapons gives them. Switching the row on
+in a level gives them at once. `MOHRS_LEVEL_WEAPONS=0` reads the levels as they are on the disc. The switches are kept
+in the `MOHRS_CHEATS` environment variable, which the instance a level or the front end relaunches into inherits.
 
 The archive is built on the host (`src/common/level_archive.cpp`, `tests/level_archive_test.cpp`; sounds `src/common/level_sound.cpp`,
 `tests/level_sound_test.cpp`) and served through

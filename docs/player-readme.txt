@@ -76,8 +76,7 @@ sensitivity and mouse inversion. Left and right change a row, confirm saves, bac
 
 Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
 Mode and One Shot Kills. They last until the game is closed. Give All Weapons gives every weapon the current level
-has; in single player the campaign's other weapons are added too from the next level you load (or restart the
-mission). One Shot Kills also applies to your allies.
+has, and in single player the campaign's other weapons too. One Shot Kills also applies to your allies.
 
 Everything is also in settings.toml beside the executable, written on the first start. Some settings are only there:
 

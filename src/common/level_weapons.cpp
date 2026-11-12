@@ -164,7 +164,7 @@ void Build(Plan& plan, uint32_t extra) {
     }
     std::string names;
     for (const std::string& w : merged->weapons) names += " " + w;
-    LOGR("weapons from other levels: %s given%s (%zu KB more, room %zu KB)", level.c_str(), names.c_str(),
+    LOGR("weapons from other levels: %s has%s added (%zu KB more, room %zu KB)", level.c_str(), names.c_str(),
          merged->added >> 10, room >> 10);
 
     // their sounds: each weapon's events and samples from the level it came from
@@ -209,7 +209,9 @@ kernel::DiscFileContents Provide(const std::string& path) {
         return !v || *v != '0';
     }();
     uint32_t extra = g_heap_extra.load();
-    if (!enabled || !extra || !CheatOn(Cheat::GiveWeapons)) return nullptr;
+    // every campaign level, the cheat on or not: the added weapons wait unowned in the ring, so switching Give All
+    // Weapons on in a level gives them at once
+    if (!enabled || !extra) return nullptr;
     auto [level, file] = LevelFile(path);
     if (level.empty()) return nullptr;
     std::lock_guard<std::mutex> lock(g_lock);

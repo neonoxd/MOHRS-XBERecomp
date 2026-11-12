@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -135,6 +137,19 @@ void CheatRingBuilt(uint32_t player) {
 }
 
 void CheatFrame(X86Context& ctx, const CheatLayout& l) {
+    // MOHRS_CHEATS_AT=<seconds>:<hex mask> (tests): the switches set that long into the run, as the menu would
+    static const char* at = std::getenv("MOHRS_CHEATS_AT");
+    if (at) {
+        static const auto start = std::chrono::steady_clock::now();
+        double seconds = std::atof(at);
+        if (std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >= seconds) {
+            const char* colon = std::strchr(at, ':');
+            unsigned bits = colon ? unsigned(std::strtoul(colon + 1, nullptr, 16)) : 0;
+            for (size_t c = 0; c < size_t(Cheat::Count); c++) SetCheat(Cheat(c), (bits >> c) & 1);
+            LOGR("cheats: %x at %.1f s (MOHRS_CHEATS_AT)", bits, seconds);
+            at = nullptr;
+        }
+    }
     // a multiplayer match keeps the game's own; the shell has no players
     bool play = !G<uint8_t>(l.multiplayer);
     bool in_level = play && !G<uint8_t>(l.front_end);
