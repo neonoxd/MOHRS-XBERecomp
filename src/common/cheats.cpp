@@ -23,10 +23,13 @@ constexpr uint32_t kHeldWeapon = 0x2BC, kNextHolder = 0x2B4, kHolderFlags = 0x3C
 constexpr uint8_t kHolderHas = 4;
 constexpr uint32_t kMaxHolders = 32, kMaxPlayers = 4;
 constexpr uint32_t kMostAmmo = 0x12;
+constexpr uint32_t kHolderGraph = 0x54;  // an actor's animation graph, held in place
+constexpr uint8_t kWeaponReloading = 1;
 // WeaponType 1-5 firearms, 6 launchers, 7 grenades, 8 thrown; tank turrets, mounted guns and melee are left alone
 constexpr uint32_t kFirstType = 1, kLastType = 8;
 
 std::atomic<bool> g_on[size_t(Cheat::Count)];
+std::atomic<uint32_t> g_reload_speed{1};
 
 // game thread only
 struct Byte {
@@ -96,6 +99,7 @@ int GiveAll(X86Context& ctx, uint32_t player, const CheatLayout& l) {
 // The switches outlive a relaunch (the front end and a level are each a process of their own): kept in the
 // environment, which the next instance inherits
 constexpr char kCheatsVariable[] = "MOHRS_CHEATS";
+constexpr char kReloadVariable[] = "MOHRS_RELOAD";
 
 void LoadCheats() {
     static std::once_flag once;
@@ -104,6 +108,10 @@ void LoadCheats() {
         unsigned bits = v ? unsigned(std::strtoul(v, nullptr, 16)) : 0;
         for (size_t c = 0; c < size_t(Cheat::Count); c++) g_on[c] = (bits >> c) & 1;
         if (bits) LOGR("cheats: %x from the previous instance", bits);
+        const char* r = std::getenv(kReloadVariable);
+        uint32_t speed = r ? uint32_t(std::strtoul(r, nullptr, 10)) : 1;
+        g_reload_speed = std::clamp(speed, 1u, kMaxReloadSpeed);
+        if (g_reload_speed > 1) LOGR("cheats: quick reload %ux from the previous instance", g_reload_speed.load());
     });
 }
 
@@ -122,6 +130,39 @@ void SetCheat(Cheat cheat, bool on) {
     char text[16];
     std::snprintf(text, sizeof(text), "%x", bits);
     _putenv_s(kCheatsVariable, text);
+}
+
+uint32_t ReloadSpeed() {
+    LoadCheats();
+    return g_reload_speed.load(std::memory_order_relaxed);
+}
+
+void SetReloadSpeed(uint32_t speed) {
+    LoadCheats();
+    speed = std::clamp(speed, 1u, kMaxReloadSpeed);
+    if (g_reload_speed.exchange(speed, std::memory_order_relaxed) == speed) return;
+    LOGI("cheats: quick reload %ux", speed);
+    char text[16];
+    std::snprintf(text, sizeof(text), "%u", speed);
+    _putenv_s(kReloadVariable, text);
+}
+
+float GraphTime(uint32_t graph, float time, const CheatLayout& l) {
+    uint32_t speed = ReloadSpeed();
+    // the shell has no players and a multiplayer match keeps the game's own
+    if (speed <= 1 || G<uint8_t>(l.multiplayer) || G<uint8_t>(l.front_end)) return time;
+    for (uint32_t i = 0, count = PlayerCount(l); i < count; i++) {
+        uint32_t player = Player(l, i);
+        if (!Pointer(player)) continue;
+        uint32_t holder = R32(player + l.weapons.holder);
+        if (!Pointer(holder) || holder + kHolderGraph != graph) continue;
+        uint32_t weapon = R32(holder + kHeldWeapon);
+        // a dry clip with no reserve keeps the bit set but has nothing to reload
+        bool reloading = Pointer(weapon) && (G<uint8_t>(weapon + l.weapon_flags) & kWeaponReloading) &&
+                         G<int16_t>(weapon + l.weapons.count_a) > 0;
+        return reloading ? time * float(speed) : time;
+    }
+    return time;
 }
 
 void CheatRingBuilt(uint32_t player) {

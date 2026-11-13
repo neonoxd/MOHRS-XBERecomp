@@ -148,6 +148,17 @@ X86_FUNC(sub_00151320) {
     game::WeaponUpdateDone();
 }
 
+// an animation graph's update, thiscall (time), ret 4: Quick Reload's faster time for a reloading player's holder
+// (src/common/cheats.h)
+X86_EXTERN_FUNC(__imp__sub_00069BD0);
+X86_FUNC(sub_00069BD0) {
+    uint32_t arg = ctx.esp + 4;
+    float time = kernel::G<float>(arg);
+    kernel::G<float>(arg) = game::GraphTime(ctx.ecx, time, game::kDefaultCheats);
+    __imp__sub_00069BD0(ctx, base);
+    kernel::G<float>(arg) = time;
+}
+
 // the config's GetString(key, buffer, size), which reads data\game.cfg; true when the key exists
 X86_EXTERN_FUNC(__imp__sub_0010EA00);
 X86_FUNC(sub_0010EA00) {

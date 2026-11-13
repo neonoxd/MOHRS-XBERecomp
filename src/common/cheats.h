@@ -13,6 +13,12 @@
 // The game sets those bytes from the profile at a level's start and clears them on a profile load; here they are set
 // again every frame while switched on, and put back as they were when switched off. The profile is never written.
 //
+// Quick Reload is not one of the game's cheats: a reload is the "Reload" animation the player's current holder plays
+// (its graph is at holder +0x54), between the script natives that start it (0x2E360 / co-op 0x2D9F0: weapon flags bit
+// 0 set by 0x150220 / 0x1495F0) and end it (0x2E3E0 / 0x2DA70: the clip filled by 0x150270 / 0x149640, which clears
+// the bit; the weapon sets the bit itself when its clip runs dry). While the bit is set and the reserve is not empty, the holder's graph update (0x69BD0 / 0x5C5A0)
+// is given its time multiplied by the factor, so the animation and its events play that much faster.
+//
 // Give All Weapons hands out every weapon in the player's weapon ring: the ring holds a holder for every player
 // weapon in the level's object database (class 0x21, 0xDF320 from the player's setup), given or not. Other levels'
 // weapons are put in the database and archive of the levels loaded while it is on (src/common/level_weapons.h).
@@ -46,19 +52,29 @@ struct CheatLayout {
     uint32_t give_ammo;                    // thiscall (weapon, amount), ret 4: ammo up to the definition's most
     uint32_t reload;                       // fastcall (holder): the clip filled from the reserve
     uint32_t definition;                   // weapon: its definition (clip +4, most ammo +0x12)
+    uint32_t weapon_flags;                 // weapon: flags byte, bit 0 while a reload is due or under way
     const WeaponLayout& weapons;
 };
 
 inline constexpr CheatLayout kDefaultCheats{
     {0, 0x20EDBD, 0x20EDBC, 0x20EDC7, 0x20EDC4, 0x20EDC8, 0x20EDCA, 0x20EDC6},
-    0x2463B1, 0x20EDB1, 0x1FC658, 0xD7620, 0xD6560, 0x150170, 0xE2520, 0x2F0, kDefaultWeapons};
+    0x2463B1, 0x20EDB1, 0x1FC658, 0xD7620, 0xD6560, 0x150170, 0xE2520, 0x2F0, 0x340, kDefaultWeapons};
 inline constexpr CheatLayout kCoopCheats{
     {0, 0x206F9D, 0x206F9C, 0x206FA7, 0x206FA4, 0x206FA8, 0x206FAA, 0x206FA6},
-    0x23E5B1, 0x206F91, 0x1F54B8, 0xCC300, 0xCB2A0, 0x149540, 0xDA640, 0x300, kCoopWeapons};
+    0x23E5B1, 0x206F91, 0x1F54B8, 0xCC300, 0xCB2A0, 0x149540, 0xDA640, 0x300, 0x350, kCoopWeapons};
 
 // the menu's switches (any thread; the frame applies them)
 bool CheatOn(Cheat cheat);
 void SetCheat(Cheat cheat, bool on);
+
+// Quick Reload's factor, 1 (off) to kMaxReloadSpeed (any thread)
+inline constexpr uint32_t kMaxReloadSpeed = 4;
+uint32_t ReloadSpeed();
+void SetReloadSpeed(uint32_t speed);
+
+// an animation graph's update (0x69BD0 / co-op 0x5C5A0, thiscall (graph, time), ret 4), game thread: the time to give
+// it, multiplied by the Quick Reload factor for a player's current holder while its weapon reloads
+float GraphTime(uint32_t graph, float time, const CheatLayout& layout);
 
 // the player's holder insert (0xDF320 / co-op 0xD3400, thiscall player): a level's setup building the ring
 void CheatRingBuilt(uint32_t player);

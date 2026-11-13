@@ -55,7 +55,7 @@ The screen is English in every language.
 
 The pause screen's **Preferences** gets a **Cheats** entry under PC Options (`Preferences.fng` only, so single
 player and co-op; not the multiplayer `MPPreferences.fng`). The screen is made from the pause archive's `HUD.fng`
-like PC Options, with eight On/Off rows. Left/right switch a row at once, confirm keeps the rows, back puts them as
+like PC Options, with eight On/Off rows and Quick Reload (Off, 2x, 3x, 4x). Left/right change a row at once, confirm keeps the rows, back puts them as
 they were on entry. The switches last for the session and are not written to `settings.toml` or the profile.
 
 | Row | What it does |
@@ -68,8 +68,9 @@ they were on entry. The switches last for the session and are not written to `se
 | Achilles Head | The game's Achilles Head cheat: hits on AI characters do no damage but to the head |
 | Invisible Soldiers | The game's Invisible Soldiers cheat: the characters' bodies are not drawn |
 | Rubber Grenades | The game's Rubber Grenades cheat: grenades bounce |
+| Quick Reload | Every reload of the player's weapons takes a half, a third or a quarter of its time |
 
-All rows but Give All Weapons are the console's own unlockable cheats, each a byte the game reads where it applies,
+All rows but Give All Weapons and Quick Reload are the console's own unlockable cheats, each a byte the game reads where it applies,
 every time it applies, so each takes effect from the next frame. The cheat getter (`0x127600` / `0x121C20`, index 0 to 11) and setter (`0x1276B0` / `0x121CD0`) list
 all twelve. The game sets the bytes from the profile at a level's start (`0x9F710` / `0x92090`, not in co-op or
 multiplayer) and clears them on a profile load or reset (`0x133CC0`, `0xA0E70`). `src/common/cheats.cpp` sets each
@@ -94,6 +95,11 @@ a level and in the shell, paused too), and puts back the game's value when the r
 | Character draw: the body skipped when set | `0xE9860` | `0xE18C0` |
 | Multiplayer match byte | `0x20EDB1` | `0x206F91` |
 | Player list, player count | `0x270108`, `0x1FC658` | `0x265278`, `0x1F54B8` |
+| Player's current holder; its weapon | `+0xE6C`; holder `+0x2BC` | `+0xF4C`; holder `+0x2BC` |
+| Weapon flags (bit 0: reload due or under way), reserve, clip | `+0x340`, `+0x2FC`, `+0x2FE` | `+0x350`, `+0x30C`, `+0x30E` |
+| Reload start script native: the bit set (`0x150220` / `0x1495F0`) | `0x2E360` | `0x2D9F0` |
+| Reload end script native: the clip filled from the reserve, the bit cleared (`0x150270` / `0x149640`) | `0x2E3E0` | `0x2DA70` |
+| Animation graph update (thiscall graph, time; ret 4), the graph at actor `+0x54` | `0x69BD0` | `0x5C5A0` |
 
 The Silver Bullet and Achilles Head cheats change every hit on an AI character, whoever fired it, so they apply to
 allies too.
@@ -104,6 +110,17 @@ only by the character template build at a level's load (`0xCB170`), which gives 
 6 (`0x20EDBE` / `0x206F9E`) hides the first-person weapon (`0xD7810`, `0xE33B0`). Cheat 9 (`0x20EDC9` /
 `0x206FA9`) makes every hit on the player do 1000 damage unless invincibility is on (`0xD7E90`, `0x14B020`). Cheat
 11 (`0x20EDBF` / `0x206F9F`) is read once, in `0xDB530`.
+
+### Quick Reload
+
+A reload is the `Reload` animation played on the player's current holder, between two script natives: the start
+sets bit 0 of the weapon's flags and the end fills the clip from the reserve and clears it (the weapon state update
+`0x151320` / `0x14A6A0` also sets the bit when the clip runs dry). Each actor holds its animation graph at `+0x54`,
+and the graph update takes the frame's time. With Quick Reload on, the update of a player's current holder's graph is
+given its time multiplied by 2, 3 or 4 while the bit is set and the reserve is not empty, so the animation and its
+events (the reload sounds) play that much faster. Other actors, the player's body and the
+holder outside a reload keep their time. The factor is kept in the `MOHRS_RELOAD` environment variable (1 to 4) for
+the instance a level or the front end relaunches into, like the other switches.
 
 ### Give All Weapons
 

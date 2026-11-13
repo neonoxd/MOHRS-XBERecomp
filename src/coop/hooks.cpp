@@ -201,6 +201,16 @@ X86_FUNC(sub_0014A6A0) {
     game::WeaponUpdateDone();
 }
 
+// an animation graph's update, default.xbe's 0x69BD0 (thiscall (time), ret 4): Quick Reload (src/common/cheats.h)
+X86_EXTERN_FUNC(__imp__sub_0005C5A0);
+X86_FUNC(sub_0005C5A0) {
+    uint32_t arg = ctx.esp + 4;
+    float time = kernel::G<float>(arg);
+    kernel::G<float>(arg) = game::GraphTime(ctx.ecx, time, game::kCoopCheats);
+    __imp__sub_0005C5A0(ctx, base);
+    kernel::G<float>(arg) = time;
+}
+
 // a weapon's muzzle puff, fastcall (weapon): at most once per console frame above 30 FPS (docs/frame-timing.md)
 X86_EXTERN_FUNC(__imp__sub_000DAE10);
 X86_FUNC(sub_000DAE10) {

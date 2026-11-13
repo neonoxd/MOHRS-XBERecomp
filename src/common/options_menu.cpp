@@ -134,9 +134,13 @@ const Row kCheatRows[] = {CheatRow<Cheat::GiveWeapons>("Give All Weapons"),
                           CheatRow<Cheat::BulletShield>("Bullet Shield"),
                           CheatRow<Cheat::AchillesHead>("Achilles Head"),
                           CheatRow<Cheat::InvisibleSoldiers>("Invisible Soldiers"),
-                          CheatRow<Cheat::RubberGrenades>("Rubber Grenades")};
+                          CheatRow<Cheat::RubberGrenades>("Rubber Grenades"),
+                          {"Quick Reload",
+                           [] { return ReloadSpeed() > 1 ? std::to_string(ReloadSpeed()) + "x" : std::string("Off"); },
+                           [](int dir) { SetReloadSpeed(uint32_t(std::max(int(ReloadSpeed()) + dir, 1))); }}};
 static_assert(std::size(kCheatRows) == menu::kCheatRows);
 bool g_saved_cheats[size_t(Cheat::Count)];  // game thread
+uint32_t g_saved_reload_speed = 1;
 
 // the settings on entering the screen, put back by a back: other threads read them while the game runs, so only the
 // rows' fields are put back
@@ -246,9 +250,11 @@ void Revert() {
 // the cheats stay for the session, never in the settings file
 void SaveCheats() {
     for (size_t c = 0; c < size_t(Cheat::Count); c++) g_saved_cheats[c] = CheatOn(Cheat(c));
+    g_saved_reload_speed = ReloadSpeed();
 }
 void RevertCheats() {
     for (size_t c = 0; c < size_t(Cheat::Count); c++) SetCheat(Cheat(c), g_saved_cheats[c]);
+    SetReloadSpeed(g_saved_reload_speed);
 }
 
 struct Screen {
