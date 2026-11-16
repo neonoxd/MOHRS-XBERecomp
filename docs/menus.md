@@ -42,6 +42,16 @@ with no key. Enter cannot be bound. Confirm (A, Enter on a value row) writes `se
 restores every row and key as it was when the screen opened. Settings without a row stay file-only. The category
 shown is kept while the game runs.
 
+Display Mode is applied on the window thread (`app::ApplyNow`, `sdk/runtime/app/main.cpp`), at startup and when
+the confirmed mode differs from the one the screen opened with. A display mode change from Fullscreen at another
+resolution is undone first, and the monitor's rects are read again at the desktop mode. Borderless and Fullscreen
+give the window `WS_POPUP` over the whole monitor (Fullscreen first switches the monitor to `width` x `height`
+when they differ from the desktop's), Windowed gives `WS_OVERLAPPEDWINDOW` with an output-sized client area
+centred in the work area. The taskbar only checks whether a window covers its monitor when that window is
+activated, and the window is already active when the mode changes in game, so each apply also tells the taskbar
+directly (`ITaskbarList2::MarkFullscreenWindow`, on for Borderless and Fullscreen, off for Windowed). The window
+thread is a single-threaded COM apartment for this.
+
 - `src/common/options_package.{h,cpp}` builds `PCOptions.fng` from the archive's `HUD.fng`: the Crosshairs row is
   the pattern for ten value rows (name, value, a button group with flashing arrows) and, at the nine places under
   the first, nine key rows on the same lines (`PC Key <n> text`, `value`, `button`). A key row's button answers

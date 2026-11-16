@@ -7,7 +7,9 @@
 #endif
 #include <windows.h>
 #include <dbghelp.h>
+#include <shobjidl.h>
 #include <timeapi.h>
+#include <wrl/client.h>
 
 #include <algorithm>
 #include <chrono>
@@ -186,6 +188,22 @@ void DumpThreads() {
         }
 }
 
+// The taskbar steps behind a window that covers its monitor only when it checks, which is when that window is
+// activated: a window resized to the monitor while already active (Windowed to Borderless in game) stayed under the
+// taskbar. Telling the taskbar outright covers every change. Window thread only.
+void MarkFullscreen(bool fullscreen) {
+    static Microsoft::WRL::ComPtr<ITaskbarList2> taskbar = [] {
+        Microsoft::WRL::ComPtr<ITaskbarList2> list;
+        if (FAILED(CoCreateInstance(__uuidof(TaskbarList), nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&list))) ||
+            FAILED(list->HrInit())) {
+            LOGW("taskbar list unavailable: a borderless window may stay under the taskbar");
+            list.Reset();
+        }
+        return list;
+    }();
+    if (taskbar) taskbar->MarkFullscreenWindow(g_hwnd, fullscreen);
+}
+
 // window thread only
 void ApplyNow() {
     const Settings& s = Get();
@@ -196,6 +214,7 @@ void ApplyNow() {
     if (g_mode_changed) {
         ChangeDisplaySettingsExW(mi.szDevice, nullptr, nullptr, 0, nullptr);
         g_mode_changed = false;
+        GetMonitorInfoW(mon, &mi);  // the monitor's rects at the desktop mode, not the one just left
     }
     Mode out = Output();
     LONG_PTR visible = IsWindowVisible(g_hwnd) ? WS_VISIBLE : 0;  // a window held back for a splash or handover stays so
@@ -226,6 +245,7 @@ void ApplyNow() {
         SetWindowLongPtrW(g_hwnd, GWL_STYLE, WS_POPUP | visible);
         SetWindowPos(g_hwnd, HWND_NOTOPMOST, m.left, m.top, m.right - m.left, m.bottom - m.top, SWP_FRAMECHANGED);
     }
+    MarkFullscreen(s.display_mode != DisplayMode::Windowed);
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -355,6 +375,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     std::signal(SIGABRT, [](int) { app::WriteCrashDump(nullptr); });
     timeBeginPeriod(1);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    // the window thread is a single-threaded apartment, as the shell's taskbar object wants (MarkFullscreen); later
+    // asks for the multithreaded one here (splash and cursor pictures) get RPC_E_CHANGED_MODE and still work
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     // one log a session: a relaunch into another image carries on its predecessor's
     bool relaunched = std::wcsstr(GetCommandLineW(), L"--relaunched") != nullptr;
     std::string log = app::kGame.log;
