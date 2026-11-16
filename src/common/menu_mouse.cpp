@@ -158,14 +158,17 @@ uint32_t LabelButton(uint32_t hash) {
     static const std::unordered_map<uint32_t, uint32_t> labels = [] {
         std::unordered_map<uint32_t, uint32_t> result;
         for (size_t row = 0; row < menu::kRows; row++) {
-            std::string prefix = "PC Row " + std::to_string(row);
-            uint32_t button = feng::Hash(prefix + " button");
-            result[feng::Hash(prefix + " text")] = button;
-            result[feng::Hash(prefix + " value")] = button;
+            // menu::RowObject and menu::KeyObject: a value row and a key row at each place
+            for (const char* kind : {"PC Row ", "PC Key "}) {
+                std::string prefix = kind + std::to_string(row);
+                uint32_t button = feng::Hash(prefix + " button");
+                result[feng::Hash(prefix + " text")] = button;
+                result[feng::Hash(prefix + " value")] = button;
+            }
         }
         const char* names[] = {"Crosshairs", "HUD", "Subtitles", "Sound Format", "Music Volume", "SFX Volume",
                                "Turn Speed", "Analog Sensitivity", "Invert Y Axis", "Vibrate", "Grenade Cook",
-                               menu::kTimerRow, menu::kAimRow};
+                               menu::kTimerRow, menu::kFpsRow, menu::kAimRow};
         for (const char* name : names) {
             uint32_t button = feng::Hash(std::string(name) + " button");
             for (const char* suffix : {" text", " On", " Off", " Automatic"})
@@ -337,6 +340,8 @@ void Update(X86Context& ctx, uint32_t engine, const MenuMouseCalls& calls) {
     bool changed = input_mask != state.input_mask || package != state.active || name != state.active_name ||
                    pointer.active != state.foreground || pointer.width != state.width || pointer.height != state.height;
     uint32_t pressed = state.buttons.Advance(pointer.buttons, pointer.pressed, changed || !pointer.active || !package);
+    // a PC Options key row waiting for a key takes the clicks (src/common/mouse_keyboard.h)
+    if (input::Capturing()) return;
     bool moved = pointer.x != state.x || pointer.y != state.y;
     state.active = package; state.active_name = name; state.foreground = pointer.active;
     state.input_mask = input_mask;

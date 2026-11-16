@@ -4,9 +4,10 @@
 #include "cpu/x86_context.h"
 
 // PC Options in the game's own menus: an entry under Audio in the shell's options list and in the pause screen's
-// preferences opens PCOptions.fng, a screen made from the HUD options screen (src/common/options_package.h) whose
-// rows show and change the settings file's display, frame rate, view and mouse settings. Left and right change a
-// row, confirm saves the settings file, back puts the settings back as they were on entry.
+// preferences opens PCOptions.fng, a screen made from the HUD options screen (src/common/options_package.h). Its
+// first row picks a category (display, mouse, and pages of keys), the rows under it show and change that category's
+// settings. Left and right change a row, a press on a key row waits for a key to bind, confirm saves the settings
+// file, back puts the settings back as they were on entry.
 // The pause screen's preferences also get Cheats under it, Cheats.fng made the same way, whose rows switch the
 // cheats (src/common/cheats.h) for the session.
 namespace game {
@@ -18,6 +19,8 @@ struct MenuCalls {
     uint32_t set_text;    // stdcall (package, object name, text): a string object's text
     uint32_t run_script;  // stdcall (package, object name, script name)
     uint32_t sound;       // cdecl (sound): the menus' sounds, 0 toggle off, 1 on, 6 slider up, 7 down
+    uint32_t enable;      // stdcall (package, object name): a button the navigation and the mouse reach again
+    uint32_t disable;     // stdcall (package, object name): one they pass over (object flag 0x04000000)
 };
 
 // the archive's file lookup (cdecl: archive, path, flags; the file's data): PCOptions.fng made from the archive's
@@ -25,8 +28,11 @@ struct MenuCalls {
 void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original);
 // the shell's screen factory (cdecl: package name; a new handler): PCOptions.fng gets the HUD screen's handler
 void MenuScreen(X86Context& ctx, uint8_t* base, GuestFunction original);
-// the HUD screen handler's event (thiscall: event hash, 2 more; ret 0xc): PCOptions.fng's events handled here
+// the HUD screen handler's event (thiscall: event hash, 2 more; ret 0xc): PCOptions.fng's events handled here, and
+// the Mission Timer and FPS Counter rows added to HUD.fng
 void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls);
+// each FEng update, before it: a PC Options key row waiting for its key (src/common/mouse_keyboard.h) gets it
+void MenuKeys(X86Context& ctx, const MenuCalls& calls);
 // the controller options screen handler's event (thiscall: event hash, 2 more; ret 0xc): left and right on the
 // Modern Aiming row added to ControllerOptions.fng switch it, confirm keeps it in the settings file
 void ControllerMenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls);

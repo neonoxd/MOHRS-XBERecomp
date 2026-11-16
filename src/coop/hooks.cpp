@@ -292,8 +292,9 @@ X86_FUNC(sub_000DAE10) {
 }
 
 // PC Options in the options menus (src/common/options_menu.h), the bytes of default.xbe's: SetText 0x131D10 (0x138A40),
-// RunScript 0x131600 (0x138330), the menu sound 0x11DC90 (0x123C10)
-constexpr game::MenuCalls kMenuCalls = {0x131D10, 0x131600, 0x11DC90};
+// RunScript 0x131600 (0x138330), the menu sound 0x11DC90 (0x123C10), a button enabled 0x131E00 (0x138B30) and
+// disabled 0x131E20 (0x138B50)
+constexpr game::MenuCalls kMenuCalls = {0x131D10, 0x131600, 0x11DC90, 0x131E00, 0x131E20};
 // the open archive's file lookup (0x1132E0)
 X86_EXTERN_FUNC(__imp__sub_0010BDA0);
 X86_FUNC(sub_0010BDA0) { game::MenuFile(ctx, base, __imp__sub_0010BDA0); }
@@ -315,7 +316,10 @@ constexpr game::MenuMouseCalls kMouseMenu = {
     0x892A0, 0x85BC0, 0x88270, 0x15BEF0, 0x7AFB0,
     0x1F54E0, 0x1F54E4, 0x23E66C, 0x23E670, 0x23E62C, 0x23E628, 0x266618};
 X86_EXTERN_FUNC(__imp__sub_00087B80);
-X86_FUNC(sub_00087B80) { game::MenuMouseUpdate(ctx, base, __imp__sub_00087B80, kMouseMenu); }
+X86_FUNC(sub_00087B80) {
+    game::MenuKeys(ctx, kMenuCalls);
+    game::MenuMouseUpdate(ctx, base, __imp__sub_00087B80, kMouseMenu);
+}
 X86_EXTERN_FUNC(__imp__sub_00086840);
 X86_FUNC(sub_00086840) { game::MenuMouseRender(ctx, base, __imp__sub_00086840, kMouseMenu); }
 X86_EXTERN_FUNC(__imp__sub_0010EFB0);

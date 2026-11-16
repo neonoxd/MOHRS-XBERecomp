@@ -135,6 +135,11 @@ void Window(void* hwnd) {
 // Port 0 is KBM, with the first controller beside it only in singleplayer.
 void Pad(int port, input::Pad& pad) {
     FilterController(port, pad);
+    // a PC Options key row waiting for a key: no pad reaches the menus
+    if (input::CapturePad(pad)) {
+        if (port == 0) pad.connected = true;
+        return;
+    }
     if (port != 0) return;
     input::SeenPad(pad);
     pad.connected = true;

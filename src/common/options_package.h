@@ -9,7 +9,10 @@
 namespace game::menu {
 
 inline constexpr char kScreen[] = "PCOptions.fng";
+// PC Options' rows: the first picks the category, the others show its settings; each place under it holds a value
+// row and a key row, the handler enabling one of them (or neither) for the category shown
 inline constexpr size_t kRows = 10;
+inline constexpr size_t kKeyRows = kRows - 1;
 // the pause screen's cheats (src/common/cheats.h), made the same way and listed under PC Options in Preferences.fng
 inline constexpr char kCheatsScreen[] = "Cheats.fng";
 inline constexpr size_t kCheatRows = 10;
@@ -31,11 +34,16 @@ inline constexpr const char* kPauseTabEvents[] = {
 
 // the row's objects the screen's handler shows text in and finds the focus by: part "text", "value" or "button"
 std::string RowObject(size_t row, const char* part);
+// a key row's, at the place of value row `row`
+std::string KeyObject(size_t row, const char* part);
 
 // PCOptions.fng from HUD.fng's bytes (the shell's or the pause screen's): the HUD rows give way to one per label,
-// each a name, a value the handler fills in and a button whose arrows flash on the focus; empty on failure
+// each a name, a value the handler fills in and a button whose arrows flash on the focus. The last `keys` places
+// also get a key row: the same objects, empty, whose button answers Button_Pressed with its flash and the message
+// sent on to the game (response type 2, as the package's Pad_Left), so a press on it goes to the handler instead of
+// the package's accept. Empty on failure.
 std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vector<std::string>& labels,
-                                const ScreenSpec& spec = kPcOptions);
+                                const ScreenSpec& spec = kPcOptions, size_t keys = 0);
 
 // an options list with an entry opening the screen from the same folder: in the shell's Option_overlay.fng under
 // Audio, in the pause screen's Preferences.fng or MPPreferences.fng under the last entry; empty on failure or when
@@ -50,12 +58,13 @@ inline constexpr char kTimeLabel[] = "Mission Time label";
 inline constexpr char kTimeValue[] = "Mission Time value";
 std::vector<uint8_t> AddMissionTime(const uint8_t* data, size_t size);
 
-// HUD Options (HUD.fng, the shell's and the pause screen's) with a Mission Timer row under HUD Type, made from the
-// Crosshairs row: its text, the game's On and Off texts, which the handler shows one of, and its button with the
-// arrows. Empty on failure or when the package has it already.
+// HUD Options (HUD.fng, the shell's and the pause screen's) with Mission Timer and FPS Counter rows under HUD Type,
+// made from the Crosshairs row: its text, the game's On and Off texts, which the handler shows one of, and its
+// button with the arrows. Empty on failure or when the package has them already.
 inline constexpr char kHudScreen[] = "HUD.fng";
 inline constexpr char kTimerRow[] = "Mission Timer";  // the objects: "<row> text", " On", " Off", " button"
-std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size);
+inline constexpr char kFpsRow[] = "FPS Counter";
+std::vector<uint8_t> AddHudRows(const uint8_t* data, size_t size);
 
 // Controller Options (ControllerOptions.fng, the shell's and the pause screen's) with a Modern Aiming row under
 // Invert Y Axis, made from that row the same way (src/common/modern_aim.h). Empty on failure or when the package has

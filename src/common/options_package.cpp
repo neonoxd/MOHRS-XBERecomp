@@ -25,11 +25,12 @@ std::string Folder(const std::string& path) {
 }  // namespace
 
 std::string RowObject(size_t row, const char* part) { return "PC Row " + std::to_string(row) + " " + part; }
+std::string KeyObject(size_t row, const char* part) { return "PC Key " + std::to_string(row) + " " + part; }
 
 std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vector<std::string>& labels,
-                                const ScreenSpec& spec) {
+                                const ScreenSpec& spec, size_t keys) {
     std::optional<feng::Package> parsed = feng::Package::Parse(hud, size);
-    if (!parsed || labels.empty()) return {};
+    if (!parsed || labels.empty() || keys >= labels.size()) return {};
     feng::Package& p = *parsed;
     const feng::Object* name = p.Find("Crosshairs text");
     const feng::Object* value = p.Find("Crosshairs On");
@@ -39,21 +40,25 @@ std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vect
     std::vector<feng::Object> button{p.objects[at]};
     uint32_t pattern = button[0].Guid();
     for (size_t i = at + 1; i < p.objects.size() && p.objects[i].Parent() == pattern; i++) button.push_back(p.objects[i]);
+    static const uint32_t kPressed = feng::Hash("Button_Pressed"), kHighlight = feng::Hash("Button_Highlight");
+    constexpr uint32_t kToGame = 2;
     std::vector<feng::Object> rows;
     uint32_t guid = p.NextGuid(), first = 0;
-    for (size_t r = 0; r < labels.size(); r++) {
+    // a row's name, value and button group at a place, its objects named by `object`
+    auto add = [&](size_t r, std::string (*object)(size_t, const char*), const std::string& label,
+                   const std::string& tag, bool key) {
         float down = kRowPitch * float(r);
         feng::Object n = *name;
-        n.SetName(RowObject(r, "text"));
+        n.SetName(object(r, "text"));
         n.SetGuid(guid++);
-        n.SetText(labels[r], "PC_OPTION_" + std::to_string(r));
+        n.SetText(label, tag + std::to_string(r));
         n.Move(0.0f, down);
         rows.push_back(n);
         // hidden by its Init script until the handler shows it, as the On and Off texts
         feng::Object v = *value;
-        v.SetName(RowObject(r, "value"));
+        v.SetName(object(r, "value"));
         v.SetGuid(guid++);
-        v.SetText("", "PC_OPTION_VALUE_" + std::to_string(r));
+        v.SetText("", tag + "VALUE_" + std::to_string(r));
         v.Move(0.0f, down);
         rows.push_back(v);
         uint32_t group = guid++;
@@ -64,15 +69,23 @@ std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vect
                 b.SetGuid(guid++);
                 b.SetParent(group);
             } else {
-                b.SetName(RowObject(r, "button"));
+                b.SetName(object(r, "button"));
                 b.SetGuid(group);
                 b.Move(0.0f, down);
+                // a press flashes it and goes on to the handler as the package's Pad_Left does (response type 2,
+                // a message to the game); the engine's own copy for the handler (target 0xFFFFFFFB) never gets there
+                if (key && (!b.CopyAnswer(kPressed, kHighlight) || !b.AddResponse(kPressed, kToGame, kPressed)))
+                    return false;
             }
             rows.push_back(b);
         }
         // the highlight messages reach every row's button
         p.AddTarget(pattern, group);
-    }
+        return true;
+    };
+    for (size_t r = 0; r < labels.size(); r++) add(r, RowObject, labels[r], "PC_OPTION_", false);
+    for (size_t r = labels.size() - keys; r < labels.size(); r++)
+        if (!add(r, KeyObject, "", "PC_KEY_", true)) return {};
     // the first row has the focus on entry
     p.ReplaceTargets(pattern, first);
     for (const char* gone : kHudRows) p.Remove(gone);
@@ -184,16 +197,17 @@ bool CopyToggleRow(feng::Package& p, const std::string& pattern, const std::stri
 
 }  // namespace
 
-std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size) {
+std::vector<uint8_t> AddHudRows(const uint8_t* data, size_t size) {
     std::optional<feng::Package> parsed = feng::Package::Parse(data, size);
     if (!parsed) return {};
     feng::Package& p = *parsed;
     const feng::Object* first = p.Find("Crosshairs text");
     const feng::Object* second = p.Find("HUD text");
     if (!first || !second) return {};
-    // two rows under Crosshairs, at the rows' pitch, after HUD Type's button
-    float down = 2.0f * (second->Y() - first->Y());
-    if (!CopyToggleRow(p, "Crosshairs", kTimerRow, "MISSION_TIMER", down, "HUD")) return {};
+    // two and three rows under Crosshairs, at the rows' pitch, after HUD Type's and then Mission Timer's button
+    float pitch = second->Y() - first->Y();
+    if (!CopyToggleRow(p, "Crosshairs", kTimerRow, "MISSION_TIMER", 2.0f * pitch, "HUD")) return {};
+    if (!CopyToggleRow(p, "Crosshairs", kFpsRow, "FPS_COUNTER", 3.0f * pitch, kTimerRow)) return {};
     return p.Write();
 }
 

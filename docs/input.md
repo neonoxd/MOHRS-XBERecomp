@@ -63,6 +63,8 @@ walk at 27%.
 
 ## Keyboard keys
 
+The actions are bound in `settings.toml`'s `[keys]` and on PC Options' key pages ([menus.md](menus.md#pc-options)).
+
 Escape (the `pause` binding) presses Start in play and on pause pages, which pauses and resumes. In the front-end
 shell (byte `0x2463B1`, co-op `0x23E5B1`, published by the controller-update override) it presses B instead, so it
 goes back like Backspace rather than accepting. It does the same on the in-game save screens, whatever the mouse

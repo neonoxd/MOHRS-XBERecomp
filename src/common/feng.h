@@ -54,6 +54,10 @@ struct Object {
     // the overlay a button's messages open: every message path (Rs) names file in its folder instead
     void SetPathFile(std::string_view file);
     void ReplaceTargets(uint32_t from, uint32_t to);  // script events sent to an object
+    // an answer to message made from its answer to like (MsgR): false when it has none or answers message already
+    bool CopyAnswer(uint32_t message, uint32_t like);
+    // one more response (Ri type, Ru value, Rt 0) in the answer to message, its count (MC) raised: false without one
+    bool AddResponse(uint32_t message, uint32_t type, uint32_t value);
 };
 
 class Package {

@@ -16,6 +16,7 @@
 #include "common/fov.h"
 #include "common/guest_block.h"
 #include "common/mission_timer.h"
+#include "common/mouse_keyboard.h"
 #include "common/options.h"
 #include "common/options_package.h"
 #include "core/log.h"
@@ -83,17 +84,16 @@ void StepFpsCap(int dir) {
     }
 }
 
-std::string Sensitivity() {
+std::string Tenths(float value) {
     char text[16];
-    std::snprintf(text, sizeof(text), "%.1f", Opt().mouse_sensitivity);
+    std::snprintf(text, sizeof(text), "%.1f", value);
     return text;
 }
 
-void StepSensitivity(int dir) {
-    float& s = Opt().mouse_sensitivity;
-    // tenths, as shown
-    int tenths = std::clamp(int(s * 10.0f + 0.5f) + dir, 1, 50);
-    s = float(tenths) / 10.0f;
+// tenths, as shown, 0.1 to 5.0
+void StepTenths(float& value, int dir) {
+    int tenths = std::clamp(int(value * 10.0f + 0.5f) + dir, 1, 50);
+    value = float(tenths) / 10.0f;
 }
 
 struct Row {
@@ -102,7 +102,17 @@ struct Row {
     void (*step)(int dir);  // -1 left, 1 right
 };
 
-const Row kRows[] = {
+// PC Options' rows under the category: a value row, or a key row with the action it binds
+// (src/common/mouse_keyboard.h)
+struct Item {
+    const char* label;
+    std::string (*show)() = nullptr;
+    void (*step)(int dir) = nullptr;
+    const char* key = nullptr;
+};
+constexpr Item Key(const char* label, const char* id) { return {label, nullptr, nullptr, id}; }
+
+const Item kDisplay[] = {
     {"Display Mode", [] { return std::string(kModes[DisplayMode()]); },
      [](int dir) {
          app::Get().display_mode = app::DisplayMode(std::clamp(DisplayMode() + dir, 0, int(std::size(kModes)) - 1));
@@ -120,11 +130,67 @@ const Row kRows[] = {
     {"Field of View", [] { return std::to_string(ClampFov(Opt().fov)); },
      [](int dir) { Opt().fov = ClampFov(uint32_t(int(ClampFov(Opt().fov)) + 5 * dir)); }},
     {"Widescreen", [] { return OnOff(Opt().widescreen); }, [](int) { Opt().widescreen = !Opt().widescreen; }},
-    {"FPS Counter", [] { return OnOff(Opt().fps_counter); }, [](int) { Opt().fps_counter = !Opt().fps_counter; }},
-    {"Mouse Sensitivity", Sensitivity, StepSensitivity},
-    {"Invert Mouse", [] { return OnOff(Opt().invert_mouse); }, [](int) { Opt().invert_mouse = !Opt().invert_mouse; }},
 };
-static_assert(std::size(kRows) == menu::kRows);
+const Item kMouse[] = {
+    {"Sensitivity X", [] { return Tenths(Opt().mouse_sensitivity); },
+     [](int dir) { StepTenths(Opt().mouse_sensitivity, dir); }},
+    {"Sensitivity Y", [] { return Tenths(Opt().mouse_vertical_sensitivity); },
+     [](int dir) { StepTenths(Opt().mouse_vertical_sensitivity, dir); }},
+    {"Invert X", [] { return OnOff(Opt().invert_mouse_x); }, [](int) { Opt().invert_mouse_x = !Opt().invert_mouse_x; }},
+    {"Invert Y", [] { return OnOff(Opt().invert_mouse); }, [](int) { Opt().invert_mouse = !Opt().invert_mouse; }},
+};
+const Item kMoveKeys[] = {
+    Key("Move Forward", "move_forward"), Key("Move Back", "move_back"), Key("Strafe Left", "strafe_left"),
+    Key("Strafe Right", "strafe_right"), Key("Jump", "jump"), Key("Crouch", "crouch"), Key("Walk", "walk"),
+    {"Walk Speed", [] { return std::to_string(std::clamp(Opt().walk_speed, 10u, 100u)) + "%"; },
+     [](int dir) { Opt().walk_speed = uint32_t(std::clamp(int(std::clamp(Opt().walk_speed, 10u, 100u)) + 10 * dir, 10, 100)); }},
+};
+const Item kCombatKeys[] = {
+    Key("Fire", "fire"), Key("Aim", "aim_mode"), Key("Reload", "reload"), Key("Grenade", "grenade_throw"),
+    Key("Melee", "melee_attack"), Key("Action", "action"),
+};
+const Item kWeaponKeys[] = {
+    Key("Change Weapon", "change_weapon"), Key("Primary Weapon", "primary_weapon"), Key("Pistol", "secondary_weapon"),
+    Key("Special Weapon", "special_weapon"), Key("Next Weapon", "next_weapon"), Key("Previous Weapon", "prev_weapon"),
+    Key("Sniper Zoom In", "sniper_zoom_up"), Key("Sniper Zoom Out", "sniper_zoom_down"),
+};
+const Item kLookKeys[] = {
+    Key("Look Up", "look_up"), Key("Look Down", "look_down"), Key("Look Left", "look_left"),
+    Key("Look Right", "look_right"), Key("Center View", "center_view"),
+};
+const Item kOtherKeys[] = {
+    Key("Objectives", "back"), Key("Pause", "pause"), Key("D-Pad Left", "dpad_left"), Key("D-Pad Right", "dpad_right"),
+    Key("Quick Save", "quick_save"), Key("Quick Load", "quick_load"),
+};
+
+struct Page {
+    const char* name;  // the category row's value
+    const Item* items;
+    size_t count;
+};
+template <size_t N>
+constexpr Page MakePage(const char* name, const Item (&items)[N]) {
+    static_assert(N <= menu::kKeyRows, "a page has a row under the category for each item");
+    return {name, items, N};
+}
+const Page kPages[] = {MakePage("Display", kDisplay),         MakePage("Mouse", kMouse),
+                       MakePage("Move Keys", kMoveKeys),      MakePage("Combat Keys", kCombatKeys),
+                       MakePage("Weapon Keys", kWeaponKeys),  MakePage("Look Keys", kLookKeys),
+                       MakePage("Other Keys", kOtherKeys)};
+size_t g_page = 0;  // game thread: the category shown, kept while the game runs
+
+// the item at a place under the category on the page shown, or null
+const Item* ItemAt(size_t row) {
+    const Page& page = kPages[g_page];
+    return row >= 1 && row - 1 < page.count ? &page.items[row - 1] : nullptr;
+}
+
+// the labels the package is made with: the category, then the first page's
+std::vector<std::string> PcLabels() {
+    std::vector<std::string> labels{"Category"};
+    for (size_t r = 1; r < menu::kRows; r++) labels.push_back(r - 1 < kPages[0].count ? kPages[0].items[r - 1].label : "");
+    return labels;
+}
 
 // the cheats (src/common/cheats.h): switched at once, the game applies them from the next frame
 template <Cheat C>
@@ -247,9 +313,15 @@ void Revert() {
     o.unlocked_fps = was.unlocked_fps;
     o.fov = was.fov;
     o.widescreen = was.widescreen;
-    o.fps_counter = was.fps_counter;
     o.mouse_sensitivity = was.mouse_sensitivity;
+    o.mouse_vertical_sensitivity = was.mouse_vertical_sensitivity;
     o.invert_mouse = was.invert_mouse;
+    o.invert_mouse_x = was.invert_mouse_x;
+    o.walk_speed = was.walk_speed;
+    if (o.keys != was.keys) {
+        o.keys = was.keys;
+        input::LoadBindings();
+    }
 }
 
 // the cheats stay for the session, never in the settings file
@@ -266,13 +338,13 @@ void RevertCheats() {
 
 struct Screen {
     const menu::ScreenSpec& spec;
-    const Row* rows;
+    const Row* rows;  // null for PC Options' pages
     size_t count;
     void (*save)();     // on entry
     void (*confirm)();  // confirm keeps the rows
     void (*revert)();   // back puts them as they were on entry
 };
-const Screen kScreens[] = {{menu::kPcOptions, kRows, std::size(kRows), Save, Confirm, Revert},
+const Screen kScreens[] = {{menu::kPcOptions, nullptr, menu::kRows, Save, Confirm, Revert},
                            {menu::kCheats, kCheatRows, std::size(kCheatRows), SaveCheats, [] {}, RevertCheats}};
 
 // one of the screens made from HUD.fng, by package name, or null
@@ -314,45 +386,177 @@ void Step(X86Context& ctx, uint32_t package, int dir, const Screen& screen, cons
     }
 }
 
-// HUD Options' Mission Timer row (src/common/options_package.h): one of its On and Off texts shown
-void ShowTimer(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
-    bool on = Opt().mission_timer;
-    std::string row = menu::kTimerRow;
+// PC Options: the category row's value and those of the rows on its page
+void PcValues(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
+    kernel::CallGuest(ctx, calls.set_text, {package, Text(menu::RowObject(0, "value")), Scratch(kPages[g_page].name)});
+    for (size_t r = 1; r < menu::kRows; r++) {
+        const Item* item = ItemAt(r);
+        if (!item) continue;
+        std::string value = item->key ? input::BoundKeys(item->key) : item->show();
+        uint32_t object = Text(item->key ? menu::KeyObject(r, "value") : menu::RowObject(r, "value"));
+        kernel::CallGuest(ctx, calls.set_text, {package, object, Scratch(value)});
+    }
+}
+
+// each place under the category shows its page's value row or key row, or neither: the other is emptied and its
+// button disabled, so up and down pass over it (0x88630 skips flag 0x04000000) and the mouse finds nothing there
+void PcPage(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
+    for (size_t r = 1; r < menu::kRows; r++) {
+        const Item* item = ItemAt(r);
+        for (bool key : {false, true}) {
+            auto object = key ? menu::KeyObject : menu::RowObject;
+            bool on = item && (item->key != nullptr) == key;
+            kernel::CallGuest(ctx, on ? calls.enable : calls.disable, {package, Text(object(r, "button"))});
+            kernel::CallGuest(ctx, calls.set_text, {package, Text(object(r, "text")), Text(on ? item->label : "")});
+            if (on) kernel::CallGuest(ctx, calls.run_script, {package, Text(object(r, "value")), Text("Show")});
+            else kernel::CallGuest(ctx, calls.set_text, {package, Text(object(r, "value")), Text("")});
+        }
+    }
+    PcValues(ctx, package, calls);
+}
+
+void PcSetup(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
+    Save();
+    kernel::CallGuest(ctx, calls.set_text, {package, Text(menu::RowObject(0, "text")), Text("Category")});
+    kernel::CallGuest(ctx, calls.run_script, {package, Text(menu::RowObject(0, "value")), Text("Show")});
+    PcPage(ctx, package, calls);
+}
+
+// the focused place under the category and whether it is its key row, or 0
+size_t Focused(uint32_t package, bool& key) {
+    uint32_t focus = R32(package + kFocus);
+    if (!focus) return 0;
+    uint32_t hash = R32(focus + kObjectHash);
+    for (size_t r = 0; r < menu::kRows; r++) {
+        key = feng::Hash(menu::KeyObject(r, "button")) == hash;
+        if (key || feng::Hash(menu::RowObject(r, "button")) == hash) return r;
+    }
+    return 0;
+}
+
+void PcStep(X86Context& ctx, uint32_t package, int dir, const MenuCalls& calls) {
+    uint32_t focus = R32(package + kFocus);
+    if (focus && R32(focus + kObjectHash) == feng::Hash(menu::RowObject(0, "button"))) {
+        // the categories go round
+        g_page = (g_page + std::size(kPages) + size_t(dir)) % std::size(kPages);
+        kernel::CallGuest(ctx, calls.sound, {dir > 0 ? 6u : 7u});
+        PcPage(ctx, package, calls);
+        return;
+    }
+    bool key = false;
+    const Item* item = ItemAt(Focused(package, key));
+    if (!item || key || !item->step) return;
+    std::string was = item->show();
+    item->step(dir);
+    if (item->show() != was) kernel::CallGuest(ctx, calls.sound, {dir > 0 ? 6u : 7u});
+    PcValues(ctx, package, calls);
+}
+
+// a key row waiting for its key (src/common/mouse_keyboard.h), the package showing it; game thread
+struct KeyWait {
+    uint32_t package = 0;
+    size_t row = 0;
+};
+KeyWait g_key_wait;
+
+// MOHRS_MENU_TRACE: also PC Options' events, key row presses and waits (test runs)
+bool MenuTrace() {
+    static const bool trace = std::getenv("MOHRS_MENU_TRACE") != nullptr;
+    return trace;
+}
+
+// a press on a key row: its value asks for the key
+void PcPress(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
+    bool key = false;
+    size_t row = Focused(package, key);
+    const Item* item = ItemAt(row);
+    if (MenuTrace()) {
+        uint32_t focus = R32(package + kFocus);
+        LOGR("menu trace: PC Options press, focus %08X, place %zu%s, %s, waiting %08X", focus ? R32(focus + kObjectHash) : 0,
+             row, key ? " (key row)" : "", item && item->key ? item->key : "no action", g_key_wait.package);
+    }
+    if (!item || !key || !item->key || g_key_wait.package) return;
+    input::StartCapture();
+    g_key_wait = {package, row};
+    kernel::CallGuest(ctx, calls.sound, {6u});
+    kernel::CallGuest(ctx, calls.set_text, {package, Text(menu::KeyObject(row, "value")), Text("Press a key")});
+}
+
+void PcEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls) {
+    static const uint32_t kSetup = feng::Hash("HUD Setup"), kConfirm = feng::Hash("HUD Config Confirm"),
+                          kRevert = feng::Hash("HUD Config Revert"), kLeft = feng::Hash("Pad_Left"),
+                          kRight = feng::Hash("Pad_Right"), kPressed = feng::Hash("Button_Pressed");
+    uint32_t package = R32(ctx.ecx + kHandlerPackage);
+    uint32_t event = R32(ctx.esp + 4);
+    if (MenuTrace()) LOGR("menu trace: PC Options event %08X", event);
+    if (event == kSetup) {
+        PcSetup(ctx, package, calls);
+        // the HUD screen's own setup fills in the profile's name; the rows it would set are gone
+        original(ctx, base);
+        return;
+    }
+    if (event == kLeft || event == kRight) PcStep(ctx, package, event == kRight ? 1 : -1, calls);
+    if (event == kPressed) PcPress(ctx, package, calls);
+    if (event == kConfirm) Confirm();
+    if (event == kRevert) {
+        Revert();
+        // the screen stays up as the list's preview once left
+        PcValues(ctx, package, calls);
+    }
+    kernel::Return(ctx, 0, 3);
+}
+
+// HUD Options' rows added (src/common/options_package.h), each an On/Off setting
+struct Toggle {
+    const char* row;
+    bool Options::*setting;
+    bool saved = false;  // game thread: as the screen opened
+};
+Toggle g_toggles[] = {{menu::kTimerRow, &Options::mission_timer}, {menu::kFpsRow, &Options::fps_counter}};
+
+// one of a row's On and Off texts shown
+void ShowToggle(X86Context& ctx, uint32_t package, const Toggle& t, const MenuCalls& calls) {
+    bool on = Opt().*t.setting;
+    std::string row = t.row;
     kernel::CallGuest(ctx, calls.run_script, {package, Text(row + " On"), Text(on ? "Show" : "Hide")});
     kernel::CallGuest(ctx, calls.run_script, {package, Text(row + " Off"), Text(on ? "Hide" : "Show")});
 }
 
-bool g_saved_timer = false;  // game thread: the row as the screen opened
-
-// The game's HUD Options handler runs its rows (Crosshairs, HUD Type); the Mission Timer row's left and right are
-// taken here (the handler logs an unknown option for them and changes nothing), the others go on to it.
+// The game's HUD Options handler runs its rows (Crosshairs, HUD Type); the added rows' left and right are taken here
+// (the handler logs an unknown option for them and changes nothing), the others go on to it.
 void HudEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls) {
     static const uint32_t kSetup = feng::Hash("HUD Setup"), kConfirm = feng::Hash("HUD Config Confirm"),
                           kRevert = feng::Hash("HUD Config Revert"), kLeft = feng::Hash("Pad_Left"),
-                          kRight = feng::Hash("Pad_Right"),
-                          kButton = feng::Hash(std::string(menu::kTimerRow) + " button");
+                          kRight = feng::Hash("Pad_Right");
     uint32_t package = R32(ctx.ecx + kHandlerPackage);
     uint32_t event = R32(ctx.esp + 4);
     if (event == kLeft || event == kRight) {
         uint32_t focus = R32(package + kFocus);
-        if (focus && R32(focus + kObjectHash) == kButton) {
-            Opt().mission_timer = !Opt().mission_timer;
+        for (Toggle& t : g_toggles) {
+            if (!focus || R32(focus + kObjectHash) != feng::Hash(std::string(t.row) + " button")) continue;
+            bool& on = Opt().*t.setting;
+            on = !on;
             // the handler's toggle sounds: 1 on, 0 off
-            kernel::CallGuest(ctx, calls.sound, {Opt().mission_timer ? 1u : 0u});
-            ShowTimer(ctx, package, calls);
+            kernel::CallGuest(ctx, calls.sound, {on ? 1u : 0u});
+            ShowToggle(ctx, package, t, calls);
             kernel::Return(ctx, 0, 3);
             return;
         }
     }
     original(ctx, base);
     uint32_t result = ctx.eax;
-    if (event == kSetup) g_saved_timer = Opt().mission_timer;
-    if (event == kConfirm && Opt().mission_timer != g_saved_timer) {
-        app::Save();
-        g_saved_timer = Opt().mission_timer;
+    bool changed = false;
+    for (Toggle& t : g_toggles) {
+        bool& on = Opt().*t.setting;
+        if (event == kSetup) t.saved = on;
+        if (event == kRevert) on = t.saved;
+        if (event == kConfirm && on != t.saved) {
+            changed = true;
+            t.saved = on;
+        }
+        if (event == kSetup || event == kRevert) ShowToggle(ctx, package, t, calls);
     }
-    if (event == kRevert) Opt().mission_timer = g_saved_timer;
-    if (event == kSetup || event == kRevert) ShowTimer(ctx, package, calls);
+    if (changed) app::Save();
     ctx.eax = result;
 }
 
@@ -421,14 +625,16 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
         size_t size = PackageSize(ctx.eax);
         const uint8_t* data = static_cast<const uint8_t*>(kernel::HostPtr(ctx.eax));
         std::vector<uint8_t> modified;
-        if (screen) {
+        if (screen && !screen->rows) {
+            modified = menu::MakeScreen(data, size, PcLabels(), screen->spec, menu::kKeyRows);
+        } else if (screen) {
             std::vector<std::string> labels;
             for (size_t r = 0; r < screen->count; r++) labels.push_back(screen->rows[r].label);
             modified = menu::MakeScreen(data, size, labels, screen->spec);
         } else if (EqualNoCase(file, "Option_overlay.fng") || EqualNoCase(file, "MPPreferences.fng")) {
             modified = menu::AddEntry(data, size);
         } else if (EqualNoCase(file, menu::kHudScreen)) {
-            modified = menu::AddTimerRow(data, size);
+            modified = menu::AddHudRows(data, size);
         } else if (EqualNoCase(file, menu::kControllerScreen)) {
             modified = menu::AddAimRow(data, size);
         } else if (EqualNoCase(file, menu::kSummary)) {
@@ -481,6 +687,10 @@ void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const Men
         else original(ctx, base);
         return;
     }
+    if (!screen->rows) {
+        PcEvent(ctx, base, original, calls);
+        return;
+    }
     // the HUD screen's events, which its package sends on
     static const uint32_t kSetup = feng::Hash("HUD Setup"), kConfirm = feng::Hash("HUD Config Confirm"),
                           kRevert = feng::Hash("HUD Config Revert"), kLeft = feng::Hash("Pad_Left"),
@@ -501,6 +711,24 @@ void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const Men
         Show(ctx, package, *screen, calls);
     }
     kernel::Return(ctx, 0, 3);
+}
+
+void MenuKeys(X86Context& ctx, const MenuCalls& calls) {
+    if (!g_key_wait.package) return;
+    std::string key;
+    input::Capture result = input::TakeCapture(key);
+    if (result == input::Capture::Waiting) return;
+    if (MenuTrace()) LOGR("menu trace: PC Options key wait ended: %d '%s'", int(result), key.c_str());
+    X86Context saved = ctx;
+    const Item* item = ItemAt(g_key_wait.row);
+    if (item && item->key && result == input::Capture::Key) input::BindKey(item->key, key);
+    if (item && item->key && result == input::Capture::Clear) input::ClearKeys(item->key);
+    if (item && item->key) LOGI("PC options: %s %s", item->key, input::BoundKeys(item->key).c_str());
+    kernel::CallGuest(ctx, calls.sound, {result == input::Capture::Key ? 1u : 0u});
+    // the key may have left other rows' actions too
+    PcValues(ctx, g_key_wait.package, calls);
+    g_key_wait = {};
+    ctx = saved;
 }
 
 void MenuStats(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls, uint32_t state) {

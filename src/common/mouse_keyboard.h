@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <string>
 
 #include "core/input.h"
@@ -51,5 +52,22 @@ void LoadBindings();  // after the settings load
 // keys bound outside the pad, held while the game window has the focus
 enum class Hotkey { QuickSave, QuickLoad };
 bool HotkeyHeld(Hotkey key);
+
+// PC Options' key rows (src/common/options_menu.h), on the guest thread. The keys bound to an action as the settings
+// file names them, ", " between, "None" for none.
+std::string BoundKeys(const char* id);
+// the action bound to that key alone (a name from the settings file's list); other actions lose it, but for the
+// wheel shared by the weapon steps and the sniper zoom. The bindings apply at once.
+void BindKey(const char* id, const std::string& key);
+void ClearKeys(const char* id);
+// a key press for a key row: from the start until the guest takes the result every pad reads as released (nothing
+// reaches the menus), held keys wait to be let go, then the first key or mouse button down is the result; Escape
+// cancels, Backspace clears, a controller's B cancels. Keys held at the end wait for release before they act.
+enum class Capture { None, Waiting, Key, Cancel, Clear };
+void StartCapture();
+Capture TakeCapture(std::string& key);  // Key with its name; Waiting until there is one
+bool Capturing();
+// every pad's report while capturing: blanked, true; false otherwise
+bool CapturePad(Pad& pad);
 
 }  // namespace input

@@ -260,6 +260,43 @@ void Object::ReplaceTargets(uint32_t from, uint32_t to) {
     }
 }
 
+bool Object::CopyAnswer(uint32_t message, uint32_t like) {
+    for (Chunk& c : chunks) {
+        if (c.tag != kMessages) continue;
+        for (const Field& f : c.fields)
+            if (f.tag == Tag2("Mi") && Get32(f.data, 0) == message) return false;
+        for (size_t begin = 0; begin < c.fields.size(); begin++) {
+            if (c.fields[begin].tag != Tag2("Mi") || Get32(c.fields[begin].data, 0) != like) continue;
+            size_t end = begin + 1;
+            while (end < c.fields.size() && c.fields[end].tag != Tag2("Mi")) end++;
+            std::vector<Field> answer(c.fields.begin() + begin, c.fields.begin() + end);
+            answer.front().data = U32(message);
+            c.fields.insert(c.fields.end(), answer.begin(), answer.end());
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Object::AddResponse(uint32_t message, uint32_t type, uint32_t value) {
+    for (Chunk& c : chunks) {
+        if (c.tag != kMessages) continue;
+        for (size_t begin = 0; begin < c.fields.size(); begin++) {
+            if (c.fields[begin].tag != Tag2("Mi") || Get32(c.fields[begin].data, 0) != message) continue;
+            size_t end = begin + 1;
+            while (end < c.fields.size() && c.fields[end].tag != Tag2("Mi")) end++;
+            auto count = std::find_if(c.fields.begin() + begin, c.fields.begin() + end,
+                                      [](const Field& f) { return f.tag == Tag2("MC") && f.data.size() == 4; });
+            if (count == c.fields.begin() + end) return false;
+            count->data = U32(Get32(count->data, 0) + 1);
+            std::vector<Field> response{{Tag2("Ri"), U32(type)}, {Tag2("Ru"), U32(value)}, {Tag2("Rt"), U32(0)}};
+            c.fields.insert(c.fields.begin() + end, response.begin(), response.end());
+            return true;
+        }
+    }
+    return false;
+}
+
 std::optional<Package> Package::Parse(const uint8_t* data, size_t size) {
     if (size < 8 || Get32(data) != kPackage) return std::nullopt;
     uint32_t n = Get32(data + 4);

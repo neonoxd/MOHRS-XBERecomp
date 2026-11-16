@@ -120,6 +120,7 @@ MenuPointer ReadMenuPointer() { return pointer; }
 void SetMenuInput(bool on) { menu_active = on; }
 void UseMenuMouse() {}
 void MenuResume() { resumed = true; }
+bool Capturing() { return false; }
 }
 
 void AssignKeyboard(int player) {

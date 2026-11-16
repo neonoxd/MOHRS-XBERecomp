@@ -12,41 +12,72 @@ pause and multiplayer pause archives round-trip byte for byte.
 ## PC Options
 
 The shell's **Options** and the pause screen's **Preferences** get a **PC Options** entry under Audio, opening a
-screen in the game's menu art laid out like HUD Options:
+screen in the game's menu art laid out like HUD Options. Its first row, **Category**, picks what the rows under it
+show (left and right go round the seven):
 
-| Row | Values | `settings.toml` |
+| Category | Rows | `settings.toml` |
 |---|---|---|
-| Display Mode | Fullscreen, Borderless, Windowed (applied on confirm) | `display_mode` |
-| Render Scale | 50% to 200% of the output height | `render_percent` |
-| Frame Rate | 30 FPS, 60 FPS, Unlocked | `fps60`, `unlocked_fps` |
-| FPS Limit | Monitor, 30 to 480, Off | `fps_cap` (1 Monitor, 0 Off; Off and higher stop at 2400) |
-| VSync | On, Off | `vsync` |
-| Field of View | 45 to 140 in steps of 5 (70 original) | `fov` |
-| Widescreen | On, Off | `widescreen` |
-| FPS Counter | On, Off | `fps_counter` |
-| Mouse Sensitivity | 0.1 to 5.0 | `mouse_sensitivity` |
-| Invert Mouse | On, Off | `invert_mouse` |
+| Display | Display Mode (Fullscreen, Borderless, Windowed; applied on confirm) | `display_mode` |
+| | Render Scale (50% to 200% of the output height) | `render_percent` |
+| | Frame Rate (30 FPS, 60 FPS, Unlocked) | `fps60`, `unlocked_fps` |
+| | FPS Limit (Monitor, 30 to 480, Off) | `fps_cap` (1 Monitor, 0 Off; Off and higher stop at 2400) |
+| | VSync (On, Off) | `vsync` |
+| | Field of View (45 to 140 in steps of 5, 70 original) | `fov` |
+| | Widescreen (On, Off) | `widescreen` |
+| Mouse | Sensitivity X, Sensitivity Y (0.1 to 5.0) | `mouse_sensitivity`, `mouse_vertical_sensitivity` |
+| | Invert X, Invert Y (On, Off) | `invert_mouse_x`, `invert_mouse` |
+| Move Keys | Move Forward, Move Back, Strafe Left, Strafe Right, Jump, Crouch, Walk | `[keys]` |
+| | Walk Speed (10% to 100%) | `walk_speed` |
+| Combat Keys | Fire, Aim, Reload, Grenade, Melee, Action | `[keys]` |
+| Weapon Keys | Change Weapon, Primary Weapon, Pistol, Special Weapon, Next Weapon, Previous Weapon, Sniper Zoom In, Sniper Zoom Out | `[keys]` |
+| Look Keys | Look Up, Look Down, Look Left, Look Right, Center View | `[keys]` |
+| Other Keys | Objectives, Pause, D-Pad Left, D-Pad Right, Quick Save, Quick Load | `[keys]` |
 
-Left/right change the focused row at once (display mode only on confirm). Confirm (A, Enter) writes `settings.toml`;
-back (B, Backspace) restores every row as it was when the screen opened. Settings without a row stay file-only.
+The key rows are `[keys]`' actions (`move_forward`, ..., [input.md](input.md#keyboard-keys)), showing the keys
+bound, "None" for none. Left/right change a value row at once (display mode only on confirm). A press (A, Enter,
+a click) on a key row shows "Press a key"; the next key or mouse button (the wheel included) pressed after every
+held key is let go becomes the action's only key, and leaves every other action bound to it, but for the wheel,
+which a weapon step and a sniper zoom may share. Escape or a controller's B cancels, Backspace leaves the action
+with no key. Enter cannot be bound. Confirm (A, Enter on a value row) writes `settings.toml`; back (B, Backspace)
+restores every row and key as it was when the screen opened. Settings without a row stay file-only. The category
+shown is kept while the game runs.
 
 - `src/common/options_package.{h,cpp}` builds `PCOptions.fng` from the archive's `HUD.fng`: the Crosshairs row is
-  the pattern for ten rows (name, value, a button group with flashing arrows), the HUD rows are removed, the title
-  becomes PC OPTIONS and the focus/highlight targets point at the new buttons. It adds the entry to
-  `Option_overlay.fng` (between Audio and Difficulty, moving the entries below down a row) and to `Preferences.fng` /
-  `MPPreferences.fng` (under HUD Options) by copying the Audio entry with its path pointing at `PCOptions.fng`.
-- `src/common/options_menu.{h,cpp}` holds the rows. The factory gives `PCOptions.fng` the HUD screen's handler class
-  (vtable `0x1ED40C`), whose event function hands that package's events over: `HUD Setup` fills the rows,
-  `Pad_Left`/`Pad_Right` step the focused row (FEPackage `+0x80`, the object's name hash at `+0x10`), `HUD Config
-  Confirm` saves, `HUD Config Revert` restores. Up/down are the game's own navigation.
+  the pattern for ten value rows (name, value, a button group with flashing arrows) and, at the nine places under
+  the first, nine key rows on the same lines (`PC Key <n> text`, `value`, `button`). A key row's button answers
+  `Button_Pressed` with a copy of its `Button_Highlight` answer (run its Flash script) and a second response, type 2
+  with `Button_Pressed` as its value, which sends the message to the game and so to the handler, as the package's
+  own answers to `Pad_Left`/`Pad_Right`/`Pad_Accept`/`Pad_Back` do. The controller path (`0x94330`) sends a press
+  to a focused object that answers it and `Pad_Accept` to the package otherwise, so a press on a key row reaches
+  the handler instead of the package's accept and exit; the mouse sends it to the object the same way
+  (`src/common/menu_mouse.cpp`). The HUD rows are removed, the title becomes PC OPTIONS and the focus/highlight
+  targets point at the new buttons. It adds the entry to `Option_overlay.fng` (between Audio and Difficulty, moving
+  the entries below down a row) and to `Preferences.fng` / `MPPreferences.fng` (under HUD Options) by copying the
+  Audio entry with its path pointing at `PCOptions.fng`.
+- `src/common/options_menu.{h,cpp}` holds the pages. The factory gives `PCOptions.fng` the HUD screen's handler
+  class (vtable `0x1ED40C`), whose event function hands that package's events over: `HUD Setup` fills the rows,
+  `Pad_Left`/`Pad_Right` step the focused row (FEPackage `+0x80`, the object's name hash at `+0x10`) or the
+  category, `Button_Pressed` starts a key row's wait, `HUD Config Confirm` saves, `HUD Config Revert` restores. Up
+  and down are the game's own navigation: the directional search (`0x88630`) passes over buttons with object flag
+  `0x04000000` (`+0x1C`), which the game's button disable sets and its enable clears. For each place, the page's
+  value row or key row is enabled and the other disabled, its name and value emptied; a place with neither has
+  both disabled. The menu mouse finds no disabled object.
+- The wait (`src/common/mouse_keyboard.h`): every pad's report reads as released, the keyboard's and the
+  controllers' (`game::Pad`), the menu mouse takes no clicks and the quick save keys do nothing. The FEng update
+  (`0x95220` / `0x87B80`) asks for the result before it runs; the key is bound at once (`LoadBindings`) and the
+  keys held then act only once let go.
 
 | | default.xbe | moh3rdc.xbe |
 |---|---:|---:|
 | Archive file lookup (cdecl: archive, path, flags) | `0x1132E0` | `0x10BDA0` |
 | Screen handler factory (cdecl: package name) | `0x120F00` | `0x11B1B0` |
 | HUD screen handler's event (thiscall, ret 0xC) | `0x12A620` | `0x124C20` |
-| SetText (stdcall: package, object, ASCII text) | `0x138A40` | `0x131D10` |
+| SetText (stdcall: package, object, ASCII text; grows the text's buffer) | `0x138A40` | `0x131D10` |
 | RunScript (stdcall: package, object, script) | `0x138330` | `0x131600` |
+| Button enable, disable (stdcall: package, object; flag `0x04000000` cleared, set) | `0x138B30`, `0x138B50` | `0x131E00`, `0x131E20` |
+| Directional button search (thiscall button array: from, direction, interface, mask) | `0x88630` | `0x7AFB0` |
+| Per-package controller handling | `0x94330` | `0x86C90` |
+| Object's message answer lookup (thiscall object: message; list `+0x3C`, hash at `+0xC`) | `0x958D0` | `0x88270` |
 | Menu sound (cdecl) | `0x123C10` | `0x11DC90` |
 
 The screen is English in every language.
@@ -367,19 +398,21 @@ the overlay draws it only while a publish is under a quarter second old, so it i
 movies, on the end-of-level screens (their modal loop does not run the gameplay frame) or in the front end. It
 shows the paused time in the pause screen.
 
-HUD Options (`HUD.fng`, the shell's and the pause screen's) gets a **Mission Timer** row (On, Off) under HUD Type:
+HUD Options (`HUD.fng`, the shell's and the pause screen's) gets a **Mission Timer** row (On, Off) under HUD Type,
+and under it an **FPS Counter** row (On, Off; `fps_counter`, frames a second in the picture's top left corner):
 
-- `menu::AddTimerRow` (`src/common/options_package.cpp`) copies the Crosshairs row two row pitches down (the pitch is
+- `menu::AddHudRows` (`src/common/options_package.cpp`) copies the Crosshairs row two row pitches down (the pitch is
   HUD text's Y minus Crosshairs text's: 32 in the pause screen, 37 in the shell) as `Mission Timer text` (text
   `Mission Timer`, label `MISSION_TIMER`, not in the string tables), `Mission Timer On` / `Off` (the game's `ON` /
   `OFF` texts, so localised) and `Mission Timer button` with its arrows, and adds the button to Crosshairs button's
-  highlight target lists. The archive hook gives each folder its own copy.
+  highlight target lists; the same three pitches down as `FPS Counter ...` (label `FPS_COUNTER`), after the
+  Mission Timer button. The archive hook gives each folder its own copy.
 - The screen's handler (`0x12A620` / `0x124C20`) runs Crosshairs and HUD Type by the focused button's name hash and
-  logs any other button as an unknown option. `MenuEvent` takes Pad_Left/Pad_Right while `Mission Timer button` has
-  the focus: the switch flips, the handler's toggle sound plays (1 on, 0 off) and RunScript Show/Hide picks the On or
-  Off text. Every other event goes to the handler first; after `HUD Setup` the row is shown and remembered, after
-  `HUD Config Confirm` a change is written to `settings.toml`, after `HUD Config Revert` the row is put back.
-- The menu mouse (`src/common/menu_mouse.cpp`) maps the row's text, On and Off to its button, like the game's rows.
+  logs any other button as an unknown option. `MenuEvent` takes Pad_Left/Pad_Right while `Mission Timer button` or
+  `FPS Counter button` has the focus: the switch flips, the handler's toggle sound plays (1 on, 0 off) and RunScript Show/Hide picks the On or
+  Off text. Every other event goes to the handler first; after `HUD Setup` the rows are shown and remembered, after
+  `HUD Config Confirm` a change is written to `settings.toml`, after `HUD Config Revert` the rows are put back.
+- The menu mouse (`src/common/menu_mouse.cpp`) maps the rows' text, On and Off to their buttons, like the game's rows.
 
 The end-of-level stats:
 
@@ -429,7 +462,8 @@ Off) under Invert Y Axis, which switches [Modern Aiming](input.md#modern-aiming)
 - Hover focuses an entry, left click selects it, the wheel moves through entries. A stationary pointer leaves
   focus to keyboard/controller navigation.
 - On settings screens (PC Options, stock Audio, HUD, controller options) clicking a label or value focuses its row,
-  even when its arrows are hidden; the arrows or the wheel change the value. The displayed confirm hint saves, the
+  even when its arrows are hidden; the arrows or the wheel change the value. A click on a PC Options key row waits
+  for its key. The displayed confirm hint saves, the
   back hint cancels, right click goes back.
 - Pause headings are clickable (including the multiplayer leaderboard/preferences/exit headings) and open that page
   directly. Right click on a pause page resumes, as does clicking the Start/resume prompt. Escape still pauses.
@@ -498,8 +532,12 @@ the adapter uses narrow function overrides instead.
 - `SetFocus`: thiscall, `ECX = package`, `(engine, object, emit_messages)`, `ret 0xC`; queues unhighlight/highlight
   to the object and package handler before writing `+0x80`.
 - `QueueMessage`: thiscall, `ECX = engine`, `(message_hash, source_object, package, target, input_mask)`.
-- Controller and native mouse paths send `Button_Pressed` to a focused object that handles it, else `Pad_Accept`,
-  and notify the package handler with target `0xFFFFFFFB`.
+- Controller and native mouse paths send `Button_Pressed` to a focused object that handles it, else `Pad_Accept`
+  to the package, and send a copy with target `0xFFFFFFFB`.
+- Queue targets (`0x93FD0`): `0xFFFFFFFB` goes to interface slot `+0x20`, a broadcast to listeners such as the menu
+  sounds, which does not reach a screen handler; `0xFFFFFFFF` goes to slot `+0x1C`, which reaches the package's
+  screen handler. An answer's response type 2 (`0x93370`) queues its value with target `0xFFFFFFFF`, type 3 with
+  `0xFFFFFFFB`, type 0 runs the script named by its value.
 
 | Message (`feng::Hash`) | Hash |
 |---|---:|

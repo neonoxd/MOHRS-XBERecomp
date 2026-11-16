@@ -139,5 +139,58 @@ int main() {
     Check((Poll('4', true).buttons & 0xF) == 1u << 2, "4 is dpad left");
     Check((Poll('5', true).buttons & 0xF) == 1u << 3, "5 is dpad right");
 
+    // PC Options' key rows: a key bound to one action leaves the others, but the wheel the steps and zoom share
+    Check(input::BoundKeys("crouch") == "C, Ctrl" && input::BoundKeys("action") == "E, F", "defaults shown");
+    input::BindKey("jump", "Ctrl");
+    Check(input::BoundKeys("jump") == "Ctrl" && input::BoundKeys("crouch") == "C", "Ctrl moves from crouch to jump");
+    Check(game::Opt().keys["crouch"] == "C" && game::Opt().keys["jump"] == "Ctrl", "kept as the settings file names");
+    Check(Poll(VK_CONTROL, true).analog[3] == 0xFF && Poll(VK_CONTROL, true).analog[5] == 0, "Ctrl jumps at once");
+    input::BindKey("next_weapon", "Wheel Up");
+    Check(input::BoundKeys("sniper_zoom_up") == "Wheel Up" && input::BoundKeys("prev_weapon") == "None",
+          "the wheel stays on the zoom, leaves the other step");
+    input::BindKey("move_forward", "Up");
+    Check(input::BoundKeys("look_up") == "None", "Up leaves look_up");
+    input::ClearKeys("reload");
+    Check(input::BoundKeys("reload") == "None" && game::Opt().keys["reload"].empty(), "cleared");
+    Check(Poll('R', true).analog[4] == 0, "R reloads no more");
+
+    // the capture: held keys first let go, then the first key down; pads read as released meanwhile
+    held_key = VK_RETURN;  // the press that opened it
+    input::StartCapture();
+    input::Pad pad2;
+    pad2.connected = true;
+    pad2.buttons = 0xF;
+    Check(input::CapturePad(pad2) && pad2.buttons == 0 && pad2.connected, "a pad reads released");
+    std::string key;
+    Check(input::TakeCapture(key) == input::Capture::Waiting, "Enter still held");
+    held_key = 'K';
+    input::CapturePad(pad2);  // Enter let go: now waiting
+    Check(input::TakeCapture(key) == input::Capture::Waiting, "K held since before: waits for it to go");
+    held_key = 0;
+    input::CapturePad(pad2);
+    held_key = 'K';
+    input::CapturePad(pad2);
+    Check(input::TakeCapture(key) == input::Capture::Key && key == "K", "K pressed");
+    Check(!input::Capturing() && !input::CapturePad(pad2), "done");
+    Check(Poll('K', true).analog[4] == 0 && !input::HotkeyHeld(input::Hotkey::QuickSave), "K waits to be let go");
+    input::StartCapture();
+    held_key = 0;
+    input::CapturePad(pad2);
+    held_key = VK_ESCAPE;
+    input::CapturePad(pad2);
+    Check(input::TakeCapture(key) == input::Capture::Cancel, "Escape cancels");
+    input::StartCapture();
+    held_key = 0;
+    input::CapturePad(pad2);
+    held_key = VK_BACK;
+    input::CapturePad(pad2);
+    Check(input::TakeCapture(key) == input::Capture::Clear, "Backspace clears");
+    input::StartCapture();
+    held_key = 0;
+    input::Pad b;
+    b.analog[1] = 0xFF;
+    input::CapturePad(b);
+    Check(input::TakeCapture(key) == input::Capture::Cancel, "a controller's B cancels");
+
     std::puts("keyboard mapper: all checks passed");
 }

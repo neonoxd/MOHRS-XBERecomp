@@ -37,6 +37,7 @@ static size_t Buttons(const feng::Package& p) {
 }
 
 static fs::path g_out;
+static uint32_t U32(const std::vector<uint8_t>& d, size_t at);
 
 static void Save(const fs::path& in, const char* name, const std::vector<uint8_t>& data) {
     if (g_out.empty()) return;
@@ -45,17 +46,17 @@ static void Save(const fs::path& in, const char* name, const std::vector<uint8_t
     std::ofstream(dir / name, std::ios::binary).write(reinterpret_cast<const char*>(data.data()), data.size());
 }
 
-static void Screen(const fs::path& hud, const game::menu::ScreenSpec& spec, size_t rows) {
+static void Screen(const fs::path& hud, const game::menu::ScreenSpec& spec, size_t rows, size_t keys = 0) {
     std::vector<uint8_t> d = Read(hud);
     std::vector<std::string> labels;
     for (size_t i = 0; i < rows; i++) labels.push_back("Row " + std::to_string(i));
-    std::vector<uint8_t> made = game::menu::MakeScreen(d.data(), d.size(), labels, spec);
+    std::vector<uint8_t> made = game::menu::MakeScreen(d.data(), d.size(), labels, spec, keys);
     Check(!made.empty(), "no screen from " + hud.string());
     std::optional<feng::Package> p = feng::Package::Parse(made.data(), made.size());
     Check(p.has_value(), "made screen does not parse");
     Check(p->Name() == spec.file, "screen name");
     Check(p->Path().ends_with(std::string("\\") + spec.file), "screen path " + p->Path());
-    Check(Buttons(*p) == labels.size(), "a button a row");
+    Check(Buttons(*p) == labels.size() + keys, "a button a row");
     Check(!p->Find("Crosshairs button") && !p->Find("HUD button"), "HUD rows left");
     float last = -1e9f;
     for (size_t r = 0; r < labels.size(); r++) {
@@ -69,6 +70,38 @@ static void Screen(const fs::path& hud, const game::menu::ScreenSpec& spec, size
         Check(at + 2 < p->objects.size() && p->objects[at + 1].Parent() == b->Guid() &&
                   p->objects[at + 2].Parent() == b->Guid(),
               "arrows follow their button");
+    }
+    // the key rows: at the last places, on the value rows' lines, their buttons answering a press: their flash, then
+    // the press sent on to the game (Ri 2, Ru Button_Pressed), two responses
+    static const uint32_t kPressed = feng::Hash("Button_Pressed");
+    auto answers = [](const feng::Object* o) {
+        for (const feng::Chunk& c : o->chunks)
+            for (size_t i = 0; i < c.fields.size(); i++) {
+                const feng::Field& f = c.fields[i];
+                if (f.tag != feng::Tag2("Mi") || f.data.size() != 4 || U32(f.data, 0) != kPressed) continue;
+                auto at = [&](size_t k, const char (&tag)[3]) {
+                    return i + k < c.fields.size() && c.fields[i + k].tag == feng::Tag2(tag) ?
+                               U32(c.fields[i + k].data, 0) : 0xFFFFFFFFu;
+                };
+                return at(1, "MC") == 2 && at(2, "Ri") == 0 && at(5, "Ri") == 2 && at(6, "Ru") == kPressed &&
+                       at(7, "Rt") == 0 && (i + 8 == c.fields.size() || c.fields[i + 8].tag == feng::Tag2("Mi"));
+            }
+        return false;
+    };
+    for (size_t r = 0; r < labels.size(); r++) {
+        const feng::Object* row = p->Find(game::menu::RowObject(r, "button"));
+        const feng::Object* b = p->Find(game::menu::KeyObject(r, "button"));
+        Check(!answers(row), "a value row's button leaves a press to the package");
+        Check((b != nullptr) == (r >= labels.size() - keys), "a key row at each of the last places");
+        if (!b) continue;
+        const feng::Object* v = p->Find(game::menu::KeyObject(r, "value"));
+        const feng::Object* t = p->Find(game::menu::KeyObject(r, "text"));
+        Check(v && t && b->IsButton() && b->Y() == row->Y() && b->Guid() != row->Guid(), "key row objects");
+        Check(v->Y() == p->Find(game::menu::RowObject(r, "value"))->Y(), "key value on its line");
+        size_t at = p->Index(game::menu::KeyObject(r, "button"));
+        Check(at + 2 < p->objects.size() && p->objects[at + 1].Parent() == b->Guid() &&
+                  p->objects[at + 2].Parent() == b->Guid(), "key arrows follow their button");
+        Check(answers(b), "a key row's button answers a press");
     }
     // written again unchanged
     Check(p->Write() == made, "made screen writes back the same");
@@ -215,29 +248,36 @@ static void MissionTime(const fs::path& file) {
     std::printf("%s: mission time at y %.0f, medal text at y %.0f\n", file.string().c_str(), value->Y(), medal->Y());
 }
 
-static void TimerRow(const fs::path& file) {
+static void HudRows(const fs::path& file) {
     std::vector<uint8_t> d = Read(file);
     std::optional<feng::Package> before = feng::Package::Parse(d.data(), d.size());
-    std::vector<uint8_t> made = game::menu::AddTimerRow(d.data(), d.size());
-    Check(!made.empty(), "mission timer row not added: " + file.string());
+    std::vector<uint8_t> made = game::menu::AddHudRows(d.data(), d.size());
+    Check(!made.empty(), "HUD rows not added: " + file.string());
     Save(file, game::menu::kHudScreen, made);
     std::optional<feng::Package> p = feng::Package::Parse(made.data(), made.size());
     Check(p && p->Write() == made, "HUD package round trip");
-    std::string row = game::menu::kTimerRow;
-    const feng::Object* text = p->Find(row + " text");
-    const feng::Object* on = p->Find(row + " On");
-    const feng::Object* off = p->Find(row + " Off");
-    const feng::Object* button = p->Find(row + " button");
-    Check(text && on && off && button, "mission timer row objects");
     float pitch = p->Find("HUD text")->Y() - p->Find("Crosshairs text")->Y();
-    Check(text->Y() == p->Find("Crosshairs text")->Y() + 2 * pitch, "mission timer row under HUD Type");
-    Check(button->Y() == p->Find("Crosshairs button")->Y() + 2 * pitch && button->IsButton(), "its button");
-    size_t at = p->Index(row + " button");
-    Check(at + 2 < p->objects.size() && p->objects[at + 1].Parent() == button->Guid() &&
-              p->objects[at + 2].Parent() == button->Guid(), "its arrows");
-    Check(p->objects.size() == before->objects.size() + 6, "text, On, Off, button and two arrows added");
-    Check(game::menu::AddTimerRow(made.data(), made.size()).empty(), "mission timer row cannot be added twice");
-    std::printf("%s: mission timer row at y %.0f\n", file.string().c_str(), text->Y());
+    size_t last = p->Index("HUD button");
+    int down = 2;
+    for (std::string row : {game::menu::kTimerRow, game::menu::kFpsRow}) {
+        const feng::Object* text = p->Find(row + " text");
+        const feng::Object* on = p->Find(row + " On");
+        const feng::Object* off = p->Find(row + " Off");
+        const feng::Object* button = p->Find(row + " button");
+        Check(text && on && off && button, row + " row objects");
+        Check(text->Y() == p->Find("Crosshairs text")->Y() + float(down) * pitch, row + " row under HUD Type");
+        Check(button->Y() == p->Find("Crosshairs button")->Y() + float(down) * pitch && button->IsButton(),
+              "its button");
+        size_t at = p->Index(row + " button");
+        Check(at > last, "buttons in screen order");
+        last = at;
+        Check(at + 2 < p->objects.size() && p->objects[at + 1].Parent() == button->Guid() &&
+                  p->objects[at + 2].Parent() == button->Guid(), "its arrows");
+        std::printf("%s: %s row at y %.0f\n", file.string().c_str(), row.c_str(), text->Y());
+        down++;
+    }
+    Check(p->objects.size() == before->objects.size() + 12, "text, On, Off, button and two arrows added a row");
+    Check(game::menu::AddHudRows(made.data(), made.size()).empty(), "HUD rows cannot be added twice");
 }
 
 static void AimRow(const fs::path& file) {
@@ -292,8 +332,8 @@ int main(int argc, char** argv) {
             if (name == game::menu::kSummary) MissionTime(f.path());
             if (name == game::menu::kControllerScreen) AimRow(f.path());
             if (name == "HUD.fng") {
-                TimerRow(f.path());
-                Screen(f.path(), game::menu::kPcOptions, game::menu::kRows);
+                HudRows(f.path());
+                Screen(f.path(), game::menu::kPcOptions, game::menu::kRows, game::menu::kKeyRows);
                 Screen(f.path(), game::menu::kCheats, game::menu::kCheatRows);
             }
             if (name == "Option_overlay.fng" || name == "Preferences.fng" || name == "MPPreferences.fng") Entry(f.path());

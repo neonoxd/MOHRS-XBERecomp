@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <iterator>
 #include <mutex>
 #include <vector>
@@ -535,7 +536,8 @@ const Action* Actions(size_t* count) {
 }
 
 bool HotkeyHeld(Hotkey key) {
-    if (!Active()) return false;
+    // nor while a key row waits for a key, nor until the keys pressed for it are let go
+    if (!Active() || g_settle || Capturing()) return false;
     int button = key == Hotkey::QuickSave ? kQuickSave : kQuickLoad;
     std::lock_guard lock(g_bind_lock);
     for (size_t i = 0; i < kCount; i++)
@@ -551,6 +553,145 @@ void LoadBindings() {
         auto it = keys.find(kActions[i].action.id);
         g_binds[i] = Parse(it != keys.end() ? it->second : kActions[i].action.defaults);
     }
+}
+
+// PC Options' key rows
+
+namespace {
+
+const char* NameOf(int vk) {
+    for (const Name& n : kNames)
+        if (n.vk == vk) return n.name;
+    return nullptr;
+}
+
+size_t ActionIndex(const char* id) {
+    for (size_t i = 0; i < kCount; i++)
+        if (std::strcmp(kActions[i].action.id, id) == 0) return i;
+    return kCount;
+}
+
+// an action's keys as the settings file has them, or its defaults
+std::vector<int> KeysOf(size_t i) {
+    const auto& keys = game::Opt().keys;
+    auto it = keys.find(kActions[i].action.id);
+    return Parse(it != keys.end() ? it->second : kActions[i].action.defaults);
+}
+
+std::string Join(const std::vector<int>& keys, const char* between) {
+    std::string out;
+    for (int vk : keys) {
+        if (const char* name = NameOf(vk)) {
+            if (!out.empty()) out += between;
+            out += name;
+        }
+    }
+    return out;
+}
+
+void SetKeys(size_t i, const std::vector<int>& keys) { game::Opt().keys[kActions[i].action.id] = Join(keys, ","); }
+
+// the wheel steps the weapons, and zooms instead while a scope is up (PressActions): a step and a zoom may share it
+bool SharesWheel(int a, int b) {
+    auto step = [](int x) { return x == kNextWeapon || x == kPrevWeapon; };
+    auto zoom = [](int x) { return x == kZoomUp || x == kZoomDown; };
+    return (step(a) && zoom(b)) || (zoom(a) && step(b));
+}
+
+enum class Stage { Off, Release, Wait, Done };
+std::mutex g_capture_lock;
+Stage g_stage = Stage::Off;
+Capture g_captured = Capture::None;
+std::string g_captured_key;
+
+// a pad's or the keyboard's report while capturing; with g_capture_lock held
+void PollCapture(const Pad& pad) {
+    if (g_stage == Stage::Done || g_stage == Stage::Off) return;
+    // a controller's B cancels
+    if (pad.analog[1] > 0x20) {
+        g_stage = Stage::Done;
+        g_captured = Capture::Cancel;
+        return;
+    }
+    if (!Active()) return;
+    if (g_stage == Stage::Release) {
+        for (const Name& n : kNames)
+            if (Down(n.vk)) return;
+        g_stage = Stage::Wait;
+        return;
+    }
+    for (const Name& n : kNames) {
+        if (n.vk == VK_RETURN || !Down(n.vk)) continue;
+        g_stage = Stage::Done;
+        g_captured = n.vk == VK_ESCAPE ? Capture::Cancel : n.vk == VK_BACK ? Capture::Clear : Capture::Key;
+        g_captured_key = n.name;
+        return;
+    }
+}
+
+}  // namespace
+
+std::string BoundKeys(const char* id) {
+    size_t i = ActionIndex(id);
+    if (i == kCount) return "";
+    std::string text = Join(KeysOf(i), ", ");
+    return text.empty() ? "None" : text;
+}
+
+void BindKey(const char* id, const std::string& key) {
+    size_t i = ActionIndex(id);
+    int vk = Vk(key);
+    if (i == kCount || !vk) return;
+    for (size_t j = 0; j < kCount; j++) {
+        if (j == i || (Wheel(vk) && SharesWheel(kActions[i].button, kActions[j].button))) continue;
+        std::vector<int> keys = KeysOf(j);
+        auto gone = std::remove(keys.begin(), keys.end(), vk);
+        if (gone == keys.end()) continue;
+        keys.erase(gone, keys.end());
+        SetKeys(j, keys);
+    }
+    SetKeys(i, {vk});
+    LoadBindings();
+}
+
+void ClearKeys(const char* id) {
+    size_t i = ActionIndex(id);
+    if (i == kCount) return;
+    SetKeys(i, {});
+    LoadBindings();
+}
+
+void StartCapture() {
+    std::lock_guard lock(g_capture_lock);
+    g_stage = Stage::Release;
+    g_captured = Capture::None;
+    g_captured_key.clear();
+}
+
+Capture TakeCapture(std::string& key) {
+    std::lock_guard lock(g_capture_lock);
+    if (g_stage == Stage::Off) return Capture::None;
+    if (g_stage != Stage::Done) return Capture::Waiting;
+    g_stage = Stage::Off;
+    key = g_captured_key;
+    // the keys pressed for it act only once let go
+    g_settle = true;
+    return g_captured;
+}
+
+bool Capturing() {
+    std::lock_guard lock(g_capture_lock);
+    return g_stage != Stage::Off;
+}
+
+bool CapturePad(Pad& pad) {
+    std::lock_guard lock(g_capture_lock);
+    if (g_stage == Stage::Off) return false;
+    PollCapture(pad);
+    bool connected = pad.connected;
+    pad = {};
+    pad.connected = connected;
+    return true;
 }
 
 }  // namespace input

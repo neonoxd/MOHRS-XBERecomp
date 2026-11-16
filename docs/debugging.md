@@ -166,7 +166,7 @@ caller. The lookup has 20 callers in default.xbe.
 | `MOHRS_QUICKSAVE_PROBE`, `MOHRS_MENU_PROBE` | scripted quick save/load and controller presses (set by the probe scripts) |
 | `MOHRS_MENU_MOUSE_PROBE="8:Preferences text,10:Audio button"` | hover/click named rendered objects, timed from the first FEng input update |
 | `MOHRS_MENU_MOUSE_TRACE=1` | packages, rectangles and clicks of the menu mouse adapter |
-| `MOHRS_MENU_TRACE` | every screen the game makes, by package name |
+| `MOHRS_MENU_TRACE` | every screen the game makes, by package name; PC Options' events (message hash), each press with the focused object's name hash, its place and action, and how each key row's wait ended (1 waiting, 2 key, 3 cancel, 4 clear) |
 | `MOHRS_FOV_TRACE=1` | camera angles before and after the FoV adjustment |
 | `MOHRS_NEAR_PLANE_ORIGINAL=1` | keep the player camera's near plane at 0.4 when the view is widened (walls clip at the sides) |
 | `MOHRS_EVENT_TRACE=1` | every animation event handled, with the guest call chain |

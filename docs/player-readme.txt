@@ -64,15 +64,18 @@ settings screens, click a label or displayed value to select its row, then click
 change the value. Click the select/confirm hint to save or
 the back hint to cancel. Pause headings are clickable; right click on a pause page resumes.
 The arrow keys also move, Enter confirms, Backspace goes back, and so does Escape in the main menus and on the
-save screens (in the pause menu Escape resumes). Gameplay bindings can be changed in the [keys]
-table of settings.toml.
+save screens (in the pause menu Escape resumes). Gameplay bindings can be changed in PC Options (below) or in
+the [keys] table of settings.toml.
 
 
 Settings
 --------
-Options > PC Options in the main menu, and Preferences > PC Options in the pause screen, change the display mode,
-render scale, frame rate (30, 60 or unlocked), FPS limit, VSync, field of view, widescreen, FPS counter, mouse
-sensitivity and mouse inversion. Left and right change a row, confirm saves, back cancels.
+Options > PC Options in the main menu, and Preferences > PC Options in the pause screen: the Category row on top
+picks the page. Display has the display mode, render scale, frame rate (30, 60 or unlocked), FPS limit, VSync,
+field of view and widescreen; Mouse the horizontal and vertical sensitivity and inversion; Move, Combat, Weapon,
+Look and Other Keys the key bindings (and the walk speed). Left and right change a row. To bind a key, select its
+row (Enter or a click), then press the new key or mouse button: it replaces the action's keys and is taken off any
+other action. Escape cancels, Backspace leaves the action unbound. Confirm saves, back cancels everything changed.
 
 Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
 Mode, One Shot Kills, Bullet Shield, Achilles Head, Invisible Soldiers and Rubber Grenades, and sets Quick Reload
@@ -86,15 +89,12 @@ you walk, at half speed, and can jump, instead of leaning to the side. Off is th
 
 The end-of-level stats also show the mission time: how long the level took, pauses not counted. HUD Options >
 Mission Timer (in the main menu's options and the pause screen's preferences) shows it in the top right corner
-while you play.
+while you play, and HUD Options > FPS Counter the frames a second in the top left corner.
 
 Everything is also in settings.toml beside the executable, written on the first start. Some settings are only there:
 
   skip_intros = true            no EA logo and opening movie at start
   skip_cutscenes = true         no level intro and outro movies
-  mouse_vertical_sensitivity    vertical mouse speed, on top of mouse_sensitivity
-  invert_mouse_x                mirrored horizontal mouse look
-  walk_speed = 50               percent of running speed while Walk is held
   width / height                output resolution, 0 for the desktop's
   anisotropic_filtering         0 as the game asks, else a level such as 16
   check_game_hash = true        false starts a release the build does not recognize without asking each time
