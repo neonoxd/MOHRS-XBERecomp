@@ -17,8 +17,14 @@
 // - the aim block keeps the look rates it worked out and passes over the stop, the lean and the dropped jump;
 // - the walk code runs as when not aiming; after it the look rates are the aim's again, and on the ground the walk
 //   velocity is halved (in the air it is left as when not aiming).
+// While the walk code runs for an aiming player the lean's anchor follows it, as the game's aim block does in the air.
+//
+// The lean key (src/common/mouse_keyboard.h, also the aim) gives KBM's player the game's aim rules back while on the
+// ground (+0xD45 bit 6 clear), the lean with them: the hooks above leave that update to the game. Taken mid-aim the
+// aim goes on, the anchor is where the player stands; let go of with the aim still held, a lean that is out is put
+// back at the anchor (as the game does when the stick centres) and the walk goes on. In the air the key only aims.
 // Custom Movement (src/common/custom_movement.h) keeps its rules while aiming with the setting on, its ground speed
-// halved.
+// halved, but not while the lean key has the game's rules.
 #include <cstdint>
 
 #include "cpu/x86_context.h"
@@ -29,18 +35,24 @@ struct AimLayout {
     uint32_t yaw_rate, pitch_rate;  // the update's look rates, esp offsets
     uint32_t ground;                // its ground byte, an esp offset
     bool coop;                      // co-op's states that move the player without velocity: +0xE44, +0xE45, +0xD4E bits 6-7
+    uint32_t anchor;                // player: where the aim started, the lean's anchor
+    uint32_t players, input_manager;  // globals: the players by input manager entry, the input manager (KBM's player)
 };
-inline constexpr AimLayout kDefaultAim{0x2C, 0x28, 0x58, false};
-inline constexpr AimLayout kCoopAim{0x38, 0x1C, 0x5C, true};
+inline constexpr AimLayout kDefaultAim{0x2C, 0x28, 0x58, false, 0xDE0, 0x270108, 0x271188};
+inline constexpr AimLayout kCoopAim{0x38, 0x1C, 0x5C, true, 0xEC0, 0x265278, 0x266618};
 
 // the share of the walk velocity kept while aiming on the ground
 inline constexpr float kAimWalk = 0.5f;
 
 // the player (esi) walks while aiming: the hooks that pass over the game's aim rules
 bool ModernAim(const X86Context& ctx, const AimLayout& layout);
+// at the walk code's aim test: ModernAim, but not for the player the aim block left to the game's lean this update
+bool ModernAimWalk(const X86Context& ctx, const AimLayout& layout);
 // at the aim block's velocity part: true (to pass over it) when ModernAim, keeping the look rates
 bool ModernAimHold(X86Context& ctx, const AimLayout& layout);
 // where the walk code and the aim's path meet: the kept look rates back, the walk slowed
 void ModernAimWalked(X86Context& ctx, const AimLayout& layout);
+// the player's last aim block was left to the game's lean (Custom Movement keeps out then)
+bool ModernAimLeaning(uint32_t player);
 
 }  // namespace game

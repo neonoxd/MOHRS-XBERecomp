@@ -184,6 +184,27 @@ void Load(const void* table) {
             for (auto [id, old] : kOld)
                 if (auto it = o.keys.find(id); it != o.keys.end() && it->second == old) o.keys.erase(it);
         }
+        // Before the lean key, walk was on Alt. A file written then that still has it there gets walk on Shift (when
+        // Shift is free) and lean on Alt; with Alt still bound elsewhere, lean is left unbound.
+        if (!keys->contains("lean")) {
+            auto bound = [&o](const char* key, const char* except) {
+                for (auto& [id, list] : o.keys) {
+                    if (id == except) continue;
+                    for (size_t start = 0; start <= list.size();) {
+                        size_t comma = std::min(list.find(',', start), list.size());
+                        std::string name = list.substr(start, comma - start);
+                        name.erase(0, name.find_first_not_of(' '));
+                        name.erase(name.find_last_not_of(' ') + 1);
+                        if (_stricmp(name.c_str(), key) == 0) return true;
+                        start = comma + 1;
+                    }
+                }
+                return false;
+            };
+            if (auto it = o.keys.find("walk"); it != o.keys.end() && it->second == "Alt" && !bound("Shift", "walk"))
+                o.keys.erase(it);
+            if (bound("Alt", "lean")) o.keys["lean"] = "";
+        }
     }
 }
 

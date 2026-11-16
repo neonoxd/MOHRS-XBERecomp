@@ -410,10 +410,10 @@ at = 0xD5981
 call = "ModernAimHold"
 on_true = 0xD5A1C
 
-# the walk code while aiming (0xDCF41)
+# the walk code while aiming, unless the aim block was left to the lean key (0xDCF41)
 [[hook]]
 at = 0xD6A1A
-call = "ModernAim"
+call = "ModernAimWalk"
 on_true = 0xD6A22
 
 # the join after the walk code (0xDD4A2)

@@ -14,6 +14,8 @@ void ReleaseCursor();            // the window lost the focus: the clip goes, he
 void Keyboard(Pad& pad);         // held keys onto port 0's pad
 void SeenPad(const Pad& pad);    // a controller's report before the keys join it: its input hands over to it
 bool KeyboardActive();           // keyboard or mouse used last, not a controller
+// the lean key held in play (it also presses the aim): Modern Aiming gives the player the game's lean on the ground
+bool LeanHeld();
 bool Playing();                  // the game took mouse counts in the last moment: the player has the view
 // raw mouse counts since the last call, scaled by the settings; false when there are none. Asked by the game's look
 // update, which runs in play only: being asked is what Playing reports.

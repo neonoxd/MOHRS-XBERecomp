@@ -191,15 +191,37 @@ co-op not `+0xE44`, `+0xE45` or `+0xD4E` bits 6-7), instruction hooks change tha
 | `ModernAim`: the crouched raise reads 0 | `0xDBDEE` -> `0xDBE45` | `0xD55AD` -> `0xD5604` |
 | `ModernAim`: the standing lower reads 0 | `0xDBE75` -> `0xDBECC` | `0xD5635` -> `0xD568C` |
 | `ModernAimHold`: the aim block's stop, lean and dropped jump passed over, its look rates kept | `0xDC1D2` -> `0xDC26D` | `0xD5981` -> `0xD5A1C` |
-| `ModernAim`: the walk code runs while aiming (`test al, 0x10` passed over) | `0xDCF41` -> `0xDCF49` | `0xD6A1A` -> `0xD6A22` |
+| `ModernAimWalk`: the walk code runs while aiming (`test al, 0x10` passed over) | `0xDCF41` -> `0xDCF49` | `0xD6A1A` -> `0xD6A22` |
 | `ModernAimWalked`: where the walk code and the aim path meet | `0xDD4A2` | `0xD6F60` |
 | Ground byte at the join | `[esp+0x58]` | `[esp+0x5C]` |
+| Lean anchor | `+0xDE0` | `+0xEC0` |
+| Lean | `0xD9A20` | `0xCF1A0` |
 
 `ModernAimWalked` writes the kept look rates back over the walk code's (which are the hip's, with its turn
 acceleration) and slows the walk on the ground, where the walk code sets the velocity from the stick each update:
 strafe and forward are halved (`kAimWalk`). In the air the walk code adds to the velocity the player has, and it is
 left as when not aiming. The jump is the walk code's own, so it goes off as when not aiming. A lean already out
-when the setting comes on is ended where the player stands.
+when the setting comes on is put back at the anchor on the ground (where it stays in the air).
+
+The lean (`0xD9A20` / `0xCF1A0`) reads the strafe action (7). Outside the deadzone it starts a lean (only with a
+floor touched, `+0xD44` bit 1), sets `+0xD45` bit 3 and `+0xD46` bit 2; inside it a lean that is out is put back at
+the anchor at once (position `+0x80` set to it, `0xC7490` on `+0x50`). Either way it sets the walk velocity towards
+the anchor plus the player's right vector (`+0x50`) times the stick, so a stale anchor pulls the player back to it.
+The aim start (`+0xD44` bit 4 on, bit 5 off) sets the anchor to the position; in the air the aim block sets it each
+update. While `ModernAimHold` passes over the aim block it sets the anchor to the position too.
+
+**Lean key.** The `lean` action (default Alt, `src/common/mouse_keyboard.cpp`) presses the aim (LT) in play and is
+reported by `input::LeanHeld`. For KBM's player (the input manager entry with port 0, as the weapon keys find it) on
+the ground (`+0xD45` bit 6 clear) with it held, `ModernAim` and `ModernAimHold` return false, so the update runs the
+game's aim rules: the stop, the lean, the eye raise and lower and the dropped jump. `ModernAimHold` remembers the
+player; `ModernAimWalk` then keeps the walk code skipped for it that update, and Custom Movement leaves an aiming
+player to the game while it is remembered (`ModernAimLeaning`). The first such update moves the anchor to the
+position, so a lean taken mid-aim starts where the player stands. The aim bit stays on across the switch either
+way: let go of with the aim still held, the next `ModernAimHold` puts a lean that is out back at the anchor and the
+walk goes on. In the air the key only aims, with Modern Aiming's rules.
+
+Settings files from before the lean key with `walk = "Alt"` get walk on Shift (if Shift is not bound to another
+action) and lean on Alt; if Alt is still bound to another action, lean is written unbound (`game_info.cpp` Load).
 
 Custom Movement (Quake, [menus.md](menus.md#custom-movement)) leaves an aiming player (`+0xD44` bit 4) to the game,
 unless Modern Aiming is on: then its rules keep the velocity while aiming, with the ground's `maxspeed` halved
@@ -221,7 +243,7 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/r
 ```
 
 The mapper test drives the real `Keyboard()` with faked keys: Escape as Start in play and pause, as B in the front
-end and latched while held, weapon key presses once per press and only in play, wheel notches as steps and as zoom
+end and latched while held, weapon key presses once per press and only in play, Alt as aim and lean only in play, wheel notches as steps and as zoom
 only with a scope up, none kept from a menu, the moved dpad keys. The weapon test
 runs both overrides on a ring sorted like the game's: each group, cycling and wrapping within it, weapons not picked
 up and empty grenades skipped, a second press before the select, another player's port, mounted and unarmed players,

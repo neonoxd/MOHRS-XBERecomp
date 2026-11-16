@@ -125,10 +125,10 @@ void SetVec(uint32_t address, Vec v) {
 }
 
 // on foot, walking: not on a ladder, a vehicle or a mounted gun, not scripted, not frozen or stunned, not aiming
-// unless Modern Aiming walks the player then (src/common/modern_aim.h)
+// unless Modern Aiming walks the player then (src/common/modern_aim.h; not while the lean key has the game's lean)
 bool OnFoot(uint32_t p, const MovementLayout& l) {
     uint8_t contact = G<uint8_t>(p + kContact), state = G<uint8_t>(p + kState), mode = G<uint8_t>(p + kMode);
-    if ((contact & kContactAiming) && !Opt().modern_aiming) return false;
+    if ((contact & kContactAiming) && (!Opt().modern_aiming || ModernAimLeaning(p))) return false;
     if (state & kStateLadder) return false;
     if (mode & (kModeVehicle | kModeMounting | kModeScripted)) return false;
     if (G<uint8_t>(p + kControl) & kControlFrozen) return false;

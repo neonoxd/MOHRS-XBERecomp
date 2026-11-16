@@ -28,7 +28,7 @@ show (left and right go round the seven):
 | | Invert X, Invert Y (On, Off) | `invert_mouse_x`, `invert_mouse` |
 | Move Keys | Move Forward, Move Back, Strafe Left, Strafe Right, Jump, Crouch, Walk | `[keys]` |
 | | Walk Speed (10% to 100%) | `walk_speed` |
-| Combat Keys | Fire, Aim, Reload, Grenade, Melee, Action | `[keys]` |
+| Combat Keys | Fire, Aim, Lean, Reload, Grenade, Melee, Action | `[keys]` |
 | Weapon Keys | Change Weapon, Primary Weapon, Pistol, Special Weapon, Next Weapon, Previous Weapon, Sniper Zoom In, Sniper Zoom Out | `[keys]` |
 | Look Keys | Look Up, Look Down, Look Left, Look Right, Center View | `[keys]` |
 | Other Keys | Objectives, Pause, D-Pad Left, D-Pad Right, Quick Save, Quick Load | `[keys]` |

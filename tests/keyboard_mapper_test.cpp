@@ -136,6 +136,15 @@ int main() {
     input::g_wheel_ms[1] = 0;
     Poll(0, true);
 
+    // Alt leans: in play it aims too; Shift walks
+    pad = Poll(VK_MENU, true);
+    Check(pad.analog[6] == 0xFF && input::LeanHeld(), "Alt in play aims and leans");
+    pad = Poll(VK_MENU, false);
+    Check(pad.analog[6] == 0 && !input::LeanHeld(), "Alt in a menu does nothing");
+    Poll(0, true);
+    Check(!input::LeanHeld(), "let go of, no lean");
+    Check(input::BoundKeys("walk") == "Shift" && input::BoundKeys("lean") == "Alt", "walk on Shift, lean on Alt");
+
     Check((Poll('4', true).buttons & 0xF) == 1u << 2, "4 is dpad left");
     Check((Poll('5', true).buttons & 0xF) == 1u << 3, "5 is dpad right");
 

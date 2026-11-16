@@ -240,9 +240,10 @@ void MovementGround(X86Context& ctx, uint8_t*) {
     game::MovementGround(ctx, (ctx.ebx & 0xFF) != 0, game::kCoopMovement);
 }
 // [[hook]]s in the player update 0xD4BF0 (src/common/modern_aim.h), default.xbe's in 0xDB530: ModernAim at 0xD52D6
-// (0xDBB48), 0xD55AD (0xDBDEE), 0xD5635 (0xDBE75) and 0xD6A1A (0xDCF41); the aim block at 0xD5981 (0xDC1D2) and the
-// join at 0xD6F60 (0xDD4A2)
+// (0xDBB48), 0xD55AD (0xDBDEE) and 0xD5635 (0xDBE75), ModernAimWalk at 0xD6A1A (0xDCF41); the aim block at 0xD5981
+// (0xDC1D2) and the join at 0xD6F60 (0xDD4A2)
 bool ModernAim(X86Context& ctx, uint8_t*) { return game::ModernAim(ctx, game::kCoopAim); }
+bool ModernAimWalk(X86Context& ctx, uint8_t*) { return game::ModernAimWalk(ctx, game::kCoopAim); }
 bool ModernAimHold(X86Context& ctx, uint8_t*) { return game::ModernAimHold(ctx, game::kCoopAim); }
 void ModernAimWalked(X86Context& ctx, uint8_t*) { game::ModernAimWalked(ctx, game::kCoopAim); }
 void FloorRayRetry(X86Context& ctx, uint8_t*) {

@@ -247,9 +247,10 @@ void MovementGround(X86Context& ctx, uint8_t*) {
     game::MovementGround(ctx, (ctx.ebx & 0xFF) != 0, game::kDefaultMovement);
 }
 // [[hook]]s in the player update 0xDB530 (src/common/modern_aim.h): ModernAim passes over the aim's ground test
-// (0xDBB48), its eye raise and lower (0xDBDEE, 0xDBE75) and the aim test before the walk code (0xDCF41); the aim
-// block's velocity part (0xDC1D2) and the join after the walk code (0xDD4A2)
+// (0xDBB48) and its eye raise and lower (0xDBDEE, 0xDBE75), ModernAimWalk the aim test before the walk code
+// (0xDCF41); the aim block's velocity part (0xDC1D2) and the join after the walk code (0xDD4A2)
 bool ModernAim(X86Context& ctx, uint8_t*) { return game::ModernAim(ctx, game::kDefaultAim); }
+bool ModernAimWalk(X86Context& ctx, uint8_t*) { return game::ModernAimWalk(ctx, game::kDefaultAim); }
 bool ModernAimHold(X86Context& ctx, uint8_t*) { return game::ModernAimHold(ctx, game::kDefaultAim); }
 void ModernAimWalked(X86Context& ctx, uint8_t*) { game::ModernAimWalked(ctx, game::kDefaultAim); }
 // [[hook]]s in the multiplayer bot update 0x65A80: its AI update test at 0x65A95, the AI update's time at 0x65ABA

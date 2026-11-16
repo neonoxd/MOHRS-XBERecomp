@@ -422,10 +422,10 @@ at = 0xDC1D2
 call = "ModernAimHold"
 on_true = 0xDC26D
 
-# the walk code runs while aiming (test al, 0x10 / jnz 0xDD4A2)
+# the walk code runs while aiming (test al, 0x10 / jnz 0xDD4A2), unless the aim block was left to the lean key
 [[hook]]
 at = 0xDCF41
-call = "ModernAim"
+call = "ModernAimWalk"
 on_true = 0xDCF49
 
 # where the walk code and the aim path meet: the aim's look rates back, the walk slowed

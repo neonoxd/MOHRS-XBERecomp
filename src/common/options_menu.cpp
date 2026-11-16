@@ -146,7 +146,7 @@ const Item kMoveKeys[] = {
      [](int dir) { Opt().walk_speed = uint32_t(std::clamp(int(std::clamp(Opt().walk_speed, 10u, 100u)) + 10 * dir, 10, 100)); }},
 };
 const Item kCombatKeys[] = {
-    Key("Fire", "fire"), Key("Aim", "aim_mode"), Key("Reload", "reload"), Key("Grenade", "grenade_throw"),
+    Key("Fire", "fire"), Key("Aim", "aim_mode"), Key("Lean", "lean"), Key("Reload", "reload"), Key("Grenade", "grenade_throw"),
     Key("Melee", "melee_attack"), Key("Action", "action"),
 };
 const Item kWeaponKeys[] = {

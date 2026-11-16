@@ -63,6 +63,8 @@ struct Target {
     int button;
 };
 constexpr int kWalk = -3;
+constexpr int kLean = -11;  // aims, and on the ground leans even with Modern Aiming on (src/common/modern_aim.h)
+constexpr int kAim = 6;     // LT, the aim
 constexpr int kQuickSave = -4;  // keys of their own, outside the pad (src/common/quick_save.cpp)
 constexpr int kQuickLoad = -5;
 constexpr int kFirstWeapon = -6;  // primary, then -7 secondary, -8 special: a weapon group (src/common/weapon_select.h)
@@ -102,7 +104,8 @@ constexpr Target kActions[] = {
     {{"move_back", "S"}, 17},
     {{"strafe_left", "A"}, 18},
     {{"strafe_right", "D"}, 19},
-    {{"walk", "Alt"}, kWalk},
+    {{"walk", "Shift"}, kWalk},
+    {{"lean", "Alt"}, kLean},
     {{"fire", "LMB"}, 7},
     {{"aim_mode", "RMB"}, 6},
     {{"action", "E,F"}, 0},
@@ -261,6 +264,7 @@ bool UpdateSettle(const Binds& binds) {
 struct Held {
     bool used = false;
     bool walk = false;
+    bool lean = false;
     bool pause = false;
     uint32_t weapons = 0;  // weapon keys held, bit 0 primary_weapon
     uint32_t cycle = 0;    // keys other than the wheel held for next_weapon (bit 0), prev_weapon (bit 1)
@@ -291,6 +295,11 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
         held.used = true;
         if (b == kWalk) {
             held.walk = true;
+        } else if (b == kLean) {
+            if (play) {
+                held.lean = true;
+                p.analog[kAim] = 0xFF;
+            }
         } else if (b <= kFirstWeapon && b > kFirstWeapon - kWeaponKeys) {
             if (play) held.weapons |= 1u << (kFirstWeapon - b);
         } else if (cycle) {
@@ -313,6 +322,7 @@ Held PressActions(const Binds& binds, bool play, Pad& p) {
 // Pads are polled from more than one thread: the edges below are atomic.
 std::atomic<bool> g_pause_held{false}, g_pause_back{false};
 std::atomic<uint32_t> g_weapons_held{0}, g_cycle_held{0};
+std::atomic<bool> g_lean{false};
 
 // The pause key presses Start, which pauses and resumes; in the front end and on the in-game save screens, where
 // Start accepts, it presses B to go back. What it presses is decided when it goes down, so a hold across loading
@@ -428,6 +438,7 @@ void Keyboard(Pad& p) {
     g_block_mouse = blocked;
     if (!Active()) {
         g_settle = true;
+        g_lean = false;
         return;
     }
     Binds binds;
@@ -437,11 +448,13 @@ void Keyboard(Pad& p) {
     }
     if (!UpdateSettle(binds)) {
         g_wheel_notches[0] = g_wheel_notches[1] = 0;
+        g_lean = false;
         return;
     }
     bool play = Playing();
     bool fixed_down = std::any_of(std::begin(kFixed), std::end(kFixed), Down);
     Held held = PressActions(binds, play, p);
+    g_lean = held.lean;
     PressPause(held.pause, play, p);
     PressWeapons(held.weapons, held.cycle, WheelSteps(binds, play));
     // Enter, Space and Backspace act in menus; in play they do what they are bound to
@@ -476,6 +489,7 @@ void SeenPad(const Pad& p) {
 }
 
 bool KeyboardActive() { return g_keyboard; }
+bool LeanHeld() { return g_lean; }
 
 MenuPointer ReadMenuPointer() {
     MenuPointer p;
