@@ -57,6 +57,13 @@ inline constexpr char kHudScreen[] = "HUD.fng";
 inline constexpr char kTimerRow[] = "Mission Timer";  // the objects: "<row> text", " On", " Off", " button"
 std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size);
 
+// Controller Options (ControllerOptions.fng, the shell's and the pause screen's) with a Modern Aiming row under
+// Invert Y Axis, made from that row the same way (src/common/modern_aim.h). Empty on failure or when the package has
+// it already.
+inline constexpr char kControllerScreen[] = "ControllerOptions.fng";
+inline constexpr char kAimRow[] = "Modern Aiming";
+std::vector<uint8_t> AddAimRow(const uint8_t* data, size_t size);
+
 // Direct mouse tab transitions, cloned from each pause page's native left/right cleanup response.
 // Empty for packages other than pause pages, or when a native transition could not be found.
 std::vector<uint8_t> AddPauseTabs(const uint8_t* data, size_t size);

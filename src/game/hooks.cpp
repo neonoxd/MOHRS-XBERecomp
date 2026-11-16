@@ -12,6 +12,7 @@
 #include "common/script_guard.h"
 #include "common/menu_mouse.h"
 #include "common/mission_timer.h"
+#include "common/modern_aim.h"
 #include "common/stream_lock.h"
 #include "common/test_hooks.h"
 #include "common/weapon_select.h"
@@ -245,6 +246,12 @@ void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
 void MovementGround(X86Context& ctx, uint8_t*) {
     game::MovementGround(ctx, (ctx.ebx & 0xFF) != 0, game::kDefaultMovement);
 }
+// [[hook]]s in the player update 0xDB530 (src/common/modern_aim.h): ModernAim passes over the aim's ground test
+// (0xDBB48), its eye raise and lower (0xDBDEE, 0xDBE75) and the aim test before the walk code (0xDCF41); the aim
+// block's velocity part (0xDC1D2) and the join after the walk code (0xDD4A2)
+bool ModernAim(X86Context& ctx, uint8_t*) { return game::ModernAim(ctx, game::kDefaultAim); }
+bool ModernAimHold(X86Context& ctx, uint8_t*) { return game::ModernAimHold(ctx, game::kDefaultAim); }
+void ModernAimWalked(X86Context& ctx, uint8_t*) { game::ModernAimWalked(ctx, game::kDefaultAim); }
 // [[hook]]s in the multiplayer bot update 0x65A80: its AI update test at 0x65A95, the AI update's time at 0x65ABA
 void BotThink(X86Context& ctx, uint8_t*) { game::BotThink(ctx, 0x270140); }
 void BotThinkTime(X86Context& ctx, uint8_t*) { game::BotThinkTime(ctx); }
@@ -376,6 +383,9 @@ X86_FUNC(sub_00120F00) { game::MenuScreen(ctx, base, __imp__sub_00120F00); }
 // the HUD options screen's event handler (vtable 0x1ED40C)
 X86_EXTERN_FUNC(__imp__sub_0012A620);
 X86_FUNC(sub_0012A620) { game::MenuEvent(ctx, base, __imp__sub_0012A620, kMenuCalls); }
+// the controller options screen's event handler (vtable 0x1ED4B4): the Modern Aiming row
+X86_EXTERN_FUNC(__imp__sub_00127FD0);
+X86_FUNC(sub_00127FD0) { game::ControllerMenuEvent(ctx, base, __imp__sub_00127FD0, kMenuCalls); }
 // the stats screens' fill, with the game state pointer at 0x2447D8: the end-of-level summary's mission time
 X86_EXTERN_FUNC(__imp__sub_00136D00);
 X86_FUNC(sub_00136D00) { game::MenuStats(ctx, base, __imp__sub_00136D00, kMenuCalls, 0x2447D8); }

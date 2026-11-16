@@ -81,6 +81,9 @@ air as in Quake, bunny hops and air strafing included; hold jump to hop on every
 the crosshair; your own grenades and rockets do you no harm and push you away, so you can rocket jump). They last until the game is closed. Give All Weapons gives every weapon the current level
 has, and in single player the campaign's other weapons too. One Shot Kills and Achilles Head also apply to your allies.
 
+Controller Options > Modern Aiming (in the main menu's options and the pause screen's preferences): while you aim
+you walk, at half speed, and can jump, instead of leaning to the side. Off is the console's aiming.
+
 The end-of-level stats also show the mission time: how long the level took, pauses not counted. HUD Options >
 Mission Timer (in the main menu's options and the pause screen's preferences) shows it in the top right corner
 while you play.

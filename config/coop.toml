@@ -386,6 +386,41 @@ call = "MessageTicks"
 at = 0xD4EB9
 call = "MovementGround"
 
+# Modern Aiming (src/common/modern_aim.h), in the player update 0xD4BF0; default.xbe's addresses in brackets.
+# The aim may start off the ground (0xDBB48)
+[[hook]]
+at = 0xD52D6
+call = "ModernAim"
+on_true = 0xD52E4
+
+# the eye's raise and lower while aiming (0xDBDEE, 0xDBE75)
+[[hook]]
+at = 0xD55AD
+call = "ModernAim"
+on_true = 0xD5604
+
+[[hook]]
+at = 0xD5635
+call = "ModernAim"
+on_true = 0xD568C
+
+# the aim block's stop, lean and dropped jump (0xDC1D2)
+[[hook]]
+at = 0xD5981
+call = "ModernAimHold"
+on_true = 0xD5A1C
+
+# the walk code while aiming (0xDCF41)
+[[hook]]
+at = 0xD6A1A
+call = "ModernAim"
+on_true = 0xD6A22
+
+# the join after the walk code (0xDD4A2)
+[[hook]]
+at = 0xD6F60
+call = "ModernAimWalked"
+
 # The player's end-of-step floor ray, default.xbe's 0xDAC19 / 0xDAC2A in 0xD104A
 [[hook]]
 at = 0xD1581

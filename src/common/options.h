@@ -23,6 +23,7 @@ struct Options {
     bool invert_mouse = false;  // the Y axis
     bool invert_mouse_x = false;
     uint32_t walk_speed = 50;  // percent of running, while the walk key is held
+    bool modern_aiming = false;  // walk and jump while aiming, slower (src/common/modern_aim.h)
     std::map<std::string, std::string> keys;  // action id to key names, absent is the default
 };
 

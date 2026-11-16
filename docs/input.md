@@ -162,6 +162,47 @@ On a mounted gun (player `+0xD46` bit 0) the normal look function skips its mous
 mounted hook. Without it, aim is lost and `TakeMouse` is not called; its timestamp keeps `input::Playing()` true
 (250 ms) and enables mouse button bindings.
 
+## Modern Aiming
+
+Controller Options' **Modern Aiming** row (setting `modern_aiming`, default off; the row is in
+[menus.md](menus.md#controller-options)) lets the player walk and jump while aiming. `src/common/modern_aim.{h,cpp}`.
+
+The game's aiming, in the player update (`0xDB530` / `0xD4BF0`):
+
+- The aim bit (`+0xD44` bit 4) follows the aim action (15) and can only come on while the ground test (`bl`) passed,
+  a floor is touched (`+0xD44` bit 1), the player is scripted (`+0xD46` bit 6) or it was on the last frame (bit 5).
+- While aiming, the look stick is read at the zoom's slower turn rates, kept in the update's frame (default
+  `[esp+0x2C]` yaw, `[esp+0x28]` pitch; co-op `[esp+0x38]`, `[esp+0x1C]`) and written to `+0x27C` / `+0x280`.
+- Then, unless in the air (`+0xD45` bit 6), the walk velocity (`+0x240` strafe, `+0x244` forward) is zeroed and the
+  lean runs (`0xD9A20` / `0xCF1A0`): the strafe stick moves the player up to a unit sideways from where the aim
+  started (`+0xDE0` / `+0xEC0`), with `+0xD45` bit 3 set while out of place; when the aim ends the player is put
+  back there (`0xC7490`). The jump (`[esp+0x5C]` / `[esp+0x7C]`) is dropped and the walk code skipped.
+- Crouched (`+0xD45` bit 1) and aiming, pushing forward raises the eye over cover; standing with `+0xD4C` bit 5,
+  pulling back lowers it (`+0x28C`).
+
+With the setting on, for a player on foot (not `+0xD46` bits 0, 4 or 6, not on a ladder `+0xD45` bit 0, and in
+co-op not `+0xE44`, `+0xE45` or `+0xD4E` bits 6-7), instruction hooks change that:
+
+| Hook | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| `ModernAim`: the aim may start off the ground (`test bl, bl` passed over) | `0xDBB48` -> `0xDBB56` | `0xD52D6` -> `0xD52E4` |
+| `ModernAim`: the crouched raise reads 0 | `0xDBDEE` -> `0xDBE45` | `0xD55AD` -> `0xD5604` |
+| `ModernAim`: the standing lower reads 0 | `0xDBE75` -> `0xDBECC` | `0xD5635` -> `0xD568C` |
+| `ModernAimHold`: the aim block's stop, lean and dropped jump passed over, its look rates kept | `0xDC1D2` -> `0xDC26D` | `0xD5981` -> `0xD5A1C` |
+| `ModernAim`: the walk code runs while aiming (`test al, 0x10` passed over) | `0xDCF41` -> `0xDCF49` | `0xD6A1A` -> `0xD6A22` |
+| `ModernAimWalked`: where the walk code and the aim path meet | `0xDD4A2` | `0xD6F60` |
+| Ground byte at the join | `[esp+0x58]` | `[esp+0x5C]` |
+
+`ModernAimWalked` writes the kept look rates back over the walk code's (which are the hip's, with its turn
+acceleration) and slows the walk on the ground, where the walk code sets the velocity from the stick each update:
+strafe and forward are halved (`kAimWalk`). In the air the walk code adds to the velocity the player has, and it is
+left as when not aiming. The jump is the walk code's own, so it goes off as when not aiming. A lean already out
+when the setting comes on is ended where the player stands.
+
+Custom Movement (Quake, [menus.md](menus.md#custom-movement)) leaves an aiming player (`+0xD44` bit 4) to the game,
+unless Modern Aiming is on: then its rules keep the velocity while aiming, with the ground's `maxspeed` halved
+(`kAimWalk`) and the air's rules as they are, and its velocity replaces the walk code's as at any other time.
+
 ## Tests
 
 ```powershell

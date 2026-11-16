@@ -7,6 +7,7 @@
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/mission_timer.h"
+#include "common/modern_aim.h"
 #include "common/options_menu.h"
 #include "common/pool_lock.h"
 #include "common/script_guard.h"
@@ -238,6 +239,12 @@ void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
 void MovementGround(X86Context& ctx, uint8_t*) {
     game::MovementGround(ctx, (ctx.ebx & 0xFF) != 0, game::kCoopMovement);
 }
+// [[hook]]s in the player update 0xD4BF0 (src/common/modern_aim.h), default.xbe's in 0xDB530: ModernAim at 0xD52D6
+// (0xDBB48), 0xD55AD (0xDBDEE), 0xD5635 (0xDBE75) and 0xD6A1A (0xDCF41); the aim block at 0xD5981 (0xDC1D2) and the
+// join at 0xD6F60 (0xDD4A2)
+bool ModernAim(X86Context& ctx, uint8_t*) { return game::ModernAim(ctx, game::kCoopAim); }
+bool ModernAimHold(X86Context& ctx, uint8_t*) { return game::ModernAimHold(ctx, game::kCoopAim); }
+void ModernAimWalked(X86Context& ctx, uint8_t*) { game::ModernAimWalked(ctx, game::kCoopAim); }
 void FloorRayRetry(X86Context& ctx, uint8_t*) {
     game::FloorRayRetry(ctx, {0x90, 0xE0, 0x50, 0x13DF00, 0x13BBE0, 0x13BD80, 0x6D290});
 }
@@ -296,6 +303,9 @@ X86_FUNC(sub_0011B1B0) { game::MenuScreen(ctx, base, __imp__sub_0011B1B0); }
 // the HUD options screen's event handler (0x12A620)
 X86_EXTERN_FUNC(__imp__sub_00124C20);
 X86_FUNC(sub_00124C20) { game::MenuEvent(ctx, base, __imp__sub_00124C20, kMenuCalls); }
+// the controller options screen's event handler (0x127FD0, vtable 0x1E6384): the Modern Aiming row
+X86_EXTERN_FUNC(__imp__sub_001225D0);
+X86_FUNC(sub_001225D0) { game::ControllerMenuEvent(ctx, base, __imp__sub_001225D0, kMenuCalls); }
 // the stats screens' fill (0x136D00), with the game state pointer at 0x23C9D0 (0x2447D8)
 X86_EXTERN_FUNC(__imp__sub_0012FFD0);
 X86_FUNC(sub_0012FFD0) { game::MenuStats(ctx, base, __imp__sub_0012FFD0, kMenuCalls, 0x23C9D0); }

@@ -398,6 +398,41 @@ call = "TraceNative"
 at = 0xDB7C4
 call = "MovementGround"
 
+# Modern Aiming (src/common/modern_aim.h), in the player update 0xDB530: the aim may start off the ground (test bl)
+[[hook]]
+at = 0xDBB48
+call = "ModernAim"
+on_true = 0xDBB56
+
+# the eye's raise (crouched) and lower (standing) from the stick while aiming read as 0
+[[hook]]
+at = 0xDBDEE
+call = "ModernAim"
+on_true = 0xDBE45
+
+[[hook]]
+at = 0xDBE75
+call = "ModernAim"
+on_true = 0xDBECC
+
+# the aim block's stop, lean and dropped jump passed over, its look rates kept (xorps xmm0 at 0xDC26D, as each of
+# its paths does before 0xDC270)
+[[hook]]
+at = 0xDC1D2
+call = "ModernAimHold"
+on_true = 0xDC26D
+
+# the walk code runs while aiming (test al, 0x10 / jnz 0xDD4A2)
+[[hook]]
+at = 0xDCF41
+call = "ModernAim"
+on_true = 0xDCF49
+
+# where the walk code and the aim path meet: the aim's look rates back, the walk slowed
+[[hook]]
+at = 0xDD4A2
+call = "ModernAimWalked"
+
 # The player's end-of-step floor ray in 0xDA7D0 (docs/frame-timing.md): keep the collision world before the call,
 # cast again beside a miss at cmp edi, 1
 [[hook]]

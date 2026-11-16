@@ -237,7 +237,8 @@ const app::GameInfo app::kGame = {
                 {"fov", nullptr, &game::Opt().fov},
                 {"invert_mouse", &game::Opt().invert_mouse, nullptr},
                 {"invert_mouse_x", &game::Opt().invert_mouse_x, nullptr},
-                {"walk_speed", nullptr, &game::Opt().walk_speed}},
+                {"walk_speed", nullptr, &game::Opt().walk_speed},
+                {"modern_aiming", &game::Opt().modern_aiming, nullptr}},
     .load = game::Load,                   // reads more from the settings file's toml::table
     .save = game::Save,                   // writes more into it
     .init = game::Init,                   // after the settings load, before the window and boot

@@ -240,6 +240,34 @@ static void TimerRow(const fs::path& file) {
     std::printf("%s: mission timer row at y %.0f\n", file.string().c_str(), text->Y());
 }
 
+static void AimRow(const fs::path& file) {
+    std::vector<uint8_t> d = Read(file);
+    std::optional<feng::Package> before = feng::Package::Parse(d.data(), d.size());
+    std::vector<uint8_t> made = game::menu::AddAimRow(d.data(), d.size());
+    Check(!made.empty(), "modern aiming row not added: " + file.string());
+    Save(file, game::menu::kControllerScreen, made);
+    std::optional<feng::Package> p = feng::Package::Parse(made.data(), made.size());
+    Check(p && p->Write() == made, "controller package round trip");
+    std::string row = game::menu::kAimRow;
+    const feng::Object* text = p->Find(row + " text");
+    const feng::Object* on = p->Find(row + " On");
+    const feng::Object* off = p->Find(row + " Off");
+    const feng::Object* button = p->Find(row + " button");
+    Check(text && on && off && button, "modern aiming row objects");
+    float pitch = (p->Find("Invert Y Axis text")->Y() - p->Find("Vibrate text")->Y()) / 3.0f;
+    Check(pitch > 0.0f, "rows go down");
+    Check(text->Y() == p->Find("Invert Y Axis text")->Y() + pitch, "modern aiming row under Invert Y Axis");
+    Check(on->Y() == p->Find("Invert Y Axis On")->Y() + pitch && off->Y() == p->Find("Invert Y Axis Off")->Y() + pitch,
+          "its On and Off");
+    Check(button->Y() == p->Find("Invert Y Axis button")->Y() + pitch && button->IsButton(), "its button");
+    size_t at = p->Index(row + " button");
+    Check(at + 2 < p->objects.size() && p->objects[at + 1].Parent() == button->Guid() &&
+              p->objects[at + 2].Parent() == button->Guid(), "its arrows");
+    Check(p->objects.size() == before->objects.size() + 6, "text, On, Off, button and two arrows added");
+    Check(game::menu::AddAimRow(made.data(), made.size()).empty(), "modern aiming row cannot be added twice");
+    std::printf("%s: modern aiming row at y %.0f (pitch %.0f)\n", file.string().c_str(), text->Y(), pitch);
+}
+
 int main(int argc, char** argv) {
     std::vector<fs::path> dirs;
     for (int i = 1; i < argc; i++) {
@@ -262,6 +290,7 @@ int main(int argc, char** argv) {
             std::string name = f.path().filename().string();
             PauseTabs(f.path());
             if (name == game::menu::kSummary) MissionTime(f.path());
+            if (name == game::menu::kControllerScreen) AimRow(f.path());
             if (name == "HUD.fng") {
                 TimerRow(f.path());
                 Screen(f.path(), game::menu::kPcOptions, game::menu::kRows);

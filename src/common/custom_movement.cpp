@@ -8,7 +8,9 @@
 #include <iterator>
 #include <mutex>
 
+#include "common/modern_aim.h"
 #include "common/movement_rules.h"
+#include "common/options.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
 
@@ -122,10 +124,11 @@ void SetVec(uint32_t address, Vec v) {
     G<float>(address + 8) = v.z;
 }
 
-// on foot, walking: not on a ladder, a vehicle or a mounted gun, not scripted, not frozen or stunned
+// on foot, walking: not on a ladder, a vehicle or a mounted gun, not scripted, not frozen or stunned, not aiming
+// unless Modern Aiming walks the player then (src/common/modern_aim.h)
 bool OnFoot(uint32_t p, const MovementLayout& l) {
     uint8_t contact = G<uint8_t>(p + kContact), state = G<uint8_t>(p + kState), mode = G<uint8_t>(p + kMode);
-    if (contact & kContactAiming) return false;
+    if ((contact & kContactAiming) && !Opt().modern_aiming) return false;
     if (state & kStateLadder) return false;
     if (mode & (kModeVehicle | kModeMounting | kModeScripted)) return false;
     if (G<uint8_t>(p + kControl) & kControlFrozen) return false;
@@ -271,6 +274,8 @@ void MovementGround(X86Context& ctx, bool ground, const MovementLayout& l) {
     // off a step edge walking down: still the ground for a moment, pushed down onto the next step (End)
     bool grace = !tested && s->walked && s->off_ground <= kStepGrace && s->state.velocity.z <= 0;
     s->state.on_ground = tested || grace;
+    // Modern Aiming: slower on the ground while aiming; the air's speed is left alone
+    if (s->state.on_ground && (G<uint8_t>(p + kContact) & kContactAiming)) r.maxspeed *= kAimWalk;
     movement::Frame f = movement::Move(s->state, r, in, GetVec(p + kForward), GetVec(p + kRight), seconds);
     s->asked = f.move;
     s->seconds = seconds;

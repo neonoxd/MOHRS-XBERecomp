@@ -177,7 +177,8 @@ Made g_made[] = {{menu::kScreen, false}, {menu::kScreen, true}, {menu::kCheatsSc
                  {"Preferences.fng", true, true}, {"MPPreferences.fng", true, true},
                  {"ObjectivesOverlay.fng", true, true}, {"Notes.fng", true, true}, {"LoadRestart.fng", true, true},
                  {"MPLeaderBoard.fng", true, true}, {"MPLoadRestart.fng", true, true},
-                 {menu::kSummary, true}, {menu::kHudScreen, false}, {menu::kHudScreen, true}};
+                 {menu::kSummary, true}, {menu::kHudScreen, false}, {menu::kHudScreen, true},
+                 {menu::kControllerScreen, false}, {menu::kControllerScreen, true}};
 
 // strings for one call into the game; the same few each time, so kept (src/common/guest_block.h)
 uint32_t Text(const std::string& s) {
@@ -355,7 +356,47 @@ void HudEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const Menu
     ctx.eax = result;
 }
 
+// Controller Options' Modern Aiming row (src/common/options_package.h): one of its On and Off texts shown
+void ShowAim(X86Context& ctx, uint32_t package, bool on, const MenuCalls& calls) {
+    std::string row = menu::kAimRow;
+    kernel::CallGuest(ctx, calls.run_script, {package, Text(row + " On"), Text(on ? "Show" : "Hide")});
+    kernel::CallGuest(ctx, calls.run_script, {package, Text(row + " Off"), Text(on ? "Hide" : "Show")});
+}
+
+bool g_aim_row = false;  // game thread: the row as shown, kept on confirm like the screen's own rows
+
 }  // namespace
+
+void ControllerMenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls) {
+    static const uint32_t kSetup = feng::Hash("Controller Setup"), kConfirm = feng::Hash("Controller Options Confirm"),
+                          kLeft = feng::Hash("Pad_Left"), kRight = feng::Hash("Pad_Right"),
+                          kButton = feng::Hash(std::string(menu::kAimRow) + " button");
+    uint32_t package = R32(ctx.ecx + kHandlerPackage);
+    uint32_t event = R32(ctx.esp + 4);
+    if (event == kLeft || event == kRight) {
+        uint32_t focus = R32(package + kFocus);
+        if (focus && R32(focus + kObjectHash) == kButton) {
+            g_aim_row = !g_aim_row;
+            // the handler's toggle sounds: 1 on, 0 off
+            kernel::CallGuest(ctx, calls.sound, {g_aim_row ? 1u : 0u});
+            ShowAim(ctx, package, g_aim_row, calls);
+            kernel::Return(ctx, 0, 3);
+            return;
+        }
+    }
+    original(ctx, base);
+    uint32_t result = ctx.eax;
+    if (event == kSetup) {
+        g_aim_row = Opt().modern_aiming;
+        ShowAim(ctx, package, g_aim_row, calls);
+    }
+    if (event == kConfirm && g_aim_row != Opt().modern_aiming) {
+        Opt().modern_aiming = g_aim_row;
+        app::Save();
+        LOGI("controller options: modern aiming %s", g_aim_row ? "on" : "off");
+    }
+    ctx.eax = result;
+}
 
 void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
     uint32_t esp = ctx.esp;
@@ -388,6 +429,8 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
             modified = menu::AddEntry(data, size);
         } else if (EqualNoCase(file, menu::kHudScreen)) {
             modified = menu::AddTimerRow(data, size);
+        } else if (EqualNoCase(file, menu::kControllerScreen)) {
+            modified = menu::AddAimRow(data, size);
         } else if (EqualNoCase(file, menu::kSummary)) {
             modified = menu::AddMissionTime(data, size);
         } else if (EqualNoCase(file, "Preferences.fng")) {

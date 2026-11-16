@@ -141,27 +141,23 @@ std::vector<uint8_t> AddMissionTime(const uint8_t* data, size_t size) {
     return p.Write();
 }
 
-std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size) {
-    std::optional<feng::Package> parsed = feng::Package::Parse(data, size);
-    if (!parsed) return {};
-    feng::Package& p = *parsed;
-    const std::string row = kTimerRow;
-    const feng::Object* first = p.Find("Crosshairs text");
-    const feng::Object* second = p.Find("HUD text");
-    size_t at = p.Index("Crosshairs button"), last = p.Index("HUD button");
-    if (!first || !second || at == p.objects.size() || last == p.objects.size() || p.Find(row + " button")) return {};
-    // two rows under Crosshairs, at the rows' pitch
-    float down = 2.0f * (second->Y() - first->Y());
-    if (down <= 0.0f) return {};
-    uint32_t guid = p.NextGuid(), pattern = p.objects[at].Guid();
+namespace {
+
+// a copy of an On/Off row (its "<pattern> text", " Off", " On" and " button" with the arrows) named row, moved down,
+// after the button named after (and its arrows); false when an object is missing or the row is there already
+bool CopyToggleRow(feng::Package& p, const std::string& pattern, const std::string& row, const char* label,
+                   float down, const std::string& after) {
+    size_t at = p.Index(pattern + " button"), last = p.Index(after + " button");
+    if (at == p.objects.size() || last == p.objects.size() || p.Find(row + " button") || down <= 0.0f) return false;
+    uint32_t guid = p.NextGuid(), group_like = p.objects[at].Guid();
     std::vector<feng::Object> rows;
     for (const char* part : {" text", " Off", " On"}) {
-        const feng::Object* o = p.Find(std::string("Crosshairs") + part);
-        if (!o) return {};
+        const feng::Object* o = p.Find(pattern + part);
+        if (!o) return false;
         feng::Object c = *o;
         c.SetName(row + part);
         c.SetGuid(guid++);
-        if (std::string(part) == " text") c.SetText(row, "MISSION_TIMER");
+        if (std::string(part) == " text") c.SetText(row, label);
         c.Move(0.0f, down);
         rows.push_back(c);
     }
@@ -172,18 +168,45 @@ std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size) {
     b.SetGuid(group);
     b.Move(0.0f, down);
     rows.push_back(b);
-    for (size_t i = at + 1; i < p.objects.size() && p.objects[i].Parent() == pattern; i++) {
+    for (size_t i = at + 1; i < p.objects.size() && p.objects[i].Parent() == group_like; i++) {
         feng::Object a = p.objects[i];
         a.SetGuid(guid++);
         a.SetParent(group);
         rows.push_back(a);
     }
     // the highlight messages reach the new button too
-    p.AddTarget(pattern, group);
-    // after HUD Type's button and its arrows
-    uint32_t hud = p.objects[last].Guid();
-    while (last + 1 < p.objects.size() && p.objects[last + 1].Parent() == hud) last++;
+    p.AddTarget(group_like, group);
+    uint32_t parent = p.objects[last].Guid();
+    while (last + 1 < p.objects.size() && p.objects[last + 1].Parent() == parent) last++;
     p.objects.insert(p.objects.begin() + last + 1, rows.begin(), rows.end());
+    return true;
+}
+
+}  // namespace
+
+std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size) {
+    std::optional<feng::Package> parsed = feng::Package::Parse(data, size);
+    if (!parsed) return {};
+    feng::Package& p = *parsed;
+    const feng::Object* first = p.Find("Crosshairs text");
+    const feng::Object* second = p.Find("HUD text");
+    if (!first || !second) return {};
+    // two rows under Crosshairs, at the rows' pitch, after HUD Type's button
+    float down = 2.0f * (second->Y() - first->Y());
+    if (!CopyToggleRow(p, "Crosshairs", kTimerRow, "MISSION_TIMER", down, "HUD")) return {};
+    return p.Write();
+}
+
+std::vector<uint8_t> AddAimRow(const uint8_t* data, size_t size) {
+    std::optional<feng::Package> parsed = feng::Package::Parse(data, size);
+    if (!parsed) return {};
+    feng::Package& p = *parsed;
+    const feng::Object* first = p.Find("Vibrate text");
+    const feng::Object* last = p.Find("Invert Y Axis text");
+    if (!first || !last) return {};
+    // Vibrate, Analog Sensitivity, Turn Speed, Invert Y Axis: one row pitch under the last
+    float down = (last->Y() - first->Y()) / 3.0f;
+    if (!CopyToggleRow(p, "Invert Y Axis", kAimRow, "MODERN_AIMING", down, "Invert Y Axis")) return {};
     return p.Write();
 }
 

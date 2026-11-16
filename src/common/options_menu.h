@@ -27,6 +27,9 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original);
 void MenuScreen(X86Context& ctx, uint8_t* base, GuestFunction original);
 // the HUD screen handler's event (thiscall: event hash, 2 more; ret 0xc): PCOptions.fng's events handled here
 void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls);
+// the controller options screen handler's event (thiscall: event hash, 2 more; ret 0xc): left and right on the
+// Modern Aiming row added to ControllerOptions.fng switch it, confirm keeps it in the settings file
+void ControllerMenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls);
 // the stats screens' fill (thiscall: package, cumulative, medals, 2 more; ret 0x14): for the level's stats (not the
 // profile's cumulative ones) the mission time row added to EndOfLevelSummary.fng (src/common/options_package.h) gets
 // the game's own level timer as m:ss.mmm; state is the game state pointer's address

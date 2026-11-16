@@ -165,7 +165,7 @@ uint32_t LabelButton(uint32_t hash) {
         }
         const char* names[] = {"Crosshairs", "HUD", "Subtitles", "Sound Format", "Music Volume", "SFX Volume",
                                "Turn Speed", "Analog Sensitivity", "Invert Y Axis", "Vibrate", "Grenade Cook",
-                               menu::kTimerRow};
+                               menu::kTimerRow, menu::kAimRow};
         for (const char* name : names) {
             uint32_t button = feng::Hash(std::string(name) + " button");
             for (const char* suffix : {" text", " On", " Off", " Automatic"})

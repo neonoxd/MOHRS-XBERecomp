@@ -405,6 +405,25 @@ The end-of-level stats:
 | Mission time getter, seconds (unused) | `0x9D500` | `0x8FE80` |
 | Level stats (13 values from game state `+0x31744`), cumulative stats | `0x9D520`, `0x9D600` | `0x8FEA0`, `0x8FF80` |
 
+## Controller Options
+
+Controller Options (`ControllerOptions.fng`, the shell's and the pause screen's) gets a **Modern Aiming** row (On,
+Off) under Invert Y Axis, which switches [Modern Aiming](input.md#modern-aiming):
+
+- `menu::AddAimRow` (`src/common/options_package.cpp`) copies the Invert Y Axis row one row pitch down (the pitch is
+  Invert Y Axis text's Y minus Vibrate text's, over three rows: 38 in the shell, 32 in the pause screen) as
+  `Modern Aiming text` (label `MODERN_AIMING`, not in the string tables), `Modern Aiming On` / `Off` and
+  `Modern Aiming button` with its arrows, after Invert Y Axis button, and adds the button to Invert Y Axis button's
+  highlight target lists. It shares the copy with the Mission Timer row.
+- The screen's handler (`0x127FD0` / `0x1225D0`, vtable `0x1ED4B4` / `0x1E6384`) keeps its rows in the handler
+  (`+0x50` crosshairs, `+0x51` vibrate, `+0x52` grenade cook, `+0x53` invert, `+0x54` sensitivity, `+0x58` turn
+  speed), reads them from the profile on `Controller Setup` and writes them back on `Controller Options Confirm`;
+  any other button logs an unknown option. `ControllerMenuEvent` (`src/common/options_menu.cpp`) does the same for
+  its row: `Controller Setup` reads the setting and shows the row, left and right on `Modern Aiming button` flip it
+  (toggle sounds 1 on, 0 off; RunScript Show/Hide on the On and Off texts) without passing the event on, and
+  `Controller Options Confirm` sets the setting and writes `settings.toml` if it changed.
+- The menu mouse maps the row's text, On and Off to its button.
+
 ## Mouse in menus
 
 - Hover focuses an entry, left click selects it, the wheel moves through entries. A stationary pointer leaves
