@@ -35,7 +35,12 @@ constexpr uint64_t kSwitchMs = 2000;
 struct Pending {
     uint32_t player = 0, id = 0;
     uint64_t until = 0;
+    bool posting = false;   // the press's switch message not posted yet
+    uint64_t posted = 0;    // when it was posted and a handler took it
+    bool started = false;   // the player's script started the switch since
 } g_pending;
+// The script runs at the console's 30 Hz; a switch message a handler took is acted on by its next run or not at all.
+constexpr uint64_t kStartMs = 150;
 
 uint64_t NowMs() {
     auto since = std::chrono::steady_clock::now().time_since_epoch();
@@ -132,8 +137,12 @@ void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const W
     if (!Pointer(current)) current = 0;
     // Pressed again before the script's select, the key cycles on from the weapon already asked for; the switch
     // under way takes the new one, and no second switch is started (the script would step past it after).
-    bool switching = g_pending.player == player && NowMs() <= g_pending.until;
-    if (g_pending.player && !switching) LOGI("weapon key: the last switch asked for was not taken by the script");
+    uint64_t now = NowMs();
+    bool switching = g_pending.player == player && now <= g_pending.until &&
+                     (g_pending.started || g_pending.posting || now - g_pending.posted < kStartMs);
+    if (g_pending.player && !switching)
+        LOGI("weapon key: the last switch asked for was %s", g_pending.started ? "not finished by the script"
+                                                                              : "not started by the script");
     uint32_t asked = switching ? WithId(player, g_pending.id, l) : 0;
     uint32_t from = asked ? asked : current;
     uint32_t wanted = Pick(player, key, from, l, request.steps);
@@ -142,9 +151,39 @@ void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const W
         LOGI("weapon key %d: nothing else in the group (holding %08X)", key, current);
         return;
     }
-    g_pending = {player, R32(Weapon(wanted) + l.id), NowMs() + kSwitchMs};
-    if (!switching) ctx.eax = 1;
+    // a press during the switch moves its weapon on, but not its deadline: a switch the script never takes must not be
+    // kept alive by more presses
+    if (switching) {
+        g_pending.id = R32(Weapon(wanted) + l.id);
+    } else {
+        g_pending = {player, R32(Weapon(wanted) + l.id), NowMs() + kSwitchMs, true};
+        ctx.eax = 1;
+    }
     LOGI("weapon key %d: switching to holder %08X", key, wanted);
+}
+
+void WeaponSwitchPosted(uint32_t target, uint32_t message, bool taken, const WeaponLayout& l) {
+    if ((message & 0xFFFF) != kSwitchAction || !g_pending.posting || !Pointer(g_pending.player)) return;
+    if (R32(g_pending.player + l.script) != target) return;
+    g_pending.posting = false;
+    if (taken) {
+        g_pending.posted = NowMs();
+        return;
+    }
+    LOGI("weapon key: the player's script took no switch message; the next press starts a switch");
+    g_pending = {};
+}
+
+void WeaponNative(uint32_t native, const WeaponLayout& l) {
+    if (!Pointer(g_pending.player) || (native != l.switch_start && native != l.draw)) return;
+    if (R32(l.running_script) != R32(g_pending.player + l.script)) return;
+    if (native == l.switch_start) {
+        if (g_pending.posted) g_pending.started = true;
+        return;
+    }
+    // drawn with no select: the level's first draw, after a restart, or a switch the script made on its own
+    LOGI("weapon key: the player drew a weapon before the switch asked for, which ends it");
+    g_pending = {};
 }
 
 void WeaponScope(uint32_t player, const WeaponLayout& l) {

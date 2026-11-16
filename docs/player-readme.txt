@@ -76,8 +76,14 @@ sensitivity and mouse inversion. Left and right change a row, confirm saves, bac
 
 Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
 Mode, One Shot Kills, Bullet Shield, Achilles Head, Invisible Soldiers and Rubber Grenades, and sets Quick Reload
-(Off, 2x, 3x or 4x faster reloads). They last until the game is closed. Give All Weapons gives every weapon the current level
+(Off, 2x, 3x or 4x faster reloads) and Custom Movement (Off or Quake: on foot you run, stop, jump and steer in the
+air as in Quake, bunny hops and air strafing included; hold jump to hop on every landing, your speed is shown under
+the crosshair; your own grenades and rockets do you no harm and push you away, so you can rocket jump). They last until the game is closed. Give All Weapons gives every weapon the current level
 has, and in single player the campaign's other weapons too. One Shot Kills and Achilles Head also apply to your allies.
+
+The end-of-level stats also show the mission time: how long the level took, pauses not counted. HUD Options >
+Mission Timer (in the main menu's options and the pause screen's preferences) shows it in the top right corner
+while you play.
 
 Everything is also in settings.toml beside the executable, written on the first start. Some settings are only there:
 
@@ -111,7 +117,7 @@ Known limits of this preview
 - The whole campaign has not been played through on this port yet; the later levels (1_5, 1_7, 1_8, 1_9) have
   not been checked.
 - Multiplayer over a network and Xbox Live are not supported. Split-screen and co-op work.
-- The new PC Options and Cheats screens are in English in every language.
+- The new PC Options and Cheats screens and the mission time rows are in English in every language.
 
 
 Reporting problems

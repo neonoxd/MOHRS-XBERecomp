@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdio>
+#include <string>
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -14,7 +15,9 @@
 
 #include "app/app.h"
 #include "common/controller_routing.h"
+#include "common/custom_movement.h"
 #include "common/level_weapons.h"
+#include "common/mission_timer.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
 #include "common/quick_save.h"
@@ -73,8 +76,51 @@ void FpsCounter(double fps) {
     draw->AddText(nullptr, size, at, IM_COL32(255, 255, 255, 230), text);
 }
 
+// the level's time (src/common/mission_timer.h), over the top right corner of the picture during play
+void MissionTimer() {
+    uint32_t ticks;
+    if (!Opt().mission_timer || !MissionTimerTicks(ticks)) return;
+    ImVec2 window = ImGui::GetIO().DisplaySize;
+    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float w = std::min(window.x, window.y * aspect);
+    float h = w / aspect;
+    float size = std::max(13.0f, h / 36.0f);
+    std::string text = FormatMissionTime(ticks);
+    // the longest text of its length, so the digits changing do not move it
+    std::string widest(text.size(), '0');
+    for (size_t i = 0; i < text.size(); i++)
+        if (text[i] == ':' || text[i] == '.') widest[i] = text[i];
+    ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, 1e9f, 0, widest.c_str());
+    ImVec2 at((window.x + w) / 2 - size * 0.5f - extent.x, (window.y - h) / 2 + size * 0.4f);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->AddText(nullptr, size, ImVec2(at.x + 2, at.y + 2), IM_COL32(0, 0, 0, 200), text.c_str());
+    draw->AddText(nullptr, size, at, IM_COL32(255, 255, 255, 230), text.c_str());
+}
+
+// Custom Movement's speed (src/common/custom_movement.h), Quake's units a second across, under the middle of the
+// picture while the rules move the first player
+void SpeedCounter() {
+    float speed;
+    if (!MovementSpeed(speed)) return;
+    ImVec2 window = ImGui::GetIO().DisplaySize;
+    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float w = std::min(window.x, window.y * aspect);
+    float h = w / aspect;
+    float size = std::max(13.0f, h / 30.0f);
+    char text[16];
+    std::snprintf(text, sizeof(text), "%.0f ups", speed);
+    ImVec2 extent = ImGui::GetFont()->CalcTextSizeA(size, 1e9f, 0, text);
+    // below the crosshair, clear of it
+    ImVec2 at(window.x / 2 - extent.x / 2, window.y / 2 + size * 1.5f);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->AddText(nullptr, size, ImVec2(at.x + 2, at.y + 2), IM_COL32(0, 0, 0, 200), text);
+    draw->AddText(nullptr, size, at, IM_COL32(255, 255, 255, 230), text);
+}
+
 void Ui(double fps) {
     FpsCounter(fps);
+    MissionTimer();
+    SpeedCounter();
     QuickSaveUi();
     cursor::Draw();
 }
@@ -184,6 +230,7 @@ const app::GameInfo app::kGame = {
     .options = {{"skip_intros", &game::Opt().skip_intros, nullptr},          // game settings kept in the settings file
                 {"skip_cutscenes", &game::Opt().skip_cutscenes, nullptr},
                 {"fps_counter", &game::Opt().fps_counter, nullptr},
+                {"mission_timer", &game::Opt().mission_timer, nullptr},
                 {"widescreen", &game::Opt().widescreen, nullptr},
                 {"fps60", &game::Opt().fps60, nullptr},
                 {"unlocked_fps", &game::Opt().unlocked_fps, nullptr},

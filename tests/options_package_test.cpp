@@ -190,6 +190,56 @@ static void PauseTabs(const fs::path& file) {
     std::printf("%s: direct pause tabs validated\n", file.string().c_str());
 }
 
+static void MissionTime(const fs::path& file) {
+    std::vector<uint8_t> d = Read(file);
+    std::optional<feng::Package> before = feng::Package::Parse(d.data(), d.size());
+    std::vector<uint8_t> made = game::menu::AddMissionTime(d.data(), d.size());
+    Check(!made.empty(), "mission time row not added: " + file.string());
+    Save(file, game::menu::kSummary, made);
+    std::optional<feng::Package> p = feng::Package::Parse(made.data(), made.size());
+    Check(p && p->Write() == made, "mission time package round trip");
+    Check(p->objects.size() == before->objects.size() + 2, "mission time adds a label and a value");
+    const feng::Object* hits = p->Find("Hits value");
+    const feng::Object* label = p->Find(game::menu::kTimeLabel);
+    const feng::Object* value = p->Find(game::menu::kTimeValue);
+    const feng::Object* head = p->Find("Head value");
+    const feng::Object* medal = p->Find("Medal Awarded text");
+    Check(hits && label && value && head && medal, "mission time row objects");
+    float pitch = before->Find("Head value")->Y() - before->Find("Hits value")->Y();
+    Check(value->Y() == hits->Y() + pitch && label->Y() == value->Y(), "mission time row under Hits");
+    Check(head->Y() == value->Y() + pitch, "the body rows move down a row");
+    Check(medal->Y() == before->Find("Medal Awarded text")->Y() + pitch, "the medal text moves down a row");
+    Check(p->Find("PauseScreenFont")->Y() == before->Find("PauseScreenFont")->Y(), "the choreography text stays");
+    Check(label->Guid() != value->Guid() && label->Guid() >= before->NextGuid(), "new GUIDs");
+    Check(game::menu::AddMissionTime(made.data(), made.size()).empty(), "mission time cannot be added twice");
+    std::printf("%s: mission time at y %.0f, medal text at y %.0f\n", file.string().c_str(), value->Y(), medal->Y());
+}
+
+static void TimerRow(const fs::path& file) {
+    std::vector<uint8_t> d = Read(file);
+    std::optional<feng::Package> before = feng::Package::Parse(d.data(), d.size());
+    std::vector<uint8_t> made = game::menu::AddTimerRow(d.data(), d.size());
+    Check(!made.empty(), "mission timer row not added: " + file.string());
+    Save(file, game::menu::kHudScreen, made);
+    std::optional<feng::Package> p = feng::Package::Parse(made.data(), made.size());
+    Check(p && p->Write() == made, "HUD package round trip");
+    std::string row = game::menu::kTimerRow;
+    const feng::Object* text = p->Find(row + " text");
+    const feng::Object* on = p->Find(row + " On");
+    const feng::Object* off = p->Find(row + " Off");
+    const feng::Object* button = p->Find(row + " button");
+    Check(text && on && off && button, "mission timer row objects");
+    float pitch = p->Find("HUD text")->Y() - p->Find("Crosshairs text")->Y();
+    Check(text->Y() == p->Find("Crosshairs text")->Y() + 2 * pitch, "mission timer row under HUD Type");
+    Check(button->Y() == p->Find("Crosshairs button")->Y() + 2 * pitch && button->IsButton(), "its button");
+    size_t at = p->Index(row + " button");
+    Check(at + 2 < p->objects.size() && p->objects[at + 1].Parent() == button->Guid() &&
+              p->objects[at + 2].Parent() == button->Guid(), "its arrows");
+    Check(p->objects.size() == before->objects.size() + 6, "text, On, Off, button and two arrows added");
+    Check(game::menu::AddTimerRow(made.data(), made.size()).empty(), "mission timer row cannot be added twice");
+    std::printf("%s: mission timer row at y %.0f\n", file.string().c_str(), text->Y());
+}
+
 int main(int argc, char** argv) {
     std::vector<fs::path> dirs;
     for (int i = 1; i < argc; i++) {
@@ -211,7 +261,9 @@ int main(int argc, char** argv) {
             files++;
             std::string name = f.path().filename().string();
             PauseTabs(f.path());
+            if (name == game::menu::kSummary) MissionTime(f.path());
             if (name == "HUD.fng") {
+                TimerRow(f.path());
                 Screen(f.path(), game::menu::kPcOptions, game::menu::kRows);
                 Screen(f.path(), game::menu::kCheats, game::menu::kCheatRows);
             }

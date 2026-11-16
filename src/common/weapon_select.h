@@ -27,11 +27,14 @@ struct WeaponLayout {
     uint32_t id, type, count_a, count_b;  // weapon
     uint32_t next_weapon_return;     // the NextWeapon native's return address from the select
     uint32_t fov;                    // player: the zoom field, half the view's FoV in degrees (docs/input.md)
+    uint32_t script;                 // player: its script object, which the switch message is posted to
+    uint32_t running_script;         // global: the script object whose code runs
+    uint32_t switch_start, draw;     // natives the player's script calls first in a switch, and drawing a weapon
 };
-inline constexpr WeaponLayout kDefaultWeapons{0x270108, 0x271188, 0xE6C, 0xE70, 0x2F8, 0x310, 0x2FC, 0x2FE, 0x33D09,
-                                              0xE30};
-inline constexpr WeaponLayout kCoopWeapons{0x265278, 0x266618, 0xF4C, 0xF50, 0x308, 0x320, 0x30C, 0x30E, 0x332F9,
-                                           0xF10};
+inline constexpr WeaponLayout kDefaultWeapons{0x270108, 0x271188, 0xE6C, 0xE70, 0x2F8,  0x310,   0x2FC,  0x2FE,
+                                              0x33D09,  0xE30,    0x220, 0x2557C0, 0x2E6B0, 0x30590};
+inline constexpr WeaponLayout kCoopWeapons{0x265278, 0x266618, 0xF4C, 0xF50, 0x308,   0x320,   0x30C,  0x30E,
+                                           0x332F9,  0xF10,    0x220, 0x24D9E8, 0x2DC40, 0x2F620};
 
 // after the input manager's action query (thiscall (player index, action), ret 8; 0xB83E0 / 0xACC80), with its
 // arguments: a weapon key reads as a switch press for KBM's player when its group has another usable weapon
@@ -41,5 +44,16 @@ void WeaponSwitchQuery(X86Context& ctx, uint32_t index, uint32_t action, const W
 void WeaponScope(uint32_t player, const WeaponLayout& layout);
 // before the weapon select: the switch a weapon key started goes to that weapon
 void WeaponSelect(X86Context& ctx, const WeaponLayout& layout);
+// after a message post to a script (0x4ADB0 / 0x4DF00, cdecl (script object, message, ...); true when a handler of
+// the script's current state took it), with the target and message: the first switch message after a key press that
+// no handler took (the player's script is in a state without one, as right after a level restart) means the switch
+// was not started, and the next press starts one
+void WeaponSwitchPosted(uint32_t target, uint32_t message, bool taken, const WeaponLayout& layout);
+// at the native opcode (0x497D0 / 0x4C920), the native about to run: the player's script starting the switch
+// (0x2E6B0 / 0x2DC40: the first native its switch handler calls, then the holster) or drawing a weapon (0x30590 /
+// 0x2F620: after the select, and the level's first draw at its start or restart). A switch message a handler took
+// without starting a switch (right after a restart the script is still drawing the first weapon and ignores it)
+// does not keep the next press from starting one; a draw with no select ends the switch asked for.
+void WeaponNative(uint32_t native, const WeaponLayout& layout);
 
 }  // namespace game

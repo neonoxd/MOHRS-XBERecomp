@@ -393,6 +393,11 @@ call = "LoaderSlot"
 at = 0x497F3
 call = "TraceNative"
 
+# Custom Movement (src/common/custom_movement.h): the player update once its ground test is in bl
+[[hook]]
+at = 0xDB7C4
+call = "MovementGround"
+
 # The player's end-of-step floor ray in 0xDA7D0 (docs/frame-timing.md): keep the collision world before the call,
 # cast again beside a miss at cmp edi, 1
 [[hook]]

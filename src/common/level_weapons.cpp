@@ -1,8 +1,10 @@
 #include "common/level_weapons.h"
+#include "common/guest_block.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
@@ -222,23 +224,56 @@ kernel::DiscFileContents Provide(const std::string& path) {
     return file == 0 ? g_plan.archive : file == 1 ? g_plan.events : g_plan.bank;
 }
 
-// the added animation bank, on the game thread
-struct Bank {
-    uint32_t ref = 0, object = 0;          // its EAGL object, held, and its AnimationBank
-    std::map<uint32_t, uint32_t> index;    // name hash -> index
+// The added animation bank's EAGL object (held) and AnimationBank are kept in guest memory, in a block allocated at
+// the same point of every boot (the main heap's allocation), so a quick load puts them back with the rest: a run that
+// loads a save made in a level (from the shell, say) never loaded the bank itself. Its name index is made again from
+// the AnimationBank whenever that changes (game thread).
+uint32_t g_bank_block = 0;  // {kBankMagic, ref, object}
+constexpr uint32_t kBankMagic = 0x4B4E4142;  // "BANK"
+struct BankIndex {
+    uint32_t object = 0;
+    std::map<uint32_t, uint32_t> index;  // name hash -> index
 };
-Bank g_bank;
+BankIndex g_index;
+uint32_t g_host_bank[3] = {0, 0, 0};  // when no block could be had
 bool g_loading = false;
 
-uint32_t GuestText(const char* s) {
-    uint32_t va = mem::AllocSystem(uint32_t(std::strlen(s) + 1), 4);
-    std::memcpy(kernel::HostPtr(va), s, std::strlen(s) + 1);
-    return va;
+uint32_t BankWord(int i) {
+    if (!g_bank_block) return g_host_bank[i];
+    return R32(g_bank_block) == kBankMagic ? R32(g_bank_block + 4 * uint32_t(i)) : 0;
+}
+void SetBank(uint32_t ref, uint32_t object) {
+    if (!g_bank_block) {
+        g_host_bank[0] = kBankMagic, g_host_bank[1] = ref, g_host_bank[2] = object;
+        return;
+    }
+    W32(g_bank_block, kBankMagic);
+    W32(g_bank_block + 4, ref);
+    W32(g_bank_block + 8, object);
+}
+uint32_t BankRef() { return BankWord(1); }
+uint32_t BankObject() { return BankWord(2); }
+
+// as the bank load builds the level's table (0x68BD0): each animation's name "S_0x<hash>" at [object+0x14][i], the
+// count at object+4
+const std::map<uint32_t, uint32_t>& Index() {
+    uint32_t object = BankObject();
+    if (object == g_index.object) return g_index.index;
+    g_index = {object, {}};
+    if (object < 0x10000) return g_index.index;
+    uint32_t count = std::min(R32(object + 4), kTableRoom), names = R32(object + 0x14);
+    for (uint32_t i = 0; i < count && names >= 0x10000; i++) {
+        uint32_t name = R32(names + 4 * i);
+        unsigned hash = 0;
+        if (name >= 0x10000 && std::sscanf(static_cast<const char*>(kernel::HostPtr(name)), "S_0x%08x", &hash) == 1)
+            g_index.index[hash] = i;
+    }
+    return g_index.index;
 }
 
 void Release(X86Context& ctx) {
-    uint32_t ref = g_bank.ref;
-    g_bank = {};
+    uint32_t ref = BankRef();
+    SetBank(0, 0);
     if (ref < 0x10000) return;
     uint32_t count = R32(ref + 4) - 1;
     W32(ref + 4, count);
@@ -261,6 +296,8 @@ void HeapAlloc(X86Context& ctx, uint8_t* base, GuestFunction original) {
         return;
     }
     done = true;
+    g_bank_block = mem::AllocSystem(16, 16);
+    if (g_bank_block) SetBank(0, 0);
     mem::Stats s = mem::Query();
     uint64_t free = uint64_t(mem::kPhysicalSize - mem::kKernelDataSize) - uint64_t(s.contiguous_used) * mem::kPage;
     uint64_t room = free > uint64_t(size) + kReserve ? free - size - kReserve : 0;
@@ -283,12 +320,15 @@ void HeapAlloc(X86Context& ctx, uint8_t* base, GuestFunction original) {
 void LoadWeaponBank(X86Context& ctx, uint8_t* base, GuestFunction original) {
     original(ctx, base);
     if (g_loading) return;
-    static const uint32_t name = GuestText(levels::kBankFile);
-    static const uint32_t size_out = mem::AllocSystem(4, 4);
+    // kept, again after a quick load that took them (src/common/guest_block.h)
+    static GuestBlock name_block, size_block;
+    uint32_t name = name_block.HoldText(levels::kBankFile);
+    uint32_t size_out = size_block.Get(4);
+    if (!name || !size_out) return;
     W32(size_out, 0);
     uint32_t data = kernel::CallGuest(ctx, kArchiveFile, {name, size_out});
     if (!data) return;
-    if (g_bank.ref) Release(ctx);
+    if (BankRef()) Release(ctx);
     uint32_t count = std::min(R32(kTableCount), kTableRoom);
     std::vector<uint8_t> table(count * 8);
     std::memcpy(table.data(), kernel::HostPtr(kTable), table.size());
@@ -301,10 +341,16 @@ void LoadWeaponBank(X86Context& ctx, uint8_t* base, GuestFunction original) {
     g_loading = true;
     kernel::CallGuest(ctx, kLoadBank, {});
     g_loading = false;
-    g_bank.ref = R32(kBankRef);
-    g_bank.object = R32(kBankObject);
+    SetBank(R32(kBankRef), R32(kBankObject));
     uint32_t n = std::min(R32(kTableCount), kTableRoom);
-    for (uint32_t i = 0; i < n; i++) g_bank.index[R32(kTable + 8 * i)] = R32(kTable + 8 * i + 4);
+    // the index made from the bank as the load's table has it
+    const std::map<uint32_t, uint32_t>& index = Index();
+    uint32_t differ = index.size() == n ? 0 : 1;
+    for (uint32_t i = 0; i < n; i++) {
+        auto it = index.find(R32(kTable + 8 * i));
+        if (it == index.end() || it->second != R32(kTable + 8 * i + 4)) differ++;
+    }
+    if (differ) LOGW("weapons from other levels: the added bank's index differs from its table in %u places", differ);
     // the level's bank as it was
     std::memcpy(kernel::HostPtr(kTable), table.data(), table.size());
     W32(kTableCount, count);
@@ -313,23 +359,24 @@ void LoadWeaponBank(X86Context& ctx, uint8_t* base, GuestFunction original) {
     W32(kBankRef, saved[2]);
     W32(kBankObject, saved[3]);
     LOGR("weapons from other levels: the added animation bank holds %u animations", n);
-    if (!g_bank.object) Release(ctx);
+    if (!BankObject()) Release(ctx);
 }
 
 void FindAnimation(X86Context& ctx, uint8_t* base, GuestFunction original) {
     uint32_t out = R32(ctx.esp + 4), key = R32(ctx.esp + 8), bank = R32(ctx.esp + 12);
     original(ctx, base);
-    if (bank || !g_bank.object || R32(out)) return;
-    auto it = g_bank.index.find(key);
-    if (it == g_bank.index.end()) return;
+    if (bank || !BankObject() || R32(out)) return;
+    const std::map<uint32_t, uint32_t>& index = Index();
+    auto it = index.find(key);
+    if (it == index.end()) return;
     // the lookup given a bank takes the animation's index in it
-    kernel::CallGuest(ctx, kFindAnimation, {out, it->second, g_bank.object});
+    kernel::CallGuest(ctx, kFindAnimation, {out, it->second, BankObject()});
     ctx.eax = out;
 }
 
 void ReleaseWeaponBank(X86Context& ctx, uint8_t* base, GuestFunction original) {
     original(ctx, base);
-    if (g_bank.ref) Release(ctx);
+    if (BankRef()) Release(ctx);
 }
 
 }  // namespace game

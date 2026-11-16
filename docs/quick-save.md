@@ -41,6 +41,27 @@ then reruns the frame from its start. Left as they are:
 - Host-only caches: textures and surfaces are re-compared with their bytes (`gpu::MarkAllDirty`), the renderer gets
   the whole device state again (`Tracked::MarkAll`).
 
+### Guest memory the host keeps
+
+The host hands the game guest memory of its own: the menu packages it builds (`src/common/options_menu.cpp`: the
+pause screen's ObjectivesOverlay, Notes, Preferences, PC Options and Cheats, the shell's), the strings it passes
+(screen names, the Cheats rows' labels) and the added weapon bank's file name and size (`level_weapons.cpp`). A load
+puts back the guest memory and the system allocator of the save, which may come from another instance (a save made
+before the game relaunched into this one). A block the host allocated after that point is gone: its address is free
+in the allocator or already another allocation's, and its bytes are the save's.
+
+The pause screen packages are built the first time the game asks for them. In an instance that loaded a save from
+the front end that is the first pause, after the load; a later load of the same save took the package, and the next
+pause handed the game zeros. Building it failed (`0x92700` returned 0), the package loader (`0x92F40`) passed the
+missing package to the shell's callback (`0x125EF0`, the loader object's vtable `0x1EF720` slot `+4`), and that read
+`+0x40` of it: a crash on pausing.
+
+Such blocks are `GuestBlock`s (`src/common/guest_block.h`). Each ends in 16 bytes this instance makes up and is used
+again only while its address is still allocated with its size (`mem::AllocationSize`) and those bytes are still
+there; otherwise a new block is allocated and filled from the host's copy (the old address is left to the save). The
+menu log says "copied again, a quick load took the last copy" when that happens. Blocks allocated at the same point of
+every boot, before any load can happen (the bank block from the heap's allocation, `HeapAlloc`), are in every save.
+
 ### Kernel objects and parked threads
 
 Objects are saved as descriptions. A load writes each into the object the running game already has under the same

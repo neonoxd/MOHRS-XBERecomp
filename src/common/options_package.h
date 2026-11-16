@@ -12,7 +12,7 @@ inline constexpr char kScreen[] = "PCOptions.fng";
 inline constexpr size_t kRows = 10;
 // the pause screen's cheats (src/common/cheats.h), made the same way and listed under PC Options in Preferences.fng
 inline constexpr char kCheatsScreen[] = "Cheats.fng";
-inline constexpr size_t kCheatRows = 9;
+inline constexpr size_t kCheatRows = 10;
 
 // a screen made from HUD.fng and the list entry opening it
 struct ScreenSpec {
@@ -41,6 +41,21 @@ std::vector<uint8_t> MakeScreen(const uint8_t* hud, size_t size, const std::vect
 // Audio, in the pause screen's Preferences.fng or MPPreferences.fng under the last entry; empty on failure or when
 // the list has it already
 std::vector<uint8_t> AddEntry(const uint8_t* list, size_t size, const ScreenSpec& spec = kPcOptions);
+
+// the end-of-level stats (EndOfLevelSummary.fng) with a mission time row under Hits, made from the Hits row: its
+// label and a value the stats handler fills in (src/common/options_menu.h); the rows below and the medal text move
+// down a row. Empty on failure or when the package has it already.
+inline constexpr char kSummary[] = "EndOfLevelSummary.fng";
+inline constexpr char kTimeLabel[] = "Mission Time label";
+inline constexpr char kTimeValue[] = "Mission Time value";
+std::vector<uint8_t> AddMissionTime(const uint8_t* data, size_t size);
+
+// HUD Options (HUD.fng, the shell's and the pause screen's) with a Mission Timer row under HUD Type, made from the
+// Crosshairs row: its text, the game's On and Off texts, which the handler shows one of, and its button with the
+// arrows. Empty on failure or when the package has it already.
+inline constexpr char kHudScreen[] = "HUD.fng";
+inline constexpr char kTimerRow[] = "Mission Timer";  // the objects: "<row> text", " On", " Off", " button"
+std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size);
 
 // Direct mouse tab transitions, cloned from each pause page's native left/right cleanup response.
 // Empty for packages other than pause pages, or when a native transition could not be found.

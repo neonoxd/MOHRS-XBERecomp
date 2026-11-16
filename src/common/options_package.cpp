@@ -1,6 +1,7 @@
 #include "common/options_package.h"
 
 #include <algorithm>
+#include <cmath>
 
 #include "common/feng.h"
 
@@ -110,6 +111,79 @@ std::vector<uint8_t> AddEntry(const uint8_t* list, size_t size, const ScreenSpec
     }
     p.AddTarget(like, e.Guid());
     p.objects.insert(p.objects.begin() + at + 1, e);
+    return p.Write();
+}
+
+std::vector<uint8_t> AddMissionTime(const uint8_t* data, size_t size) {
+    std::optional<feng::Package> parsed = feng::Package::Parse(data, size);
+    if (!parsed) return {};
+    feng::Package& p = *parsed;
+    const feng::Object* label = p.Find("Hits label");
+    const feng::Object* value = p.Find("Hits value");
+    const feng::Object* next = p.Find("Head value");  // the first row under Hits
+    if (!label || !value || !next || p.Find(kTimeValue)) return {};
+    float y = value->Y(), pitch = next->Y() - y;
+    if (pitch <= 0.0f) return {};
+    // everything on screen under Hits moves down a row (the choreography text sits off screen at x 310)
+    for (feng::Object& o : p.objects)
+        if (!o.Parent() && o.Y() > y + 1.0f && std::abs(o.X()) < 300.0f) o.Move(0.0f, pitch);
+    uint32_t guid = p.NextGuid();
+    feng::Object l = *label, v = *value;
+    l.SetName(kTimeLabel);
+    l.SetGuid(guid++);
+    l.SetText("Mission time", "MISSION_TIME");
+    l.Move(0.0f, pitch);
+    v.SetName(kTimeValue);
+    v.SetGuid(guid++);
+    v.Move(0.0f, pitch);
+    size_t at = p.Index("Hits value");
+    p.objects.insert(p.objects.begin() + at + 1, {l, v});
+    return p.Write();
+}
+
+std::vector<uint8_t> AddTimerRow(const uint8_t* data, size_t size) {
+    std::optional<feng::Package> parsed = feng::Package::Parse(data, size);
+    if (!parsed) return {};
+    feng::Package& p = *parsed;
+    const std::string row = kTimerRow;
+    const feng::Object* first = p.Find("Crosshairs text");
+    const feng::Object* second = p.Find("HUD text");
+    size_t at = p.Index("Crosshairs button"), last = p.Index("HUD button");
+    if (!first || !second || at == p.objects.size() || last == p.objects.size() || p.Find(row + " button")) return {};
+    // two rows under Crosshairs, at the rows' pitch
+    float down = 2.0f * (second->Y() - first->Y());
+    if (down <= 0.0f) return {};
+    uint32_t guid = p.NextGuid(), pattern = p.objects[at].Guid();
+    std::vector<feng::Object> rows;
+    for (const char* part : {" text", " Off", " On"}) {
+        const feng::Object* o = p.Find(std::string("Crosshairs") + part);
+        if (!o) return {};
+        feng::Object c = *o;
+        c.SetName(row + part);
+        c.SetGuid(guid++);
+        if (std::string(part) == " text") c.SetText(row, "MISSION_TIMER");
+        c.Move(0.0f, down);
+        rows.push_back(c);
+    }
+    // the button and its arrows
+    uint32_t group = guid++;
+    feng::Object b = p.objects[at];
+    b.SetName(row + " button");
+    b.SetGuid(group);
+    b.Move(0.0f, down);
+    rows.push_back(b);
+    for (size_t i = at + 1; i < p.objects.size() && p.objects[i].Parent() == pattern; i++) {
+        feng::Object a = p.objects[i];
+        a.SetGuid(guid++);
+        a.SetParent(group);
+        rows.push_back(a);
+    }
+    // the highlight messages reach the new button too
+    p.AddTarget(pattern, group);
+    // after HUD Type's button and its arrows
+    uint32_t hud = p.objects[last].Guid();
+    while (last + 1 < p.objects.size() && p.objects[last + 1].Parent() == hud) last++;
+    p.objects.insert(p.objects.begin() + last + 1, rows.begin(), rows.end());
     return p.Write();
 }
 

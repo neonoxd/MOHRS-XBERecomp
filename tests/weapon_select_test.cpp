@@ -6,6 +6,8 @@
 #include "kernel/kernel.h"
 
 #include <array>
+#include <chrono>
+#include <thread>
 #include <cstdio>
 #include <cstdlib>
 
@@ -23,6 +25,7 @@ using kernel::R32;
 const game::WeaponLayout& L = game::kDefaultWeapons;
 constexpr uint32_t kPlayers = L.players, kManager = L.input_manager, kPlayer = 0x10000, kStack = 0x70000;
 constexpr int kPrimary = 1, kSecondary = 2, kSpecial = 3;
+constexpr uint32_t kScript = 0x60000;  // the player's script object
 
 // the ring as the game keeps it, sorted by WeaponType (0xDF320)
 enum Slot { Colt, Welrod, Garand, Thompson, BAR, Bazooka, Grenades, kSlots };
@@ -50,7 +53,11 @@ void Setup() {
     G<int16_t>(Weapon(Grenades) + L.count_a) = 2;
     G<uint32_t>(kPlayer + L.ring) = Holder(Colt);
     G<uint32_t>(kPlayer + L.holder) = Holder(Garand);
+    G<uint32_t>(kPlayer + L.script) = kScript;
+    G<uint32_t>(L.running_script) = kScript;
 }
+
+void Wait(int ms) { std::this_thread::sleep_for(std::chrono::milliseconds(ms)); }
 
 void Holding(int i) { G<uint32_t>(kPlayer + L.holder) = Holder(i); }
 
@@ -132,6 +139,58 @@ int main() {
     key = kPrimary;
     Check(Query(0, 0x12, 0).eax == 0, "back to the group held: no switch");
     Check(Select(kPlayer) == Id(Colt), "the switch under way keeps its weapon, never the one held");
+
+    // the switch message after a press, as the player update posts it: no handler took it (the script in a state
+    // without one) and the next press starts a switch of its own; taken, a second press still starts none
+    Holding(Garand);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "a press starts the switch");
+    game::WeaponSwitchPosted(kScript + 0x10, 0x12, false, L);
+    game::WeaponSwitchPosted(kScript, 0x13, false, L);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 0, "another script's or another message's post changes nothing");
+    Check(Select(kPlayer) == Id(BAR), "and the switch went on one further");
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "a press starts the switch");
+    game::WeaponSwitchPosted(kScript, 0x12, false, L);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "the script took none: the next press starts one");
+    game::WeaponSwitchPosted(kScript, 0x12, true, L);
+    game::WeaponSwitchPosted(kScript, 0x12, false, L);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 0, "taken: only the first post after a press counts, a second press starts none");
+    Check(Select(kPlayer) == Id(BAR), "and the switch under way goes one further");
+
+    // taken by a handler: started when the script calls the switch's first native, else ignored
+    Holding(Garand);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "a press starts the switch");
+    game::WeaponSwitchPosted(kScript, 0x12, true, L);
+    Wait(200);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "taken but not started a script run later: the next press starts a switch");
+    game::WeaponSwitchPosted(kScript, 0x12, true, L);
+    game::WeaponNative(L.switch_start + 1, L);
+    G<uint32_t>(L.running_script) = kScript + 0x10;
+    game::WeaponNative(L.switch_start, L);
+    G<uint32_t>(L.running_script) = kScript;
+    Wait(200);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "another native, or the start in another script, starts nothing");
+    game::WeaponSwitchPosted(kScript, 0x12, true, L);
+    game::WeaponNative(L.switch_start, L);
+    Wait(200);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 0, "started: a press during the switch starts none");
+    Check(Select(kPlayer) == Id(BAR), "and moves it on");
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "a press starts the switch");
+    game::WeaponSwitchPosted(kScript, 0x12, true, L);
+    game::WeaponNative(L.switch_start, L);
+    game::WeaponNative(L.draw, L);
+    key = kPrimary;
+    Check(Query(0, 0x12, 0).eax == 1, "a draw with no select (a level restart) ends it: the next press starts one");
+    Check(Select(kPlayer) == Id(Thompson), "and that one goes on from the weapon held");
 
     key = kSecondary;
     Query(0, 0x12, 0);

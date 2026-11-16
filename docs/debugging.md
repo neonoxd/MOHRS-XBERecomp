@@ -106,6 +106,35 @@ switch landing in a short window races here; these run under a lock:
 | EA stream packet take, under its stream's lock (`src/common/stream_lock.cpp`) | `0x165390` | `0x15E760` | read a stream's count before its packet; crashed opening a level's intro movie |
 | Small-block pool search and free (operator new and MEM_alloc up to 0x40 bytes), under one host lock (`src/common/pool_lock.cpp`) | `0x111BE0`, `0x111C30` | `0x10A760`, `0x10A7B0` | a free bit tested and cleared with no lock: a level loading during its intro movie got a block another thread held (crash in a skeleton's bone map, `0x72410`) |
 
+## Script natives
+
+A script object (constructor `0x4B480` / `0x4E570`) has its class at `+0`, its vtable at `+0xC`, its entity at
+`+0x20` and its id at `+0x24`. Destroying it (`0x4B2B0`) sets the id to -1, and the base destructor (`0xF8820` /
+`0xF1180`) leaves the base vtable `0x1E0B90` / `0x1D9F90` at `+0xC` before the memory is freed. A script can still
+hold such an object: in 1_8 a `BaseAction` script, whose own object had no entity, ran on with a destroyed
+`ArisakaNoBayonet` soldier's object, and natives read its entity at `+0x20` (null) without a check (`0x30C70`, then
+`0x3D0A0`). A soldier's scripts also ran while its object was live (vtable `0x1E2194`, an id) but had no entity, and
+`0x30C70` read it again.
+
+Every native runs through the script's native opcode (`0x497D0` / `0x4C920`). The instruction at the script pc
+(`0x2557BC` / `0x24D9E4`) has the native's index at `+2`; its descriptor (16 bytes, table at `0x255524` /
+`0x24D744`) has the function at `+0`, the words it pops at `+0xA` and its arguments at `+0xC`; the script stack top
+is at `0x25584C` / `0x24DA74`. A native that leaves a result writes it at the top after popping.
+`src/common/script_guard.cpp` skips a native when one of its arguments is a destroyed script object (a heap address
+with the base vtable, id -1 and no entity), or when the native reads its first argument's entity and calls through
+it without a test (80 of the 592 natives in default.xbe, 77 of 586 in moh3rdc.xbe, listed there; found from their
+decompiled code, the natives being the functions that read the running native's index) and that argument's entity
+is null. The arguments are popped as the native would pop them, a result it would leave is 0, the pc moves on, and
+the log has one warning per native.
+
+The native `0x3B060` / `0x3AD30` (arguments: an object, a second object, a slot, one more) takes an owner from its
+second argument's entity (entity vf10, then vf98) and leaves it null when that argument, its entity or the vf10
+result is null, but still calls the slot lookup `0xD2D60` / `0xC7810` (thiscall slot, ret 4: `[owner + 0x990 +
+slot * 4]`, co-op `+0x9A0`) with it. It does nothing more when the lookup returns null. In 1_2 an `Action_Attach`
+level script called it with an NPC's object and 0, and the lookup read guest `0x994`. `SlotLookupWithoutOwner`
+(`src/common/script_guard.cpp`) returns null from the lookup when the owner is null and logs one warning per
+caller. The lookup has 20 callers in default.xbe.
+
 ## Environment variables
 
 | Variable | Effect |
@@ -126,6 +155,8 @@ switch landing in a short window races here; these run under a lock:
 | `MOHRS_START_LEVEL` | start this mission_level instead of 1_1 |
 | `MOHRS_CHEATS` | the pause Cheats switches, hex bit mask (1 Give All Weapons, 2 Infinite Ammo, 4 God Mode, 8 One Shot Kills, 10 Bullet Shield, 20 Achilles Head, 40 Invisible Soldiers, 80 Rubber Grenades); set by the game for the instance it relaunches into |
 | `MOHRS_RELOAD` | the pause Cheats screen's Quick Reload factor, 1 (off) to 4; set by the game for the instance it relaunches into |
+| `MOHRS_MOVEMENT` | the pause Cheats screen's Custom Movement, 0 off, 1 Quake; set by the game for the instance it relaunches into |
+| `MOHRS_MOVEMENT_TRACE` | Custom Movement's every update in `mohrs.log`: asked and moved velocity (inches/s), rose or clipped, the ground test, input, speed, jumps |
 | `MOHRS_CHEATS_AT=15:1` | sets the cheat switches (hex mask) that many seconds after the first gameplay frame, as the pause menu would |
 | `MOHRS_LEVEL_WEAPONS=0` | campaign levels as they are on the disc (no weapons from other levels) |
 | `MOHRS_HEAP_EXTRA_MB` | the main heap's extra megabytes (default up to 12, 0 none) |
@@ -141,10 +172,10 @@ switch landing in a short window races here; these run under a lock:
 | `MOHRS_EVENT_TRACE=1` | every animation event handled, with the guest call chain |
 | `MOHRS_ANIM_TRACE=<event tables>` or `all` | animation channels playing them and who starts them |
 | `MOHRS_GRAPH_TRACE` | animation graph state requests (`0x6A120`, `0xCE030`) |
-| `MOHRS_NATIVE_TRACE=find\|<owner>` | a script's native calls |
-| `MOHRS_MESSAGE_TRACE` (or `=0x28` for one message) | posted script messages (`0x4ADB0`) |
+| `MOHRS_NATIVE_TRACE=find\|<owner>\|player` | a script's native calls (`player`: the first player's script) |
+| `MOHRS_MESSAGE_TRACE` (or `=0x28` for one message) | posted script messages (`0x4ADB0`), each followed by whether a handler of the target's current state took it |
 | `MOHRS_ENTITY_DUMP=<seconds>[:<radius>]` | entities near the player, once; `MOHRS_DUMP=<addr>:<bytes>` adds a memory dump |
-| `MOHRS_CONTACT_TRACE` | objects the player's contact handler (`0xDEFA0`) sees |
+| `MOHRS_CONTACT_TRACE` | objects the player's contact handler (`0xDEFA0`) sees; `=points` logs every call's contact points (normal toward the player, depth) |
 | `MOHRS_STEP_TRACE=x,y,radius` | movement steps (`0xE0E50`) and collision resolves (`0xD8260`) near a point |
 | `MOHRS_WATCH=<from>-<to>:<addr>:<bytes>,...` | each dword's summed changes over a window; `MOHRS_SERIES=<addr>:<n>,...` prints floats every frame of it |
 | `MOHRS_HANG_TRACE=<seconds>` | every guest thread's stack pointer and stack code addresses, periodically; `MOHRS_HANG_HANDLES=<hex>,...` adds object types and signal state, `MOHRS_HANG_DUMP=[*]<addr>:<bytes>,...` memory |

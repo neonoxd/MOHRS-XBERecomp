@@ -101,6 +101,10 @@ game's own, holster and draw included:
 | Switch action 0x12 read, then message 0x12 to the player's script | `0xDDCB0` | `0xD78E3`, `0xD7AC6` |
 | Script native NextWeapon(direction), return address from the select | `0x33CD0`, `0x33D09` | `0x332C0`, `0x332F9` |
 | Weapon select (thiscall (direction, id), ret 8) | `0xD8720` | `0xCD820` |
+| Message post to a script (cdecl (script object, message, ...); true when a handler of its current state took it) | `0x4ADB0` | `0x4DF00` |
+| Player: script object | `+0x220` | `+0x220` |
+| The running script object | `0x2557C0` | `0x24D9E8` |
+| Native the switch handler calls first (before the holster), native drawing a weapon | `0x2E6B0`, `0x30590` | `0x2DC40`, `0x2F620` |
 | Usable test (fastcall holder) | `0xE27E0` | `0xDA900` |
 | Player: current holder, ring head | `+0xE6C`, `+0xE70` | `+0xF4C`, `+0xF50` |
 | Weapon: id, WeaponType, counts | `+0x2F8`, `+0x310`, `+0x2FC/+0x2FE` | `+0x308`, `+0x320`, `+0x30C/+0x30E` |
@@ -116,7 +120,18 @@ only the way onto one). A level starts with no current holder (`0xE0020`); the g
 ring's head, and a key equips its group's first. The override remembers that weapon's id for two seconds. The select override gives that id to the next select NextWeapon makes for the same
 player, if the weapon is still usable; any other select is left alone. A key pressed again before that select moves
 the remembered weapon on in its group without starting a second switch (the script would step past it afterwards),
-and never to the weapon out: the select given that id puts it away and leaves the player unarmed. Weapon definitions
+and never to the weapon out: the select given that id puts it away and leaves the player unarmed. Such a press keeps
+the first press's two seconds. The switch message 0x12 the player update posts to the player's script after a press
+goes through the post `0x4ADB0` / `0x4DF00`, which only queues it when a handler of the script's current state takes
+the message; when the first post after a press is taken by none, the switch never started and the request is
+dropped, so the next press starts a switch of its own. A handler can take it and still do nothing: a switch starts
+with the player's script calling `0x2E6B0` / `0x2DC40` in its next run, then stopping fire (`0x2EE70`), and playing
+the holster animation (`0x304C0`, `PlayerWeapon/<weapon>/<weapon>:<state>`); NextWeapon follows 0.33 s later (0.93 s
+from the bazooka), then the draw (`0x304C0`, `0x30590` / `0x2F620`). Right after a level restart the script draws
+the first weapon and takes a switch message without starting a switch. A press counts as switching only while the
+switch has started or its message is under 150 ms old (the script runs at 30 Hz); a draw with no select (the level's
+first) ends the request. The natives are seen at the native opcode (`0x497D0` / `0x4C920`), running in the player's
+script object. Weapon definitions
 come from `weapbul_<easy|medium|hard|mp>.dat` in each level archive (loader `0x151EC0`, names hashed with CRC-32,
 `0x10EB60`). Number keys used to be zoom (1, 2) and dpad left/right (3, 4); a settings file with neither
 `primary_weapon` nor the first build's `weapon_1` that still has those defaults gets the new ones (wheel only, 4

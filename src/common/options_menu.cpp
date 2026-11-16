@@ -11,8 +11,11 @@
 
 #include "app/app.h"
 #include "common/cheats.h"
+#include "common/custom_movement.h"
 #include "common/feng.h"
 #include "common/fov.h"
+#include "common/guest_block.h"
+#include "common/mission_timer.h"
 #include "common/options.h"
 #include "common/options_package.h"
 #include "core/log.h"
@@ -137,10 +140,16 @@ const Row kCheatRows[] = {CheatRow<Cheat::GiveWeapons>("Give All Weapons"),
                           CheatRow<Cheat::RubberGrenades>("Rubber Grenades"),
                           {"Quick Reload",
                            [] { return ReloadSpeed() > 1 ? std::to_string(ReloadSpeed()) + "x" : std::string("Off"); },
-                           [](int dir) { SetReloadSpeed(uint32_t(std::max(int(ReloadSpeed()) + dir, 1))); }}};
+                           [](int dir) { SetReloadSpeed(uint32_t(std::max(int(ReloadSpeed()) + dir, 1))); }},
+                          {"Custom Movement", [] { return std::string(MovementName(CustomMovement())); },
+                           [](int dir) {
+                               int m = std::clamp(int(CustomMovement()) + dir, 0, int(Movement::Count) - 1);
+                               SetCustomMovement(Movement(m));
+                           }}};
 static_assert(std::size(kCheatRows) == menu::kCheatRows);
 bool g_saved_cheats[size_t(Cheat::Count)];  // game thread
 uint32_t g_saved_reload_speed = 1;
+Movement g_saved_movement = Movement::Off;
 
 // the settings on entering the screen, put back by a back: other threads read them while the game runs, so only the
 // rows' fields are put back
@@ -159,35 +168,30 @@ struct Made {
     const char* name;
     bool pause;  // from a pause screen archive
     bool tabs = false;
-    uint32_t va = 0;
+    std::vector<uint8_t> data;  // the package, once made
+    GuestBlock block;           // the guest copy the game is given (again after a quick load that lost it)
+    uint32_t copies = 0;
 };
 Made g_made[] = {{menu::kScreen, false}, {menu::kScreen, true}, {menu::kCheatsScreen, true},
                  {"Option_overlay.fng", false},
                  {"Preferences.fng", true, true}, {"MPPreferences.fng", true, true},
                  {"ObjectivesOverlay.fng", true, true}, {"Notes.fng", true, true}, {"LoadRestart.fng", true, true},
-                 {"MPLeaderBoard.fng", true, true}, {"MPLoadRestart.fng", true, true}};
+                 {"MPLeaderBoard.fng", true, true}, {"MPLoadRestart.fng", true, true},
+                 {menu::kSummary, true}, {menu::kHudScreen, false}, {menu::kHudScreen, true}};
 
-uint32_t Copy(const std::vector<uint8_t>& data) {
-    if (data.empty()) return 0;
-    uint32_t va = mem::AllocSystem(uint32_t(data.size()));
-    if (va) std::memcpy(kernel::HostPtr(va), data.data(), data.size());
-    return va;
-}
-
-// strings for one call into the game; the same few each time, so kept
+// strings for one call into the game; the same few each time, so kept (src/common/guest_block.h)
 uint32_t Text(const std::string& s) {
-    static std::vector<std::pair<std::string, uint32_t>> kept;
-    for (const auto& [text, va] : kept)
-        if (text == s) return va;
-    uint32_t va = mem::AllocSystem(uint32_t(s.size() + 1), 4);
-    std::memcpy(kernel::HostPtr(va), s.c_str(), s.size() + 1);
-    kept.emplace_back(s, va);
-    return va;
+    static std::vector<std::pair<std::string, GuestBlock>> kept;
+    for (auto& [text, block] : kept)
+        if (text == s) return block.HoldText(s);
+    kept.emplace_back(s, GuestBlock{});
+    return kept.back().second.HoldText(s);
 }
 
 // a scratch string for values, which change
 uint32_t Scratch(const std::string& s) {
-    static uint32_t va = mem::AllocSystem(64, 4);
+    static GuestBlock block;
+    uint32_t va = block.Get(64);
     std::snprintf(static_cast<char*>(kernel::HostPtr(va)), 64, "%s", s.c_str());
     return va;
 }
@@ -251,10 +255,12 @@ void Revert() {
 void SaveCheats() {
     for (size_t c = 0; c < size_t(Cheat::Count); c++) g_saved_cheats[c] = CheatOn(Cheat(c));
     g_saved_reload_speed = ReloadSpeed();
+    g_saved_movement = CustomMovement();
 }
 void RevertCheats() {
     for (size_t c = 0; c < size_t(Cheat::Count); c++) SetCheat(Cheat(c), g_saved_cheats[c]);
     SetReloadSpeed(g_saved_reload_speed);
+    SetCustomMovement(g_saved_movement);
 }
 
 struct Screen {
@@ -307,6 +313,48 @@ void Step(X86Context& ctx, uint32_t package, int dir, const Screen& screen, cons
     }
 }
 
+// HUD Options' Mission Timer row (src/common/options_package.h): one of its On and Off texts shown
+void ShowTimer(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
+    bool on = Opt().mission_timer;
+    std::string row = menu::kTimerRow;
+    kernel::CallGuest(ctx, calls.run_script, {package, Text(row + " On"), Text(on ? "Show" : "Hide")});
+    kernel::CallGuest(ctx, calls.run_script, {package, Text(row + " Off"), Text(on ? "Hide" : "Show")});
+}
+
+bool g_saved_timer = false;  // game thread: the row as the screen opened
+
+// The game's HUD Options handler runs its rows (Crosshairs, HUD Type); the Mission Timer row's left and right are
+// taken here (the handler logs an unknown option for them and changes nothing), the others go on to it.
+void HudEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls) {
+    static const uint32_t kSetup = feng::Hash("HUD Setup"), kConfirm = feng::Hash("HUD Config Confirm"),
+                          kRevert = feng::Hash("HUD Config Revert"), kLeft = feng::Hash("Pad_Left"),
+                          kRight = feng::Hash("Pad_Right"),
+                          kButton = feng::Hash(std::string(menu::kTimerRow) + " button");
+    uint32_t package = R32(ctx.ecx + kHandlerPackage);
+    uint32_t event = R32(ctx.esp + 4);
+    if (event == kLeft || event == kRight) {
+        uint32_t focus = R32(package + kFocus);
+        if (focus && R32(focus + kObjectHash) == kButton) {
+            Opt().mission_timer = !Opt().mission_timer;
+            // the handler's toggle sounds: 1 on, 0 off
+            kernel::CallGuest(ctx, calls.sound, {Opt().mission_timer ? 1u : 0u});
+            ShowTimer(ctx, package, calls);
+            kernel::Return(ctx, 0, 3);
+            return;
+        }
+    }
+    original(ctx, base);
+    uint32_t result = ctx.eax;
+    if (event == kSetup) g_saved_timer = Opt().mission_timer;
+    if (event == kConfirm && Opt().mission_timer != g_saved_timer) {
+        app::Save();
+        g_saved_timer = Opt().mission_timer;
+    }
+    if (event == kRevert) Opt().mission_timer = g_saved_timer;
+    if (event == kSetup || event == kRevert) ShowTimer(ctx, package, calls);
+    ctx.eax = result;
+}
+
 }  // namespace
 
 void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
@@ -315,8 +363,10 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
     std::string file = FileName(kernel::ReadCString(path, 260));
     Made* made = nullptr;
     bool pause = InPauseFolder(kernel::ReadCString(path, 260));
+    // a package made for both archives (HUD.fng) is the one for its folder
     for (Made& m : g_made)
-        if (EqualNoCase(file, m.name) && (m.pause == pause || !ScreenNamed(m.name))) made = &m;
+        if (EqualNoCase(file, m.name) && (m.pause == pause || !ScreenNamed(m.name)) && (!made || m.pause == pause))
+            made = &m;
     if (!made) {
         original(ctx, base);
         return;
@@ -326,7 +376,7 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
     if (screen) W32(esp + 8, Text("HUD.fng"));
     original(ctx, base);
     W32(esp + 8, path);
-    if (!made->va && ctx.eax) {
+    if (made->data.empty() && ctx.eax) {
         size_t size = PackageSize(ctx.eax);
         const uint8_t* data = static_cast<const uint8_t*>(kernel::HostPtr(ctx.eax));
         std::vector<uint8_t> modified;
@@ -336,6 +386,10 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
             modified = menu::MakeScreen(data, size, labels, screen->spec);
         } else if (EqualNoCase(file, "Option_overlay.fng") || EqualNoCase(file, "MPPreferences.fng")) {
             modified = menu::AddEntry(data, size);
+        } else if (EqualNoCase(file, menu::kHudScreen)) {
+            modified = menu::AddTimerRow(data, size);
+        } else if (EqualNoCase(file, menu::kSummary)) {
+            modified = menu::AddMissionTime(data, size);
         } else if (EqualNoCase(file, "Preferences.fng")) {
             // single player and co-op: PC Options, then Cheats under it
             modified = menu::AddEntry(data, size);
@@ -347,15 +401,19 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
             modified.assign(data, data + size);
         }
         if (made->tabs && !modified.empty()) modified = menu::AddPauseTabs(modified.data(), modified.size());
-        made->va = Copy(modified);
-        if (made->va) {
-            LOGR("Menus: made %s for the %s", file.c_str(), made->pause ? "pause screen" : "shell");
-        } else {
-            LOGE("Menus: could not make %s", file.c_str());
-        }
+        made->data = std::move(modified);
+        if (!made->data.empty()) LOGR("Menus: made %s for the %s", file.c_str(), made->pause ? "pause screen" : "shell");
+        else LOGE("Menus: could not make %s", file.c_str());
+    }
+    // the guest copy, again when a quick load lost it (src/common/guest_block.h)
+    uint32_t va = 0;
+    if (!made->data.empty()) {
+        bool fresh = false;
+        va = made->block.Hold(made->data, &fresh);
+        if (fresh && made->copies++) LOGR("Menus: %s copied again, a quick load took the last copy", file.c_str());
     }
     // the stock list when its entry could not be added; no screen without a pattern
-    if (made->va) ctx.eax = made->va;
+    if (va) ctx.eax = va;
     else if (screen) ctx.eax = 0;
 }
 
@@ -373,9 +431,11 @@ void MenuScreen(X86Context& ctx, uint8_t* base, GuestFunction original) {
 
 void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls) {
     uint32_t handler = ctx.ecx;
-    const Screen* screen = ScreenNamed(kernel::ReadCString(handler + kHandlerName, 64));
+    std::string name = kernel::ReadCString(handler + kHandlerName, 64);
+    const Screen* screen = ScreenNamed(name);
     if (!screen) {
-        original(ctx, base);
+        if (EqualNoCase(name, menu::kHudScreen)) HudEvent(ctx, base, original, calls);
+        else original(ctx, base);
         return;
     }
     // the HUD screen's events, which its package sends on
@@ -398,6 +458,16 @@ void MenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const Men
         Show(ctx, package, *screen, calls);
     }
     kernel::Return(ctx, 0, 3);
+}
+
+void MenuStats(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls, uint32_t state) {
+    uint32_t package = R32(ctx.esp + 4);
+    bool cumulative = kernel::G<uint8_t>(ctx.esp + 8) != 0;
+    original(ctx, base);
+    if (cumulative || !package) return;
+    if (!R32(state)) return;
+    std::string text = FormatMissionTime(MissionTicksNow(state));
+    kernel::CallGuest(ctx, calls.set_text, {package, Text(menu::kTimeValue), Scratch(text)});
 }
 
 }  // namespace game

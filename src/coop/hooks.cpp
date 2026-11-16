@@ -3,10 +3,13 @@
 #include "common/mouse_look.h"
 #include "common/cheats.h"
 #include "common/controller_routing.h"
+#include "common/custom_movement.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
+#include "common/mission_timer.h"
 #include "common/options_menu.h"
 #include "common/pool_lock.h"
+#include "common/script_guard.h"
 #include "common/menu_mouse.h"
 #include "common/stream_lock.h"
 #include "common/test_hooks.h"
@@ -28,10 +31,12 @@ X86_FUNC(sub_0015AA90) {
 }
 
 // the main gameplay frame, default.xbe's 0xA4A90 (its "Gameloop Update" profile name): the cheats applied, the
-// players being live there (src/common/cheats.h)
+// players being live there (src/common/cheats.h), and the level's time published for the overlay
+// (src/common/mission_timer.h)
 X86_EXTERN_FUNC(__imp__sub_00098A40);
 X86_FUNC(sub_00098A40) {
     game::CheatFrame(ctx, game::kCoopCheats);
+    game::MissionTimerFrame(game::kCoopMissionTimer);
     __imp__sub_00098A40(ctx, base);
 }
 
@@ -52,6 +57,22 @@ X86_FUNC(sub_0010A7B0) { game::LockedPool(ctx, base, __imp__sub_0010A7B0); }
 X86_EXTERN_FUNC(__imp__sub_0015E760);
 X86_FUNC(sub_0015E760) { game::LockedStreamTake(ctx, base, __imp__sub_0015E760, game::kCoopStreams); }
 
+// the script's native call opcode, default.xbe's 0x497D0 (src/common/script_guard.h): a native given a destroyed
+// script object does not run
+X86_EXTERN_FUNC(__imp__sub_0004C920);
+X86_FUNC(sub_0004C920) {
+    if (game::NativeOnDestroyed(ctx, game::kCoopScripts)) return;
+    // the player's script starting a switch a weapon key asked for (src/common/weapon_select.h)
+    game::WeaponNative(game::RunningNative(game::kCoopScripts), game::kCoopWeapons);
+    __imp__sub_0004C920(ctx, base);
+}
+// a slot lookup (0xD2D60) with no owner, which the native 0x3AD30 makes when its second object is null: none found
+// (src/common/script_guard.h)
+X86_EXTERN_FUNC(__imp__sub_000C7810);
+X86_FUNC(sub_000C7810) {
+    if (!game::SlotLookupWithoutOwner(ctx)) __imp__sub_000C7810(ctx, base);
+}
+
 // Weapon keys (src/common/weapon_select.h): the input manager's action query and the weapon select, default.xbe's
 // 0xB83E0 and 0xD8720
 X86_EXTERN_FUNC(__imp__sub_000ACC80);
@@ -59,11 +80,52 @@ X86_FUNC(sub_000ACC80) {
     uint32_t index = R32(ctx.esp + 4), action = kernel::G<uint16_t>(ctx.esp + 8);
     __imp__sub_000ACC80(ctx, base);
     game::WeaponSwitchQuery(ctx, index, action, game::kCoopWeapons);
+    game::MovementQuery(ctx, index, action);
+}
+
+// the player's update and movement step, default.xbe's 0xDB530 and 0xE0E50 (player vtable 0x1E1D18 slots +0x10,
+// +0x1C): Custom Movement (src/common/custom_movement.h)
+X86_EXTERN_FUNC(__imp__sub_000D4BF0);
+X86_FUNC(sub_000D4BF0) {
+    uint32_t player = ctx.ecx;
+    game::MovementUpdateBegin(ctx, game::kCoopMovement);
+    __imp__sub_000D4BF0(ctx, base);
+    game::MovementUpdateEnd(player, game::kCoopMovement);
+}
+X86_EXTERN_FUNC(__imp__sub_000D8DD0);
+X86_FUNC(sub_000D8DD0) {
+    game::MovementStep(ctx, game::kCoopMovement);
+    __imp__sub_000D8DD0(ctx, base);
+}
+// the player's contact pair handler (player vtable +0x24), default.xbe's 0xDEFA0: the floors Custom Movement goes up
+X86_EXTERN_FUNC(__imp__sub_000D3040);
+X86_FUNC(sub_000D3040) {
+    game::MovementContact(ctx);
+    __imp__sub_000D3040(ctx, base);
+}
+// an explosion's apply to one object in reach, default.xbe's 0x14B020 (vtable 0x1EB6D8 slot +4): with Custom
+// Movement a player's own blast does them no damage and pushes them
+X86_EXTERN_FUNC(__imp__sub_00144360);
+X86_FUNC(sub_00144360) { game::MovementBlast(ctx, base, __imp__sub_00144360, game::kCoopMovement); }
+// the player's view shake start, default.xbe's 0xD6670: lighter for one's own blast
+X86_EXTERN_FUNC(__imp__sub_000CB3B0);
+X86_FUNC(sub_000CB3B0) {
+    game::MovementShake(ctx);
+    __imp__sub_000CB3B0(ctx, base);
 }
 X86_EXTERN_FUNC(__imp__sub_000CD820);
 X86_FUNC(sub_000CD820) {
     game::WeaponSelect(ctx, game::kCoopWeapons);
     __imp__sub_000CD820(ctx, base);
+}
+
+// post a message to an object's script (0x4ADB0): a weapon key's switch message no handler took
+// (src/common/weapon_select.h)
+X86_EXTERN_FUNC(__imp__sub_0004DF00);
+X86_FUNC(sub_0004DF00) {
+    uint32_t target = R32(ctx.esp + 4), message = R32(ctx.esp + 8);
+    __imp__sub_0004DF00(ctx, base);
+    game::WeaponSwitchPosted(target, message, (ctx.eax & 0xFF) != 0, game::kCoopWeapons);
 }
 
 // the script system's frame update, default.xbe's 0x4C0F0: at the console's 30 Hz in the 60 FPS and unlocked modes
@@ -172,6 +234,10 @@ void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
 // [[hook]] 0x782EE in the light update 0x782E0: its keyframe ticks
 void LightTicks(X86Context& ctx, uint8_t*) { game::LightTicks(ctx); }
 void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
+// [[hook]] 0xD4EB9 in the player update 0xD4BF0, default.xbe's 0xDB7C4: Custom Movement's rules
+void MovementGround(X86Context& ctx, uint8_t*) {
+    game::MovementGround(ctx, (ctx.ebx & 0xFF) != 0, game::kCoopMovement);
+}
 void FloorRayRetry(X86Context& ctx, uint8_t*) {
     game::FloorRayRetry(ctx, {0x90, 0xE0, 0x50, 0x13DF00, 0x13BBE0, 0x13BD80, 0x6D290});
 }
@@ -230,6 +296,9 @@ X86_FUNC(sub_0011B1B0) { game::MenuScreen(ctx, base, __imp__sub_0011B1B0); }
 // the HUD options screen's event handler (0x12A620)
 X86_EXTERN_FUNC(__imp__sub_00124C20);
 X86_FUNC(sub_00124C20) { game::MenuEvent(ctx, base, __imp__sub_00124C20, kMenuCalls); }
+// the stats screens' fill (0x136D00), with the game state pointer at 0x23C9D0 (0x2447D8)
+X86_EXTERN_FUNC(__imp__sub_0012FFD0);
+X86_FUNC(sub_0012FFD0) { game::MenuStats(ctx, base, __imp__sub_0012FFD0, kMenuCalls, 0x23C9D0); }
 
 // The same FEng pointer/drawing paths as default.xbe, verified in the co-op image.
 constexpr game::MenuMouseCalls kMouseMenu = {

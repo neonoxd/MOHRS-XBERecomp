@@ -381,6 +381,11 @@ call = "PopupTicks"
 at = 0xF3684
 call = "MessageTicks"
 
+# Custom Movement (src/common/custom_movement.h): the player update, default.xbe's 0xDB7C4 once its ground test is in bl
+[[hook]]
+at = 0xD4EB9
+call = "MovementGround"
+
 # The player's end-of-step floor ray, default.xbe's 0xDAC19 / 0xDAC2A in 0xD104A
 [[hook]]
 at = 0xD1581

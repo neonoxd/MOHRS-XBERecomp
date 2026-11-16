@@ -177,11 +177,15 @@ void TraceGraphPlay(const X86Context& ctx) {
 void TraceNative(const X86Context& ctx) {
     static const char* v = std::getenv("MOHRS_NATIVE_TRACE");
     static const bool find = v && std::string(v) == "find";
-    static const uint32_t owner = v && !find ? uint32_t(std::strtoul(v, nullptr, 16)) : 0;
+    static const bool player = v && std::string(v) == "player";
+    static const uint32_t owner = v && !find && !player ? uint32_t(std::strtoul(v, nullptr, 16)) : 0;
     static uint32_t lines = 0;
     if (!v || lines > 100000) return;
     uint32_t who = R32(0x2557A0), fn = R32(ctx.eax + ctx.edx), index = ctx.eax >> 4;
-    if (find ? fn != 0x303A0 : who != owner) return;
+    // player: the first player's own script (its object at player +0x220 running) or one it owns
+    uint32_t first = R32(0x270108);
+    bool mine = first && (who == first || R32(0x2557C0) == R32(first + 0x220));
+    if (find ? fn != 0x303A0 : player ? !mine : who != owner) return;
     lines++;
     LOGR("native: owner %08X #%u %06X pc %08X", who, index, fn, R32(0x2557BC));
 }
@@ -199,12 +203,41 @@ void TraceMessage(const X86Context& ctx) {
          R32(ctx.esp + 12), R32(ctx.esp + 16), R32(ctx.esp + 20), R32(ctx.esp));
 }
 
+void TraceMessageTaken(uint32_t target, uint32_t message, bool taken) {
+    static const char* value = std::getenv("MOHRS_MESSAGE_TRACE");
+    static const uint32_t only =
+        value && std::strncmp(value, "0x", 2) == 0 ? uint32_t(std::strtoul(value + 2, nullptr, 16)) : 0;
+    static uint32_t lines = 0;
+    if (!value || lines > 400000) return;
+    if (only && (message & 0xFFFF) != only) return;
+    lines++;
+    LOGR("message: to %08X msg %X %s", target, message & 0xFFFF, taken ? "taken" : "taken by no handler");
+}
+
 void TraceContact(const X86Context& ctx) {
     static const bool on = std::getenv("MOHRS_CONTACT_TRACE") != nullptr;
     if (!on) return;
     static std::map<uint32_t, std::string> seen;
     uint32_t pair = R32(ctx.esp + 4);
     uint32_t other = R32(pair) == ctx.ecx ? R32(pair + 4) : R32(pair);
+    // MOHRS_CONTACT_TRACE=points: every call's contact points (list at pair +0x1C, next +0x2C): the normal toward the
+    // player (+0 +4 +8, negated when the player is the pair's first object) and the depth (+0x20)
+    static const bool points = std::string(std::getenv("MOHRS_CONTACT_TRACE")) == "points";
+    static uint32_t lines = 0;
+    if (points && lines < 60000) {
+        float sign = R32(pair) == ctx.ecx ? -1.0f : 1.0f;
+        std::string list;
+        for (uint32_t pt = R32(pair + 0x1C), n = 0; pt && n < 8; pt = R32(pt + 0x2C), n++) {
+            char s[64];
+            std::snprintf(s, sizeof s, " (%.3f %.3f %.3f d %.4f)", sign * kernel::G<float>(pt),
+                          sign * kernel::G<float>(pt + 4), sign * kernel::G<float>(pt + 8), kernel::G<float>(pt + 0x20));
+            list += s;
+        }
+        lines++;
+        LOGR("contact: player %08X at %.3f %.3f %.3f vt %08X%s", ctx.ecx, kernel::G<float>(ctx.ecx + 0x80),
+             kernel::G<float>(ctx.ecx + 0x84), kernel::G<float>(ctx.ecx + 0x88), other ? R32(other) : 0, list.c_str());
+        return;
+    }
     char text[160];
     std::snprintf(text, sizeof text, "vt %08X at %.3f %.3f %.3f", other ? R32(other) : 0,
                   other ? kernel::G<float>(other + 0x80) : 0, other ? kernel::G<float>(other + 0x84) : 0,

@@ -2,13 +2,16 @@
 #include "common/mouse_look.h"
 #include "common/cheats.h"
 #include "common/controller_routing.h"
+#include "common/custom_movement.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/level_weapons.h"
 #include "common/options_menu.h"
 #include "common/pool_lock.h"
 #include "common/quick_save.h"
+#include "common/script_guard.h"
 #include "common/menu_mouse.h"
+#include "common/mission_timer.h"
 #include "common/stream_lock.h"
 #include "common/test_hooks.h"
 #include "common/weapon_select.h"
@@ -60,12 +63,29 @@ X86_FUNC(sub_00111C30) { game::LockedPool(ctx, base, __imp__sub_00111C30); }
 X86_EXTERN_FUNC(__imp__sub_00165390);
 X86_FUNC(sub_00165390) { game::LockedStreamTake(ctx, base, __imp__sub_00165390, game::kDefaultStreams); }
 
+// the script's native call opcode (src/common/script_guard.h): a native given a destroyed script object does
+// not run
+X86_EXTERN_FUNC(__imp__sub_000497D0);
+X86_FUNC(sub_000497D0) {
+    if (game::NativeOnDestroyed(ctx, game::kDefaultScripts)) return;
+    // the player's script starting a switch a weapon key asked for (src/common/weapon_select.h)
+    game::WeaponNative(game::RunningNative(game::kDefaultScripts), game::kDefaultWeapons);
+    __imp__sub_000497D0(ctx, base);
+}
+// a slot lookup with no owner, which the native 0x3B060 makes when its second object is null: none found
+// (src/common/script_guard.h)
+X86_EXTERN_FUNC(__imp__sub_000D2D60);
+X86_FUNC(sub_000D2D60) {
+    if (!game::SlotLookupWithoutOwner(ctx)) __imp__sub_000D2D60(ctx, base);
+}
+
 // Weapon keys (src/common/weapon_select.h): the input manager's action query and the weapon select
 X86_EXTERN_FUNC(__imp__sub_000B83E0);
 X86_FUNC(sub_000B83E0) {
     uint32_t index = R32(ctx.esp + 4), action = kernel::G<uint16_t>(ctx.esp + 8);
     __imp__sub_000B83E0(ctx, base);
     game::WeaponSwitchQuery(ctx, index, action, game::kDefaultWeapons);
+    game::MovementQuery(ctx, index, action);
 }
 X86_EXTERN_FUNC(__imp__sub_000D8720);
 X86_FUNC(sub_000D8720) {
@@ -82,11 +102,13 @@ X86_FUNC(sub_0009D180) {
 
 // the main gameplay frame, called once a frame from the level's loop at 0x128B9, paused too: its entry is where a
 // quick save is taken and put back (src/common/quick_save.h), the host's call chain being the same there every frame,
-// and where the cheats are applied (src/common/cheats.h), the players being live there
+// and where the cheats are applied (src/common/cheats.h), the players being live there, and the level's time
+// published for the overlay (src/common/mission_timer.h)
 X86_EXTERN_FUNC(__imp__sub_000A4A90);
 X86_FUNC(sub_000A4A90) {
     game::QuickSaveFrame(ctx, reinterpret_cast<const void*>(&sub_000A4A90));
     game::CheatFrame(ctx, game::kDefaultCheats);
+    game::MissionTimerFrame(game::kDefaultMissionTimer);
     __imp__sub_000A4A90(ctx, base);
 }
 
@@ -219,6 +241,10 @@ void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
 // [[hook]] 0x8599E in the light update 0x85990: its keyframe ticks
 void LightTicks(X86Context& ctx, uint8_t*) { game::LightTicks(ctx); }
 void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
+// [[hook]] 0xDB7C4 in the player update 0xDB530, after its ground test (bl): Custom Movement's rules
+void MovementGround(X86Context& ctx, uint8_t*) {
+    game::MovementGround(ctx, (ctx.ebx & 0xFF) != 0, game::kDefaultMovement);
+}
 // [[hook]]s in the multiplayer bot update 0x65A80: its AI update test at 0x65A95, the AI update's time at 0x65ABA
 void BotThink(X86Context& ctx, uint8_t*) { game::BotThink(ctx, 0x270140); }
 void BotThinkTime(X86Context& ctx, uint8_t*) { game::BotThinkTime(ctx); }
@@ -279,17 +305,23 @@ X86_FUNC(sub_000CE030) {
     __imp__sub_000CE030(ctx, base);
 }
 
-// post a message to an object's script (0x4ADB0: target, message, argument, sender, flag): MOHRS_MESSAGE_TRACE
+// post a message to an object's script (0x4ADB0: target, message, argument, sender, flag; true when a handler took
+// it): MOHRS_MESSAGE_TRACE, and a weapon key's switch message no handler took (src/common/weapon_select.h)
 X86_EXTERN_FUNC(__imp__sub_0004ADB0);
 X86_FUNC(sub_0004ADB0) {
     game::TraceMessage(ctx);
+    uint32_t target = R32(ctx.esp + 4), message = R32(ctx.esp + 8);
     __imp__sub_0004ADB0(ctx, base);
+    game::TraceMessageTaken(target, message, (ctx.eax & 0xFF) != 0);
+    game::WeaponSwitchPosted(target, message, (ctx.eax & 0xFF) != 0, game::kDefaultWeapons);
 }
 
-// the player's contact pair handler (player vtable 0x1E9100 slot +0x24): MOHRS_CONTACT_TRACE logs what it touches
+// the player's contact pair handler (player vtable 0x1E9100 slot +0x24): MOHRS_CONTACT_TRACE logs what it touches;
+// Custom Movement takes the floors it goes up (src/common/custom_movement.h)
 X86_EXTERN_FUNC(__imp__sub_000DEFA0);
 X86_FUNC(sub_000DEFA0) {
     game::TraceContact(ctx);
+    game::MovementContact(ctx);
     __imp__sub_000DEFA0(ctx, base);
 }
 
@@ -301,12 +333,35 @@ X86_FUNC(sub_000D8260) {
     game::TraceStep(ctx, false);
 }
 
-// the player's movement step (player vtable +0x1C): the same trace, tagged "move"
+// the player's update (player vtable 0x1E9100 slot +0x10, thiscall (ticks), ret 4): Custom Movement's velocity
+// (src/common/custom_movement.h)
+X86_EXTERN_FUNC(__imp__sub_000DB530);
+X86_FUNC(sub_000DB530) {
+    uint32_t player = ctx.ecx;
+    game::MovementUpdateBegin(ctx, game::kDefaultMovement);
+    __imp__sub_000DB530(ctx, base);
+    game::MovementUpdateEnd(player, game::kDefaultMovement);
+}
+
+// the player's movement step (player vtable +0x1C): Custom Movement gives back the step's gravity; the trace of
+// MOHRS_STEP_TRACE, tagged "move"
 X86_EXTERN_FUNC(__imp__sub_000E0E50);
 X86_FUNC(sub_000E0E50) {
+    game::MovementStep(ctx, game::kDefaultMovement);
     game::TraceMove(ctx, true);
     __imp__sub_000E0E50(ctx, base);
     game::TraceMove(ctx, false);
+}
+
+// an explosion's apply to one object in reach (vtable 0x1F2880 slot +4, thiscall (target), ret 4): with Custom
+// Movement a player's own blast does them no damage and pushes them (src/common/custom_movement.h)
+X86_EXTERN_FUNC(__imp__sub_0014B020);
+X86_FUNC(sub_0014B020) { game::MovementBlast(ctx, base, __imp__sub_0014B020, game::kDefaultMovement); }
+// the player's view shake start (thiscall (amplitude, ramp up, ramp down, hold)): lighter for one's own blast
+X86_EXTERN_FUNC(__imp__sub_000D6670);
+X86_FUNC(sub_000D6670) {
+    game::MovementShake(ctx);
+    __imp__sub_000D6670(ctx, base);
 }
 
 // PC Options in the options menus (src/common/options_menu.h): SetText 0x138A40, RunScript 0x138330, the menu sound
@@ -321,6 +376,9 @@ X86_FUNC(sub_00120F00) { game::MenuScreen(ctx, base, __imp__sub_00120F00); }
 // the HUD options screen's event handler (vtable 0x1ED40C)
 X86_EXTERN_FUNC(__imp__sub_0012A620);
 X86_FUNC(sub_0012A620) { game::MenuEvent(ctx, base, __imp__sub_0012A620, kMenuCalls); }
+// the stats screens' fill, with the game state pointer at 0x2447D8: the end-of-level summary's mission time
+X86_EXTERN_FUNC(__imp__sub_00136D00);
+X86_FUNC(sub_00136D00) { game::MenuStats(ctx, base, __imp__sub_00136D00, kMenuCalls, 0x2447D8); }
 
 // FEng menu pointer adapter; actual text/sprite draws supply the clickable geometry (docs/menus.md).
 constexpr game::MenuMouseCalls kMouseMenu = {
