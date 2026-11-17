@@ -62,6 +62,30 @@ int main() {
         std::printf("goal period %d: %d re-scores in 10 s at 30 FPS, %d at 60 and above\n", period,
                     goal_scores(30, period, true), at60);
     }
+    // Late landing sounds (0xD6C70): a landing sets the counter to 1 or 10 ticks and the same call already counts it
+    // down by (int)(time + 0.5); the sounds play when it reaches zero. Seconds from the landing to them, or -1.
+    auto landing_delay = [](int fps, int ticks, bool round) {
+        game::KeyedTickRemainder players;
+        int counter = ticks;
+        for (int call = 0; call < fps * 10; call++) {
+            float delta = fps == 30 ? 2.0f : fps == 60 ? 1.0f : 60.0f / fps;
+            counter -= round ? int(delta + 0.5f) : int(players.Advance(0x81000000, delta));
+            if (counter <= 0) return double(call) / fps;
+        }
+        return -1.0;
+    };
+    for (int ticks : {1, 10}) {
+        double console = landing_delay(30, ticks, true);
+        Check(landing_delay(60, ticks, false) == landing_delay(60, ticks, true), "the 60 FPS mode must be unchanged");
+        Check(landing_delay(144, ticks, true) < 0, "the original rounding must be what loses the sounds above 120 FPS");
+        for (int fps : {30, 60, 120, 144, 240, 1000}) {
+            double delay = landing_delay(fps, ticks, false);
+            Check(delay >= 0 && std::abs(delay - console) <= 1.0 / 30 + 1e-9,
+                  "the late landing sounds must come within a console frame of their 30 FPS time");
+        }
+        std::printf("landing counter %d: sounds %.3f s after the landing at 30 FPS, %.3f s at 144\n", ticks, console,
+                    landing_delay(144, ticks, false));
+    }
     // FEng menus (0x11DD20 in-game, 0xF68A0 save/profile popup): (int)(dt * 20) units, 1,200 a second at 30/60 FPS.
     // Truncation gives 8 per frame at 144 FPS (4% slow) and nothing at all above 1,200 FPS.
     for (int fps : {60, 144, 1000, 3000, 5000}) {

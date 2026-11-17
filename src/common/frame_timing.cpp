@@ -20,7 +20,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 thread_local FrameClock clock;
 thread_local TickRemainder mission, menu, popup_menu;
-thread_local KeyedTickRemainder brains, lights;
+thread_local KeyedTickRemainder brains, lights, landings;
 thread_local LoadingAnimationClock loading, popup;
 bool Diagnostics() {
     static bool on = std::getenv("MOHRS_TIMING") != nullptr;
@@ -85,6 +85,11 @@ void BrainTicks(X86Context& ctx) {
 void LightTicks(X86Context& ctx) {
     if (!Opt().unlocked_fps && !Opt().fps60) return;
     ctx.eax = lights.Advance(ctx.ecx, kernel::G<float>(ctx.ebp + 8));
+}
+
+void LandingTicks(X86Context& ctx) {
+    if (!Opt().unlocked_fps && !Opt().fps60) return;
+    ctx.edx = landings.Advance(ctx.esi, ctx.xmm[2].f[0]);
 }
 
 void ThreatDecay(X86Context& ctx) {

@@ -315,6 +315,8 @@ void BrainTicks(X86Context& ctx, uint8_t*) { game::BrainTicks(ctx); }
 void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
 // [[hook]] 0x782EE in the light update 0x782E0: its keyframe ticks
 void LightTicks(X86Context& ctx, uint8_t*) { game::LightTicks(ctx); }
+// [[hook]] 0xCBA9A in the footstep and landing sounds 0xCB910, default.xbe's 0xD6DFA in 0xD6C70
+void LandingTicks(X86Context& ctx, uint8_t*) { game::LandingTicks(ctx); }
 void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
 // [[hook]] 0xD4EB9 in the player update 0xD4BF0, default.xbe's 0xDB7C4: Custom Movement's rules
 void MovementGround(X86Context& ctx, uint8_t*) {

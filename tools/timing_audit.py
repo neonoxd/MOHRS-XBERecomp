@@ -192,8 +192,25 @@ def audit_queue(image, function, free_list):
     print(f"{image}: the script message queue function verified")
 
 
+def audit_landing(image, config, hook, counter, half):
+    # the late landing sounds' countdown: movss xmm2,[ebp+0x14] (the time); xor eax,eax; mov ax,[esi+counter];
+    # cmp ax,bx; jz; movaps xmm0,xmm2; addss xmm0,[0.5]; cvttss2si edx,xmm0, then the hook at sub eax,edx
+    base, data, _ = load(str(ROOT / "assets/xbe" / image))
+    text = (ROOT / "config" / config).read_text()
+    code = (bytes.fromhex("f30f10551433c0668b86") + struct.pack("<I", counter) + bytes.fromhex("663bc30f84"))
+    assert data[hook - 0x26 - base:hook - 0x26 + len(code) - base] == code, f"{image}: landing counter load"
+    code = bytes.fromhex("0f28c2f30f5805") + struct.pack("<I", half) + bytes.fromhex("f30f2cd0")
+    assert data[hook - len(code) - base:hook - base] == code, f"{image}: expected time + 0.5, cvttss2si edx"
+    assert struct.unpack_from("<f", data, half - base)[0] == 0.5, f"{image}: landing rounding constant"
+    assert data[hook - base:hook - base + 2] == bytes.fromhex("2bc2"), f"{image}: expected sub eax,edx"
+    assert f'at = 0x{hook:X}\ncall = "LandingTicks"' in text, f"{image}: missing LandingTicks at {hook:X}"
+    print(f"{image}: the landing sound countdown verified")
+
+
 if __name__ == "__main__":
     audit_loader()
+    audit_landing("default.xbe", "game.toml", 0xD6DFA, 0x10C0, 0x1E0478)
+    audit_landing("moh3rdc.xbe", "coop.toml", 0xCBA9A, 0x11A0, 0x1D9878)
     audit_bots("default.xbe", "game.toml", 0x65A95, 0x65ABA)
     audit_queue("default.xbe", 0x481F0, 0x255748)
     audit_queue("moh3rdc.xbe", 0x4B340, 0x24D974)

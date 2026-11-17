@@ -54,6 +54,7 @@ advanced once at its conversion site, not per entity.
 | Soldier brain goal ticks, hook after CVTTSS2SI | `0x197C6` | `0x19056` |
 | Threat memory decay, hook after the 0.01 load | `0x223A8` | `0x21F58` |
 | Light update keyframe ticks, hook after CVTTSS2SI | `0x8599E` | `0x782EE` |
+| Footstep and landing sounds, late landing countdown, hook after CVTTSS2SI EDX | `0xD6DFA` | `0xCBA9A` |
 | Multiplayer bot AI update test, hook at XOR ECX,[0x270140] | `0x65A95` | none (no bots) |
 | Its time, hook after MULSS by 2 | `0x65ABA` | none |
 | Player floor ray: collision world before the cast | `0xDAC19` | `0xD1581` |
@@ -136,6 +137,15 @@ loops, mode 2 goes back and forth. An explosion's flash is a pooled light: the g
 at the blast. On frames shorter than a tick the truncation gave 0, so the flash kept its first keyframe and never ended
 (it only advanced on frames longer than a tick) and looping lamps froze. `LightTicks` gives each light whole ticks from
 a `KeyedTickRemainder` keyed by ECX. It applies in the 60 FPS and unlocked modes.
+
+### Landing sounds
+
+The player's footstep and landing sounds (`0xD6C70`, co-op `0xCB910`; thiscall, time at `[ebp+0x14]`) play a
+landing's sounds (`0xFFE30`, `Mvmt_<name>` events) and set a counter (player `+0x10C0`, co-op `+0x11A0`) to 1 tick, or
+10 for a hard landing. Each call counts it down by `(int)(time + 0.5)` (`cvttss2si edx,xmm0`) and at zero plays
+Step_Hard and Rustle_Dramatic (types 9 and 0x14). At 30 FPS that is 2 a frame, at 60 FPS 1; between 60 and 120 FPS it
+rounds up and the sounds came early, above 120 FPS it is 0 and they never played. `LandingTicks` gives each player
+whole ticks from a `KeyedTickRemainder` keyed by ESI. It applies in the 60 FPS and unlocked modes.
 
 ### Multiplayer bots
 

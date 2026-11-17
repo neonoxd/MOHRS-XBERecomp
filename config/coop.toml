@@ -444,6 +444,11 @@ call = "ThreatDecay"
 at = 0x782EE
 call = "LightTicks"
 
+# Late landing sounds, default.xbe's 0xD6DFA in 0xD6C70.
+[[hook]]
+at = 0xCBA9A
+call = "LandingTicks"
+
 # Loading medal/stars, corresponding to default.xbe's 0xFC9FD / 0xFD3DC.
 [[hook]]
 at = 0xF550D

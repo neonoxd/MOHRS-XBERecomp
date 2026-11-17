@@ -459,6 +459,12 @@ call = "ThreatDecay"
 at = 0x8599E
 call = "LightTicks"
 
+# Late landing sounds (docs/frame-timing.md): the countdown gets whole ticks with the fraction kept per player, after
+# cvttss2si edx,xmm0 (time + 0.5) in 0xD6C70.
+[[hook]]
+at = 0xD6DFA
+call = "LandingTicks"
+
 # Multiplayer bot AI (docs/frame-timing.md): once per 4 ticks per bot, set at the parity test's xor ecx,[0x270140]
 # in 0x65A80, with the time since the bot's last AI update after its time is doubled.
 [[hook]]

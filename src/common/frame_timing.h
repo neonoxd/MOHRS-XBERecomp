@@ -27,6 +27,12 @@ void ThreatDecay(X86Context& ctx);
 // whole ticks, and a one-shot light frees itself after its last keyframe. Below one tick a frame the truncation gave
 // 0, so a grenade's flash stayed lit and looping lamps froze; ecx is the light, which keeps its own fraction.
 void LightTicks(X86Context& ctx);
+// The player's footstep and landing sounds (default 0xD6C70, co-op 0xCB910; thiscall, time at [ebp+0x14], in xmm2):
+// a landing plays its sounds and sets a counter (default +0x10C0, co-op +0x11A0) to 1 tick, or 10 for a hard landing,
+// which then counts down by (int)(time + 0.5) a frame (cvttss2si edx) and plays Step_Hard and Rustle_Dramatic at zero.
+// Above 120 FPS that rounds to 0 and the late sounds never played; between 60 and 120 they came early. After the
+// conversion, LandingTicks sets edx to whole ticks; esi is the player, which keeps its own fraction.
+void LandingTicks(X86Context& ctx);
 // The player's end-of-step floor check (default 0xDA7D0, co-op 0xD104A) casts a ray straight down from 0.39 above the
 // player; a miss (result 1) zeroes the velocity and puts the player back at the previous step's end. A seam in the
 // collision mesh (1_1's lip at x -41.88) misses too, and short steps keep landing in it: the player is stuck.
