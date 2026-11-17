@@ -218,40 +218,51 @@ X86_FUNC(sub_000FC170) {
     game::MovieEnded();
 }
 
-// Keep Bodies (src/common/keep_bodies.h). An AI soldier's record destroy (record vtable +8, fastcall), also
-// MOHRS_CORPSE_TRACE (src/common/test_hooks.h)
+// Keep Bodies (src/common/keep_bodies.h) and MOHRS_CORPSE_TRACE (src/common/test_hooks.h). kSoldiers: the first AI
+// soldier record (next +0xC)
+constexpr uint32_t kSoldiers = 0x25E9B0;
+// an AI soldier's record destroy (record vtable +8, fastcall)
 X86_EXTERN_FUNC(__imp__sub_0004F990);
 X86_FUNC(sub_0004F990) {
     game::TraceSoldierRemoval(ctx);
-    game::BodyDestroyed(ctx.ecx);
     __imp__sub_0004F990(ctx, base);
+}
+// [[hook]] 0x4F9CD, the record destroy's model removal (esi the record); true goes past it to 0x4F9FD
+bool KeepBodyModel(X86Context& ctx, uint8_t*) { return game::KeepBodyModel(ctx, game::kDefaultBodies); }
+// [[hook]] 0xCE3FD, the model release's world removal (esi the model); true goes past it to 0xCE408
+bool KeepBodyInWorld(X86Context& ctx, uint8_t*) { return game::KeepBodyInWorld(ctx, game::kDefaultBodies); }
+// [[hook]] 0xF9560, the world's draw after its objects' loop (esi the world, ebp the view)
+void DrawBodies(X86Context& ctx, uint8_t*) { game::DrawBodies(ctx, game::kDefaultBodies); }
+// the AI controllers' projectile watch list removal (cdecl entry): passed over for a body's controller, which left
+// the list when the body was kept
+X86_EXTERN_FUNC(__imp__sub_00027D50);
+X86_FUNC(sub_00027D50) {
+    if (game::OnWatchList(R32(ctx.esp + 4), game::kDefaultBodies)) __imp__sub_00027D50(ctx, base);
+    else kernel::Return(ctx, ctx.eax, 0);
 }
 // an object's removal from the world (thiscall world, object): MOHRS_CORPSE_TRACE
 X86_EXTERN_FUNC(__imp__sub_000FA3E0);
 X86_FUNC(sub_000FA3E0) {
-    game::TraceWorldRemoval(ctx, game::kDefaultBodies.list, R32(ctx.esp + 4), "leaves the world");
+    game::TraceWorldRemoval(ctx, kSoldiers, R32(ctx.esp + 4), "leaves the world");
     __imp__sub_000FA3E0(ctx, base);
 }
-// a model's free (cdecl model) and deactivate (model vtable +0x168, ecx the model): MOHRS_CORPSE_TRACE
+// a model's free (thiscall factory, model), reset (fastcall model) and deactivate (model vtable +0x168, ecx the model):
+// MOHRS_CORPSE_TRACE
 X86_EXTERN_FUNC(__imp__sub_000CA7C0);
 X86_FUNC(sub_000CA7C0) {
-    game::TraceWorldRemoval(ctx, game::kDefaultBodies.list, R32(ctx.esp + 4), "is freed");
+    game::TraceWorldRemoval(ctx, kSoldiers, R32(ctx.esp + 4), "is freed");
     __imp__sub_000CA7C0(ctx, base);
 }
 X86_EXTERN_FUNC(__imp__sub_000CFE20);
 X86_FUNC(sub_000CFE20) {
-    game::TraceWorldRemoval(ctx, game::kDefaultBodies.list, ctx.ecx, "is reset");
+    game::TraceWorldRemoval(ctx, kSoldiers, ctx.ecx, "is reset");
     __imp__sub_000CFE20(ctx, base);
 }
 X86_EXTERN_FUNC(__imp__sub_000E4CB0);
 X86_FUNC(sub_000E4CB0) {
-    game::TraceWorldRemoval(ctx, game::kDefaultBodies.list, ctx.ecx, "is deactivated");
+    game::TraceWorldRemoval(ctx, kSoldiers, ctx.ecx, "is deactivated");
     __imp__sub_000E4CB0(ctx, base);
 }
-// [[hook]] 0xF86AF, the deferred-delete pass's destroy call (ecx the object); true goes past it to 0xF86B4
-bool KeepBody(X86Context& ctx, uint8_t*) { return game::KeepBody(ctx, game::kDefaultBodies); }
-// [[hook]] 0x4EA60, the model release in the script's soldier removal 0x4EA50 (esi the record); true goes to 0x4EA6F
-bool KeepBodyModel(X86Context& ctx, uint8_t*) { return game::KeepBodyModel(ctx, game::kDefaultBodies); }
 // the soldier model's fade (vtable +0x1B0: thiscall model, seconds; ret 4)
 X86_EXTERN_FUNC(__imp__sub_000E57C0);
 X86_FUNC(sub_000E57C0) {
@@ -265,29 +276,34 @@ X86_FUNC(sub_000F8680) {
     game::KeepBodiesPass(ctx, game::kDefaultBodies);
     __imp__sub_000F8680(ctx, base);
 }
-// the deferred-delete map's insert (thiscall object, updates; ret 4): a kept body is never queued again
-X86_EXTERN_FUNC(__imp__sub_000F8770);
-X86_FUNC(sub_000F8770) {
-    if (game::KeptBody(ctx.ecx)) kernel::Return(ctx, ctx.eax, 1);
-    else __imp__sub_000F8770(ctx, base);
-}
-// the AI soldier spawn (cdecl)
-X86_EXTERN_FUNC(__imp__sub_00050450);
-X86_FUNC(sub_00050450) {
-    game::KeepBodiesSpawn(ctx, game::kDefaultBodies);
-    __imp__sub_00050450(ctx, base);
-}
-// the cull that removes far soldiers to make room for queued spawns (the spawns at [esp+4])
-X86_EXTERN_FUNC(__imp__sub_0004EB20);
-X86_FUNC(sub_0004EB20) {
-    game::KeepBodiesCull(ctx, game::kDefaultBodies, R32(ctx.esp + 4));
-    __imp__sub_0004EB20(ctx, base);
+// a game object pool's creation (thiscall pool, size, count, flags; ret 0xC): the soldier models get spares. Should
+// the larger block not be had, the pool is made with the game's count.
+X86_EXTERN_FUNC(__imp__sub_000D1E90);
+X86_FUNC(sub_000D1E90) {
+    uint32_t esp = ctx.esp, count = R32(esp + 8);
+    uint32_t more = game::ModelPoolCount(ctx.ecx, count, game::kDefaultBodies);
+    uint32_t pool = ctx.ecx;
+    kernel::W32(esp + 8, more);
+    __imp__sub_000D1E90(ctx, base);
+    if (ctx.eax || more == count) return;
+    LOGR("keep bodies: no room for %u more soldier models", more - count);
+    ctx.esp = esp;
+    ctx.ecx = pool;
+    kernel::W32(esp + 8, count);
+    __imp__sub_000D1E90(ctx, base);
 }
 // a level's AI records start (lists, count and limit)
 X86_EXTERN_FUNC(__imp__sub_0004E690);
 X86_FUNC(sub_0004E690) {
     game::ForgetBodies();
     __imp__sub_0004E690(ctx, base);
+}
+// the level's shutdown ("Gameloop_Shutdown"): the bodies are freed while the world and the pools are still there
+X86_EXTERN_FUNC(__imp__sub_000A3380);
+X86_FUNC(sub_000A3380) {
+    game::BodiesShutdown(ctx, game::kDefaultBodies, true);
+    __imp__sub_000A3380(ctx, base);
+    game::BodiesShutdown(ctx, game::kDefaultBodies, false);
 }
 
 // The player's near plane pulled in while the view is wider than the original (src/common/fov.h, docs/fov.md):

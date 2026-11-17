@@ -83,9 +83,9 @@ Widescreen fills 16:10, 16:9, ultrawide 21:9 and 32:9 screens: the view is widen
 by the resolution, or the desktop's), the HUD and menus keep their shape in the middle, and the mission movies are
 shown as large as they fit without being stretched.
 
-Display > Keep Bodies: dead enemies and allies stay where they fell instead of vanishing a few seconds later. The
-game has a limit on soldiers per level, and a body still takes one of those places: when the level needs a place
-for a new soldier, the oldest body goes.
+Display > Keep Bodies: dead enemies and allies stay where they fell for the rest of the level instead of fading out
+a few seconds later. Up to 128 bodies a level (64 in co-op); past that the oldest one goes. Bodies stay as they
+fell: shots and explosions pass through them.
 
 Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
 Mode, One Shot Kills, Bullet Shield, Achilles Head, Invisible Soldiers and Rubber Grenades, and sets Quick Reload

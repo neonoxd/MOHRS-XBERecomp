@@ -508,16 +508,22 @@ call = "RefireTime"
 at = 0xF4E82
 call = "MovieScale"
 
-# Keep Bodies (src/common/keep_bodies.h): the deferred-delete pass 0xF0FE0 at its destroy call (mov eax, [ecx];
-# call [eax+8], ecx the object); true goes past the call for a dead soldier's record that is kept
+# Keep Bodies (src/common/keep_bodies.h): the record destroy 0x52CF0 at its model's removal (mov ecx, [esi+0xF8];
+# push ecx; mov ecx, world; call ...; esi the record); true goes past the removal, deactivation and free of the model
 [[hook]]
-at = 0xF100F
-call = "KeepBody"
-on_true = 0xF1014
-
-# Keep Bodies: the script's soldier removal 0x51DB0 at the model's release (mov edx, [esi]; mov ecx, esi;
-# call [edx+0x10]; mov edx, [eax]; push 2; mov ecx, eax; call [edx]; esi the record); true goes past it
-[[hook]]
-at = 0x51DC0
+at = 0x52D2D
 call = "KeepBodyModel"
-on_true = 0x51DCF
+on_true = 0x52D5D
+
+# Keep Bodies: the model release 0xC2EB0 (model vtable +0) at its world removal (push esi; mov ecx, world; call ...;
+# esi the model); true leaves the model in the world
+[[hook]]
+at = 0xC2EBD
+call = "KeepBodyInWorld"
+on_true = 0xC2EC8
+
+# Keep Bodies: the world's draw 0xF1F30 after its objects' loop (mov ecx, [esi+0x18]; esi the world, ebp the view):
+# the bodies, out of the world, drawn
+[[hook]]
+at = 0xF2030
+call = "DrawBodies"

@@ -170,7 +170,7 @@ caller. The lookup has 20 callers in default.xbe.
 | `MOHRS_FOV_TRACE=1` | camera angles before and after the FoV adjustment |
 | `MOHRS_NEAR_PLANE_ORIGINAL=1` | keep the player camera's near plane at 0.4 when the view is widened (walls clip at the sides) |
 | `MOHRS_EVENT_TRACE=1` | every animation event handled, with the guest call chain |
-| `MOHRS_CORPSE_TRACE=1` | each AI soldier's removal (record destroy, default.xbe `0x4F990`, moh3rdc.xbe `0x52CF0`): seconds since start, record, hit points (`+0x14`), brain (`+8`), model (`+0xF8`) and the guest call chain; each removal from the world (`0xFA3E0`, co-op `0xF2EB0`), free (`0xCA7C0`), deactivate (`0xE4CB0`) and reset (`0xCFE20`) of a listed soldier's model, with its hit points, team and call chain (free, deactivate and reset single player only); and, with Keep Bodies, whenever a kept body's model joins or leaves the world or its pose flag (`+0x2AC`) changes |
+| `MOHRS_CORPSE_TRACE=1` | each AI soldier's removal (record destroy, default.xbe `0x4F990`, moh3rdc.xbe `0x52CF0`): seconds since start, record, hit points (`+0x14`), brain (`+8`), model (`+0xF8`) and the guest call chain; each removal from the world (`0xFA3E0`, co-op `0xF2EB0`), free (`0xCA7C0`), deactivate (`0xE4CB0`) and reset (`0xCFE20`) of a listed soldier's model, with its hit points, team and call chain (free, deactivate and reset single player only) |
 | `MOHRS_ANIM_TRACE=<event tables>` or `all` | animation channels playing them and who starts them |
 | `MOHRS_GRAPH_TRACE` | animation graph state requests (`0x6A120`, `0xCE030`) |
 | `MOHRS_NATIVE_TRACE=find\|<owner>\|player\|dead` | a script's native calls (`player`: the first player's script; `dead`: every dead AI soldier's, timed; single player) |
