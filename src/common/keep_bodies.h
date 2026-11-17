@@ -9,7 +9,9 @@
 // The map's pass destroys the model, whose destroy goes on to the record destroy (0x4F990), which takes the model out
 // of the world again, deactivates and frees it, frees the brain and the record.
 //
-// With the setting on, for a dead soldier's model (soldier model vtable, team -1):
+// With the setting on, for a dead soldier's model (soldier model vtable, team -1, and its record, through the brain's
+// owner +0x20, with no hit points left; team -1 is also every soldier model's default, so a living soldier a script
+// removes, such as the soldiers who run out of the room at the first level's opening, has it too):
 // - the fader is switched off after the fade starts;
 // - the release leaves the model in the world until its record goes (it is still queued, and its watchers are told);
 // - the record destroy skips the model's deactivation and free: the model is taken out of the world as the game does
@@ -50,12 +52,13 @@ struct BodyLayout {
     uint32_t watch_leave;   // cdecl entry: takes an entry off the watch list
     uint32_t watch_entry;   // the AI controller's entry on it (controller +)
     uint32_t free_shape;    // cdecl shape: back to its pool (the model's +0x110 and +0x118)
+    uint32_t record_vtable; // the AI soldier record's (vtable +8 the record destroy); hit points at record +0x14
 };
 
 inline constexpr BodyLayout kDefaultBodies{0x25E9A0, 0x1E99A0, 0x270630, 0xFA3E0,  0x168,  0x270460, 0xCA7C0,
-                                           0x270470, 128,      0x1FC7C0, 0x27D50, 0xD30,   0x4E570};
+                                           0x270470, 128,      0x1FC7C0, 0x27D50, 0xD30,   0x4E570, 0x1E21A4};
 inline constexpr BodyLayout kCoopBodies{0x256BD0, 0x1E25C0, 0x2657B0, 0xF2EB0,  0x160,  0x2655E0, 0xBF070,
-                                        0x2655F0, 64,       0x1F56E8, 0x27420, 0xD20,   0x518D0};
+                                        0x2655F0, 64,       0x1F56E8, 0x27420, 0xD20,   0x518D0, 0x1DB4C4};
 
 // after the model's fade starts (default.xbe 0xE57C0, moh3rdc.xbe 0xDD940: thiscall model, seconds): the fader at
 // +0xFB0 off again for a dead soldier's model

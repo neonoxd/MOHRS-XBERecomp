@@ -69,14 +69,20 @@ void Spawn(int i) {
     G<uint32_t>(m + 0x118) = m + 0x2300;
     G<int32_t>(m + 0x124) = 7;
     G<uint32_t>(m + 0x120) = 0x40000 + uint32_t(i) * 0x100;
+    G<uint32_t>(R32(m + 0x120) + 0x20) = r;  // the brain's owner: the record, with hit points
+    G<uint32_t>(r) = L.record_vtable;
+    G<float>(r + 0x14) = 16.0f;
     G<uint32_t>(m + 0xFB0) = 0;
     G<uint32_t>(m + 0x1C) = R32(L.world);
     G<uint32_t>(L.world) = m;
     G<uint32_t>(r + 0xF8) = m;
 }
 void Die(int i) {
+    G<float>(Record(i) + 0x14) = 0.0f;
     G<int32_t>(Model(i) + 0x124) = -1;
 }
+// a soldier with no team that a script removes alive (team -1 is the model's default)
+void NoTeam(int i) { G<int32_t>(Model(i) + 0x124) = -1; }
 bool InWorld(uint32_t m) {
     for (uint32_t o = R32(L.world); o; o = R32(o + 0x1C))
         if (o == m) return true;
@@ -231,6 +237,21 @@ int main() {
     ctx.esi = Record(1);
     Check(!game::KeepBodyModel(ctx, L), "a living soldier's record destroy frees its model");
 
+    // a living soldier with no team (a script's): faded, released and freed as in the game
+    Level(4);
+    Spawn(0);
+    NoTeam(0);
+    G<uint32_t>(Model(0) + 0xFB0) = 2;
+    game::KeepBodyFade(Model(0), L);
+    Check(R32(Model(0) + 0xFB0) == 2, "a living soldier with no team still fades");
+    ctx.esi = Model(0);
+    Check(!game::KeepBodyInWorld(ctx, L), "a living soldier with no team leaves the world at its release");
+    ctx.esi = Record(0);
+    Check(!game::KeepBodyModel(ctx, L) && freed.empty(), "a living soldier with no team is not kept");
+    LeaveWorld(Model(0));
+    DrawWorld(ctx);
+    Check(drawn.empty(), "and not drawn");
+
     // no more bodies than spare models: the oldest goes first, the registers put back
     Level(2);
     for (uint32_t i = 0; i <= L.spare; i++) {
@@ -305,6 +326,6 @@ int main() {
     game::KeepBodiesPass(ctx, L);
     Check(freed.size() == 1 && freed[0] == Model(0), "after a load only the dead model with the body brain is a body");
 
-    std::puts("keep bodies: fade off, kept past its record out of the world and drawn, off the watch list, collision "
+    std::puts("keep bodies: living soldiers with no team left alone, fade off, kept past its record out of the world and drawn, off the watch list, collision "
               "freed, spares never exceeded, shutdown, off and quick load");
 }

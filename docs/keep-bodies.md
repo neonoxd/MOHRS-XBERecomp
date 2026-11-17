@@ -15,6 +15,7 @@ models (`0x22E0` bytes each).
 
 | | default.xbe | moh3rdc.xbe |
 |---|---|---|
+| AI soldier record vtable (hit points at `+0x14`) | `0x1E21A4` | `0x1DB4C4` |
 | Record destroy (record vtable `+8`, fastcall) | `0x4F990` | `0x52CF0` |
 | Its model removal, deactivation and free | `0x4F9CD`-`0x4F9F8` | `0x52D2D`-`0x52D58` |
 | Soldier model vtable | `0x1E99A0` | `0x1E25C0` |
@@ -44,6 +45,10 @@ models (`0x22E0` bytes each).
 | Deferred-delete pass (each game loop update) | `0xF8680` | `0xF0FE0` |
 | Level's records start | `0x4E690` | `0x519F0` |
 | Level's shutdown (`Gameloop_Shutdown`) | `0xA3380` | `0x965B0` |
+
+A soldier model starts with team -1 (the model reset `0xCFE20`); the spawn's script gives it a team, and a soldier
+no script gives one keeps -1 while alive (the first level's opening: the soldiers who run out of the room, whose script
+then removes them alive as below). Only the record's hit points (`+0x14`, a float) tell a dead soldier: 0 or less.
 
 About a second after death the soldier's script clears the model's team (native `0x2E230`: model vtable `+0x74`, team
 at model `+0x124` = -1) and starts its fade (native `0x3D5B0` with 2: model vtable `+0x1B0`). The fade is a fader at
@@ -96,7 +101,10 @@ the handlers of a brain whose script has ended (`+0x24` = -1).
 ## Implementation
 
 `src/common/keep_bodies.{h,cpp}`, hooks in `src/game/hooks.cpp` and `src/coop/hooks.cpp`. A dead soldier's model is a
-model with the soldier model vtable and team -1.
+model with the soldier model vtable and team -1 whose record (the brain's owner, `+0x120` then `+0x20`, with the record
+vtable) has no hit points left; a model with no brain, a body brain or an owner that is not a soldier record goes by
+the team. At the record destroy the record itself is checked too. A living soldier a script removes is faded, released
+and freed as in the game.
 
 - The pool creation override adds 128 (co-op 64) to the soldier pool's count, whatever the setting, so it can be
   turned on in a level. Should the larger block not be had, the pool is made again with the game's count, and Keep
@@ -141,7 +149,7 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/r
 & re/keep_bodies_test.exe
 ```
 
-Covers the pool count, the setting off, the fade, the model staying in the world until its record goes and then
+Covers the pool count, the setting off, a living soldier with no team left to the game, the fade, the model staying in the world until its record goes and then
 outliving it out of the world with the body brain, the body's AI controller off the watch list, its collision objects
 and first shape freed and the shadow's shape kept, the bodies drawn from
 the world's draw only, the oldest body freed past the spares (registers put back), no spares, the shutdown, turning

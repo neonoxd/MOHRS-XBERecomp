@@ -20,9 +20,21 @@ std::deque<uint32_t> g_bodies;  // kept models, oldest first; the game thread on
 bool g_loaded = false;          // a quick load since the last pass
 bool g_shutdown = false;        // the level is shutting down
 
-// a dead soldier's model: the soldier model's vtable and the team the death script cleared
+// an AI soldier record with hit points left (+0x14)
+bool LivingRecord(uint32_t record, const BodyLayout& l) {
+    return record && R32(record) == l.record_vtable && kernel::G<float>(record + 0x14) > 0.0f;
+}
+
+bool BodyBrain(uint32_t brain);
+
+// A dead soldier's model: the soldier model's vtable, the team the death script cleared, and no living record. Team -1
+// alone is not death: the model reset (0xCFE20) starts every soldier model with it, and soldiers a script never gives
+// a team keep it (the first level's opening: the soldiers who run out of the room and are removed alive by their
+// script).
 bool DeadModel(uint32_t model, const BodyLayout& l) {
-    return model && R32(model) == l.model_vtable && int32_t(R32(model + 0x124)) == -1;
+    if (!model || R32(model) != l.model_vtable || int32_t(R32(model + 0x124)) != -1) return false;
+    uint32_t brain = R32(model + 0x120);
+    return !brain || BodyBrain(brain) || !LivingRecord(R32(brain + 0x20), l);
 }
 
 // A body's brain: a script that has ended (+0x24 -1) with no class (+0) and no owner (+0x20). A message posted to it
@@ -129,7 +141,7 @@ bool KeepBodyInWorld(const X86Context& ctx, const BodyLayout& l) {
 
 bool KeepBodyModel(X86Context& ctx, const BodyLayout& l) {
     uint32_t model = R32(ctx.esi + 0xF8);
-    if (!Opt().keep_bodies || g_shutdown || !DeadModel(model, l)) return false;
+    if (!Opt().keep_bodies || g_shutdown || LivingRecord(ctx.esi, l) || !DeadModel(model, l)) return false;
     uint32_t spare = Spare(l);
     if (!spare) return false;
     while (g_bodies.size() >= spare) FreeOldest(ctx, l);
