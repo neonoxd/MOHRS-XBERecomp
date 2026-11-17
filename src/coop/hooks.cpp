@@ -6,6 +6,7 @@
 #include "common/custom_movement.h"
 #include "common/fov.h"
 #include "common/frame_timing.h"
+#include "common/keep_bodies.h"
 #include "common/mission_timer.h"
 #include "common/modern_aim.h"
 #include "common/options_menu.h"
@@ -209,6 +210,62 @@ X86_EXTERN_FUNC(__imp__sub_000F4C80);
 X86_FUNC(sub_000F4C80) {
     __imp__sub_000F4C80(ctx, base);
     game::MovieEnded();
+}
+
+// Keep Bodies (src/common/keep_bodies.h). An AI soldier's record destroy (record vtable +8, fastcall), also
+// MOHRS_CORPSE_TRACE (src/common/test_hooks.h)
+X86_EXTERN_FUNC(__imp__sub_00052CF0);
+X86_FUNC(sub_00052CF0) {
+    game::TraceSoldierRemoval(ctx);
+    game::BodyDestroyed(ctx.ecx);
+    __imp__sub_00052CF0(ctx, base);
+}
+// an object's removal from the world (thiscall world, object): MOHRS_CORPSE_TRACE
+X86_EXTERN_FUNC(__imp__sub_000F2EB0);
+X86_FUNC(sub_000F2EB0) {
+    game::TraceWorldRemoval(ctx, game::kCoopBodies.list, R32(ctx.esp + 4), "leaves the world");
+    __imp__sub_000F2EB0(ctx, base);
+}
+// [[hook]] 0xF100F, the deferred-delete pass's destroy call (ecx the object); true goes past it to 0xF1014
+bool KeepBody(X86Context& ctx, uint8_t*) { return game::KeepBody(ctx, game::kCoopBodies); }
+// [[hook]] 0x51DC0, the model release in the script's soldier removal 0x51DB0 (esi the record); true goes to 0x51DCF
+bool KeepBodyModel(X86Context& ctx, uint8_t*) { return game::KeepBodyModel(ctx, game::kCoopBodies); }
+// the soldier model's fade (vtable +0x1B0: thiscall model, seconds; ret 4)
+X86_EXTERN_FUNC(__imp__sub_000DD940);
+X86_FUNC(sub_000DD940) {
+    uint32_t model = ctx.ecx;
+    __imp__sub_000DD940(ctx, base);
+    game::KeepBodyFade(model, game::kCoopBodies);
+}
+// the deferred-delete pass, each game loop update
+X86_EXTERN_FUNC(__imp__sub_000F0FE0);
+X86_FUNC(sub_000F0FE0) {
+    game::KeepBodiesPass(ctx, game::kCoopBodies);
+    __imp__sub_000F0FE0(ctx, base);
+}
+// the deferred-delete map's insert (thiscall object, updates; ret 4): a kept body is never queued again
+X86_EXTERN_FUNC(__imp__sub_000F10D0);
+X86_FUNC(sub_000F10D0) {
+    if (game::KeptBody(ctx.ecx)) kernel::Return(ctx, ctx.eax, 1);
+    else __imp__sub_000F10D0(ctx, base);
+}
+// the AI soldier spawn (cdecl)
+X86_EXTERN_FUNC(__imp__sub_000537B0);
+X86_FUNC(sub_000537B0) {
+    game::KeepBodiesSpawn(ctx, game::kCoopBodies);
+    __imp__sub_000537B0(ctx, base);
+}
+// the cull that removes far soldiers to make room for queued spawns (the spawns at [esp+4])
+X86_EXTERN_FUNC(__imp__sub_00051E80);
+X86_FUNC(sub_00051E80) {
+    game::KeepBodiesCull(ctx, game::kCoopBodies, R32(ctx.esp + 4));
+    __imp__sub_00051E80(ctx, base);
+}
+// a level's AI records start (lists, count and limit)
+X86_EXTERN_FUNC(__imp__sub_000519F0);
+X86_FUNC(sub_000519F0) {
+    game::ForgetBodies();
+    __imp__sub_000519F0(ctx, base);
 }
 
 // The player's near plane pulled in while the view is wider than the original (src/common/fov.h, docs/fov.md):

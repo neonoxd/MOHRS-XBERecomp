@@ -47,7 +47,9 @@ void TraceGraphSet(const X86Context& ctx);
 void TraceGraphPlay(const X86Context& ctx);
 // Development: MOHRS_NATIVE_TRACE=find logs the script owner calling native 0x303A0 (play animation state);
 // MOHRS_NATIVE_TRACE=<owner hex> logs every native that owner's script calls (0x497F3: index, function, frame time);
-// MOHRS_NATIVE_TRACE=player the first player's.
+// MOHRS_NATIVE_TRACE=player the first player's; MOHRS_NATIVE_TRACE=dead every native a dead AI soldier's script calls
+// (its brain at 0x2557C0, the record at brain +0x20 with the record vtable, and hit points +0x14 not above 0 or its
+// model's team, model +0x124, -1), timed.
 void TraceNative(const X86Context& ctx);
 // Development: MOHRS_MESSAGE_TRACE logs each message posted through 0x4ADB0 with its target, sender and caller
 // (MOHRS_MESSAGE_TRACE=0x28: only that message).
@@ -57,6 +59,16 @@ void TraceMessageTaken(uint32_t target, uint32_t message, bool taken);  // 0xCE0
 // Development: MOHRS_STEP_TRACE="x,y,radius" logs the player's collision resolve (0xD8260, fastcall player) within
 // radius of x,y: position before and after, step dt (+0x10C8), velocities (+0x230, +0x240), result and flags.
 void TraceStep(X86Context& ctx, bool before);
+// Development: MOHRS_CORPSE_TRACE logs each AI soldier's removal (its record's destroy, record vtable +8: default.xbe
+// 0x4F990, moh3rdc.xbe 0x52CF0, fastcall record) with its hit points (+0x14), its brain (+8), the seconds since the
+// run started, and the guest call chain, to find what removes a dead soldier's body.
+void TraceSoldierRemoval(const X86Context& ctx);
+// MOHRS_CORPSE_TRACE also logs, for an object that is the model (+0xF8) of a record in the soldier list (first record
+// at list, next +0xC), each removal from the world (default.xbe 0xFA3E0, moh3rdc.xbe 0xF2EB0: thiscall world, object
+// at [esp+4]), free (0xCA7C0, cdecl model), deactivate (model vtable +0x168, 0xE4CB0, ecx the model) and reset
+// (0xCFE20, fastcall model: clears the pose-evaluated flag +0x2AC the draw 0xE9860 needs), with the
+// record's hit points, the model's team and the guest call chain
+void TraceWorldRemoval(const X86Context& ctx, uint32_t list, uint32_t object, const char* what);
 void TraceMove(X86Context& ctx, bool before);  // the movement step 0xE0E50 (thiscall player, step dt at [esp+4])
 
 }  // namespace game

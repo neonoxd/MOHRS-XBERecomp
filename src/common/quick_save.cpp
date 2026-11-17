@@ -14,6 +14,7 @@
 
 #include "app/app.h"
 #include "app/snapshot.h"
+#include "common/keep_bodies.h"
 #include "common/mouse_keyboard.h"
 #include "core/log.h"
 
@@ -101,6 +102,7 @@ void QuickSaveFrame(X86Context& ctx, const void* site) {
         if (r != snapshot::Result::NotYet ||
             std::chrono::duration<double>(Clock::now() - pending_since).count() > kWaitSeconds) {
             pending = false;
+            if (r == snapshot::Result::Done) BodiesAfterLoad();
             Show(Explain(r, true));
         }
     }

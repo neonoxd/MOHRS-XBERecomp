@@ -24,6 +24,7 @@ show (left and right go round the seven):
 | | VSync (On, Off) | `vsync` |
 | | Field of View (45 to 140 in steps of 5, 70 original) | `fov` |
 | | Widescreen (On, Off) | `widescreen` |
+| | Keep Bodies (On, Off; [keep-bodies.md](keep-bodies.md)) | `keep_bodies` |
 | Mouse | Sensitivity X, Sensitivity Y (0.1 to 5.0) | `mouse_sensitivity`, `mouse_vertical_sensitivity` |
 | | Invert X, Invert Y (On, Off) | `invert_mouse_x`, `invert_mouse` |
 | Move Keys | Move Forward, Move Back, Strafe Left, Strafe Right, Jump, Crouch, Walk | `[keys]` |

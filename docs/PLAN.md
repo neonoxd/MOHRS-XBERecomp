@@ -63,6 +63,7 @@ runtime, `d3dcompiler_47.dll`, licenses and `docs/player-readme.txt` as `README.
 |---|---|
 | Keyboard and mouse, controller routing for split screen | [input.md](input.md) |
 | Widescreen and ultrawide (Hor+), movies filling the frame | [widescreen.md](widescreen.md) |
+| Keep Bodies: dead soldiers stay until the level needs their slot | [keep-bodies.md](keep-bodies.md) |
 | Render scale, display mode, anisotropic filtering, skip intros/cutscenes | [player-readme.txt](player-readme.txt) |
 | 60 FPS and unlocked frame rate | [frame-timing.md](frame-timing.md) |
 | Field of view | [fov.md](fov.md) |

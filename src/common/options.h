@@ -17,6 +17,7 @@ struct Options {
     bool fps60 = true;            // a frame each vertical blank, as the PS2's 60 fps patch; off: every second one (30)
     bool unlocked_fps = false;    // experimental elapsed-time updates; fps_cap/vsync set the presentation rate
     uint32_t fov = kDefaultFov;    // horizontal degrees on a 4:3 frame; 70 original, widescreen adds Hor+
+    bool keep_bodies = false;     // dead soldiers stay until the level needs their slot (src/common/keep_bodies.h)
     // keyboard and mouse (src/common/mouse_keyboard.cpp)
     float mouse_sensitivity = 1.0f;  // horizontal, 0.05 degrees a count at 1
     float mouse_vertical_sensitivity = 1.0f;

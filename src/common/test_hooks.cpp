@@ -79,6 +79,45 @@ void TraceAnimEvent(const X86Context& ctx) {
          R32(record + 4), record, ctx.ecx, R32(ctx.esp), up.c_str());
 }
 
+void TraceSoldierRemoval(const X86Context& ctx) {
+    static const bool on = std::getenv("MOHRS_CORPSE_TRACE") != nullptr;
+    if (!on) return;
+    static const auto start = std::chrono::steady_clock::now();
+    double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    uint32_t record = ctx.ecx;
+    std::string up;
+    for (uint32_t at = ctx.esp + 4, n = 0; at < ctx.esp + 0x400 && n < 10; at += 4) {
+        uint32_t v = R32(at);
+        if (v < 0x11000 || v >= 0x1BB7DC) continue;
+        char text[12];
+        std::snprintf(text, sizeof(text), " %06X", v);
+        up += text;
+        n++;
+    }
+    LOGR("corpse: %.2f s record %08X hit points %.1f brain %08X model %08X from %06X%s", seconds, record,
+         kernel::G<float>(record + 0x14), R32(record + 8), R32(record + 0xF8), R32(ctx.esp), up.c_str());
+}
+
+void TraceWorldRemoval(const X86Context& ctx, uint32_t list, uint32_t object, const char* what) {
+    static const bool on = std::getenv("MOHRS_CORPSE_TRACE") != nullptr;
+    if (!on) return;
+    uint32_t record = 0, n = 0;
+    for (uint32_t r = R32(list); r && n < 256; r = R32(r + 0xC), n++)
+        if (R32(r + 0xF8) == object) record = r;
+    if (!record) return;
+    std::string up;
+    for (uint32_t at = ctx.esp + 4, k = 0; at < ctx.esp + 0x400 && k < 10; at += 4) {
+        uint32_t v = R32(at);
+        if (v < 0x11000 || v >= 0x1BB7DC) continue;
+        char text[12];
+        std::snprintf(text, sizeof(text), " %06X", v);
+        up += text;
+        k++;
+    }
+    LOGR("corpse: model %08X of record %08X (hit points %.1f, team %d) %s, from %06X%s", object, record,
+         kernel::G<float>(record + 0x14), int32_t(R32(object + 0x124)), what, R32(ctx.esp), up.c_str());
+}
+
 void TraceAnim(const X86Context& ctx) {
     static const std::vector<uint32_t> tables = [] {
         std::vector<uint32_t> out;
@@ -178,10 +217,26 @@ void TraceNative(const X86Context& ctx) {
     static const char* v = std::getenv("MOHRS_NATIVE_TRACE");
     static const bool find = v && std::string(v) == "find";
     static const bool player = v && std::string(v) == "player";
-    static const uint32_t owner = v && !find && !player ? uint32_t(std::strtoul(v, nullptr, 16)) : 0;
+    static const bool dead = v && std::string(v) == "dead";
+    static const uint32_t owner = v && !find && !player && !dead ? uint32_t(std::strtoul(v, nullptr, 16)) : 0;
     static uint32_t lines = 0;
     if (!v || lines > 100000) return;
     uint32_t who = R32(0x2557A0), fn = R32(ctx.eax + ctx.edx), index = ctx.eax >> 4;
+    if (dead) {
+        // dead: a script whose brain (0x2557C0) belongs to an AI soldier record (brain +0x20; record vtable 0x1E21A4)
+        // with no hit points left (+0x14)
+        uint32_t brain = R32(0x2557C0), record = brain ? R32(brain + 0x20) : 0;
+        if (!record || R32(record) != 0x1E21A4) return;
+        uint32_t model = R32(record + 0xF8);
+        bool team_cleared = model && int32_t(R32(model + 0x124)) == -1;
+        if (kernel::G<float>(record + 0x14) > 0.0f && !team_cleared) return;
+        static const auto start = std::chrono::steady_clock::now();
+        double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        lines++;
+        LOGR("native: %.2f s dead record %08X brain %08X #%u %06X pc %08X", seconds, record, brain, index, fn,
+             R32(0x2557BC));
+        return;
+    }
     // player: the first player's own script (its object at player +0x220 running) or one it owns
     uint32_t first = R32(0x270108);
     bool mine = first && (who == first || R32(0x2557C0) == R32(first + 0x220));

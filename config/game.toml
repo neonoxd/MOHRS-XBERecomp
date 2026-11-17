@@ -531,3 +531,17 @@ call = "RefireTime"
 [[hook]]
 at = 0xFC372
 call = "MovieScale"
+
+# Keep Bodies (src/common/keep_bodies.h): the deferred-delete pass 0xF8680 at its destroy call (mov eax, [ecx];
+# call [eax+8], ecx the object); true goes past the call for a dead soldier's record that is kept
+[[hook]]
+at = 0xF86AF
+call = "KeepBody"
+on_true = 0xF86B4
+
+# Keep Bodies: the script's soldier removal 0x4EA50 at the model's release (mov edx, [esi]; mov ecx, esi;
+# call [edx+0x10]; mov edx, [eax]; push 2; mov ecx, eax; call [edx]; esi the record); true goes past it
+[[hook]]
+at = 0x4EA60
+call = "KeepBodyModel"
+on_true = 0x4EA6F

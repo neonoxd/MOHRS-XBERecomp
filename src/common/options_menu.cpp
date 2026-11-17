@@ -130,6 +130,7 @@ const Item kDisplay[] = {
     {"Field of View", [] { return std::to_string(ClampFov(Opt().fov)); },
      [](int dir) { Opt().fov = ClampFov(uint32_t(int(ClampFov(Opt().fov)) + 5 * dir)); }},
     {"Widescreen", [] { return OnOff(Opt().widescreen); }, [](int) { Opt().widescreen = !Opt().widescreen; }},
+    {"Keep Bodies", [] { return OnOff(Opt().keep_bodies); }, [](int) { Opt().keep_bodies = !Opt().keep_bodies; }},
 };
 const Item kMouse[] = {
     {"Sensitivity X", [] { return Tenths(Opt().mouse_sensitivity); },
@@ -313,6 +314,7 @@ void Revert() {
     o.unlocked_fps = was.unlocked_fps;
     o.fov = was.fov;
     o.widescreen = was.widescreen;
+    o.keep_bodies = was.keep_bodies;
     o.mouse_sensitivity = was.mouse_sensitivity;
     o.mouse_vertical_sensitivity = was.mouse_vertical_sensitivity;
     o.invert_mouse = was.invert_mouse;

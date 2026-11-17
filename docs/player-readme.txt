@@ -73,14 +73,19 @@ Settings
 --------
 Options > PC Options in the main menu, and Preferences > PC Options in the pause screen: the Category row on top
 picks the page. Display has the display mode, render scale, frame rate (30, 60 or unlocked), FPS limit, VSync,
-field of view and widescreen; Mouse the horizontal and vertical sensitivity and inversion; Move, Combat, Weapon,
-Look and Other Keys the key bindings (and the walk speed). Left and right change a row. To bind a key, select its
-row (Enter or a click), then press the new key or mouse button: it replaces the action's keys and is taken off any
-other action. Escape cancels, Backspace leaves the action unbound. Confirm saves, back cancels everything changed.
+field of view, widescreen and keep bodies; Mouse the horizontal and vertical sensitivity and inversion; Move,
+Combat, Weapon, Look and Other Keys the key bindings (and the walk speed). Left and right change a row. To bind a
+key, select its row (Enter or a click), then press the new key or mouse button: it replaces the action's keys and
+is taken off any other action. Escape cancels, Backspace leaves the action unbound. Confirm saves, back cancels
+everything changed.
 
 Widescreen fills 16:10, 16:9, ultrawide 21:9 and 32:9 screens: the view is widened to the screen's shape (set
 by the resolution, or the desktop's), the HUD and menus keep their shape in the middle, and the mission movies are
 shown as large as they fit without being stretched.
+
+Display > Keep Bodies: dead enemies and allies stay where they fell instead of vanishing a few seconds later. The
+game has a limit on soldiers per level, and a body still takes one of those places: when the level needs a place
+for a new soldier, the oldest body goes.
 
 Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
 Mode, One Shot Kills, Bullet Shield, Achilles Head, Invisible Soldiers and Rubber Grenades, and sets Quick Reload
