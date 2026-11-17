@@ -114,7 +114,7 @@ uint32_t CallGuest(X86Context& ctx, uint32_t fn, const uint32_t* args, size_t co
 }
 namespace mem { bool IsCommitted(uint32_t va) { return va >= 0x10000 && va < memory.size(); } }
 namespace logx { void Write(Level, const char*, ...) {} }
-namespace app { bool Widescreen() { return false; } Mode Output() { return {640, 480}; } }
+namespace app { bool Widescreen() { return false; } float FrameAspect() { return 4.0f / 3.0f; } Mode Output() { return {640, 480}; } }
 namespace input {
 MenuPointer ReadMenuPointer() { return pointer; }
 void SetMenuInput(bool on) { menu_active = on; }

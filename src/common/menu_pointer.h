@@ -22,18 +22,18 @@ struct Rect {
     }
 };
 
-// Invert BlitFrame's fitted picture and Hud::ScreenX's horizontal menu compression. Coordinates coming from the
-// FEng drawing hooks already include animation, font justification, parent transforms and the game's safe area.
+// Invert BlitFrame's fitted picture (aspect: app::FrameAspect()) and Hud::ScreenX's horizontal menu compression.
+// Coordinates coming from the FEng drawing hooks already include animation, font justification, parent transforms
+// and the game's safe area.
 inline bool MapPointer(float client_x, float client_y, float client_w, float client_h,
-                       float guest_w, float guest_h, bool wide, float& x, float& y) {
-    if (client_w <= 0 || client_h <= 0 || guest_w <= 0 || guest_h <= 0) return false;
-    float aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+                       float guest_w, float guest_h, float aspect, float& x, float& y) {
+    if (client_w <= 0 || client_h <= 0 || guest_w <= 0 || guest_h <= 0 || !(aspect > 0)) return false;
     float w = std::min(client_w, client_h * aspect), h = w / aspect;
     float left = (client_w - w) * 0.5f, top = (client_h - h) * 0.5f;
     if (client_x < left || client_x >= left + w || client_y < top || client_y >= top + h) return false;
     x = (client_x - left) * guest_w / w;
     y = (client_y - top) * guest_h / h;
-    if (wide) x = guest_w * 0.5f + (x - guest_w * 0.5f) * (4.0f / 3.0f);
+    x = guest_w * 0.5f + (x - guest_w * 0.5f) * (aspect / (4.0f / 3.0f));
     return true;
 }
 

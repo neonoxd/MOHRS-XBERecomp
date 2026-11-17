@@ -30,7 +30,7 @@ From `tools/xbe_info.py` and `tools/xiso.py`:
   through ordinary D3D texture uploads and DirectSound, not a host decoder.
 - Between the front end and missions the game relaunches `default.xbe`, carrying state in `Z:\MohLoader.bin`. Two
   Player Campaign relaunches into `moh3rdc.xbe` (SDK image switching). Saves go to `UDATA`.
-- The game renders 4:3 only; the host pillarboxes it, or widens it (Hor+) with `widescreen`.
+- The game renders 4:3 only; the host pillarboxes it, or widens it (Hor+) to the output's shape with `widescreen`.
 
 The SDK base (0.1.0, commit `994fdd1`) supported XDK 4831 and 5849 only; 5455 support was added here, see
 [xdk5455.md](xdk5455.md). [BLACK-XBERecomp](https://github.com/TGP482/BLACK-XBERecomp) is the reference port.
@@ -62,7 +62,8 @@ runtime, `d3dcompiler_47.dll`, licenses and `docs/player-readme.txt` as `README.
 | Done | Doc |
 |---|---|
 | Keyboard and mouse, controller routing for split screen | [input.md](input.md) |
-| Widescreen (Hor+), render scale, display mode, anisotropic filtering, skip intros/cutscenes | [player-readme.txt](player-readme.txt) |
+| Widescreen and ultrawide (Hor+), movies filling the frame | [widescreen.md](widescreen.md) |
+| Render scale, display mode, anisotropic filtering, skip intros/cutscenes | [player-readme.txt](player-readme.txt) |
 | 60 FPS and unlocked frame rate | [frame-timing.md](frame-timing.md) |
 | Field of view | [fov.md](fov.md) |
 | PC Options screen, pause Cheats screen and mouse in menus | [menus.md](menus.md) |

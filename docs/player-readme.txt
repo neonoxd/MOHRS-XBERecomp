@@ -78,6 +78,10 @@ Look and Other Keys the key bindings (and the walk speed). Left and right change
 row (Enter or a click), then press the new key or mouse button: it replaces the action's keys and is taken off any
 other action. Escape cancels, Backspace leaves the action unbound. Confirm saves, back cancels everything changed.
 
+Widescreen fills 16:10, 16:9, ultrawide 21:9 and 32:9 screens: the view is widened to the screen's shape (set
+by the resolution, or the desktop's), the HUD and menus keep their shape in the middle, and the mission movies are
+shown as large as they fit without being stretched.
+
 Preferences > Cheats in the pause screen (single player and co-op) switches Give All Weapons, Infinite Ammo, God
 Mode, One Shot Kills, Bullet Shield, Achilles Head, Invisible Soldiers and Rubber Grenades, and sets Quick Reload
 (Off, 2x, 3x or 4x faster reloads) and Custom Movement (Off or Quake: on foot you run, stop, jump and steer in the

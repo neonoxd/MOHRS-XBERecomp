@@ -107,7 +107,7 @@ void Draw() {
     // Use the same client coordinates as menu hit testing, independent of the guest picture's bars/stretch.
     ImVec2 at(float(point.x) * io.DisplaySize.x / float(client.right),
               float(point.y) * io.DisplaySize.y / float(client.bottom));
-    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float aspect = app::FrameAspect();
     float picture_height = std::min(io.DisplaySize.y, io.DisplaySize.x / aspect);
     // 24px at a 720px picture height. The arrow tip is (20, 6) in the supplied 128px PNG.
     float size = std::max(12.0f, picture_height / 30.0f);

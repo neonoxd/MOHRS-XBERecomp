@@ -567,10 +567,12 @@ Start/resume and controller hints, and the Objectives/Load/Preferences/Notes hea
 
 ### Pointer coordinates
 
-`BlitFrame` (`sdk/runtime/gpu/d3d12.cpp`) fits a centred 4:3 or 16:9 picture into the backbuffer, and in widescreen
-`Hud::ScreenX` (`src/common/widescreen.cpp`) compresses menu/HUD x around the centre by `1/kWiden` (`kWiden = 4/3`).
-A client point is mapped to the displayed picture, then `x = centre + (x - centre) * kWiden` in widescreen, then
-into the object's space through the recorded render transforms. Points outside the picture hit nothing.
+`BlitFrame` (`sdk/runtime/gpu/d3d12.cpp`) fits a centred picture of `app::FrameAspect()` into the backbuffer (4:3,
+or in widescreen the output's shape from 16:10 to 32:9, see [widescreen.md](widescreen.md)), and in widescreen
+`Hud::ScreenX` (`src/common/widescreen.cpp`) compresses menu/HUD x around the centre by `1/widen`
+(`widen = FrameAspect / (4/3)`). A client point is mapped to the displayed picture, then
+`x = centre + (x - centre) * widen`, then into the object's space through the recorded render transforms. Points
+outside the picture hit nothing.
 
 ## Tests
 

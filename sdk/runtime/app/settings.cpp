@@ -122,20 +122,34 @@ Mode Output() {
     return Desktop();
 }
 
-bool Widescreen() {
-    if (!kGame.widescreen || (kGame.widescreen_option && !*kGame.widescreen_option)) return false;
-    // asked per frame and per HUD quad: the desktop mode lookup only runs when the resolution setting changes
-    static std::atomic<uint64_t> key{~0ull};
-    static std::atomic<bool> wide{true};
+namespace {
+
+// the output's shape, worked out again only when the resolution setting changes: Widescreen and FrameAspect are asked
+// per frame and per HUD quad
+std::atomic<uint64_t> g_shape_key{~0ull};
+std::atomic<bool> g_wide{true};
+std::atomic<float> g_wide_aspect{16.0f / 9.0f};
+
+void UpdateShape() {
     const Settings& s = Get();
     uint64_t k = uint64_t(s.width) << 32 | s.height;
     // a plain load first: the locked exchange on every call showed up in the render thread's profile
-    if (key.load(std::memory_order_relaxed) != k && key.exchange(k) != k) {
-        Mode m = Output();
-        wide = m.width * 2 >= m.height * 3;  // 3:2 or wider
-    }
-    return wide;
+    if (g_shape_key.load(std::memory_order_relaxed) == k || g_shape_key.exchange(k) == k) return;
+    Mode m = Output();
+    float shape = m.height ? float(m.width) / float(m.height) : 16.0f / 9.0f;
+    g_wide = m.width * 2 >= m.height * 3;  // 3:2 or wider
+    g_wide_aspect = kGame.widest_aspect > 16.0f / 9.0f ? std::min(shape, kGame.widest_aspect) : 16.0f / 9.0f;
 }
+
+}  // namespace
+
+bool Widescreen() {
+    if (!kGame.widescreen || (kGame.widescreen_option && !*kGame.widescreen_option)) return false;
+    UpdateShape();
+    return g_wide;
+}
+
+float FrameAspect() { return Widescreen() ? g_wide_aspect.load(std::memory_order_relaxed) : 4.0f / 3.0f; }
 
 float RenderScale(uint32_t guest_height) {
     float h = Output().height * (Get().render_percent / 100.0f);

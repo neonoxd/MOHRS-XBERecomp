@@ -2,13 +2,13 @@
 
 `fov` in `settings.toml` (before `[keys]`) or PC Options: whole horizontal degrees on the game's original 4:3 frame,
 45-140, default 70 (the original view). Out-of-range values are clamped on load and written back. Widescreen adds
-its Hor+ widening afterwards:
+its Hor+ widening to the output's shape afterwards ([widescreen.md](widescreen.md)):
 
-| `fov` | Horizontal at 4:3 | Horizontal at 16:9 |
-|---|---:|---:|
-| 70 | 70° | 86.07° |
-| 90 | 90° | 106.26° |
-| 110 | 110° | 124.59° |
+| `fov` | Horizontal at 4:3 | Horizontal at 16:9 | Horizontal at 21:9 (64:27) |
+|---|---:|---:|---:|
+| 70 | 70° | 86.07° | 102.45° |
+| 90 | 90° | 106.26° | 121.28° |
+| 110 | 110° | 124.59° | 137.00° |
 
 Applies to the player world cameras in both executables, including split-screen players. Both projection tangents
 are scaled by `tan(fov/2) / tan(70°/2)`, which keeps the aspect and the game's zoom ratios: aiming and scopes still

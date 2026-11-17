@@ -118,7 +118,7 @@ void QuickSaveUi() {
     }
     // top centre of the picture, as BlitFrame places it, fading out
     ImVec2 window = ImGui::GetIO().DisplaySize;
-    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float aspect = app::FrameAspect();
     float w = std::min(window.x, window.y * aspect);
     float h = w / aspect;
     float size = std::max(16.0f, h / 28.0f);

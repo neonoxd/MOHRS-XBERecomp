@@ -47,6 +47,9 @@ Mode Output();
 float RenderScale(uint32_t guest_height);
 // the output is 3:2 or wider: the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV
 bool Widescreen();
+// the width over the height the frame is shown at: 4:3 without widescreen, else 16:9, or with GameInfo::widest_aspect
+// the output's own shape up to that
+float FrameAspect();
 
 std::filesystem::path ExeDir();
 // the game in assets (game_files.cpp): its folder and this executable's xbe, from the extracted files or a disc
@@ -107,6 +110,9 @@ struct GameInfo {
     bool widescreen = true;
     // a game setting that turns widescreen off when false (the frame is then 4:3 on any output); null: always on
     const bool* widescreen_option = nullptr;
+    // a title that widens its own 4:3 view to the frame (Hor+) can have the frame take the output's shape, 16:10, 21:9
+    // or 32:9, up to this width over height; 0 shows a widescreen frame at 16:9
+    float widest_aspect = 0;
     // Map a guest port to an SDL controller slot for reads/motors; -1 means no physical controller.
     // GameInfo::pad still receives the original guest port. Null keeps the SDK's one-to-one mapping.
     int (*controller_port)(int port, bool rumble) = nullptr;

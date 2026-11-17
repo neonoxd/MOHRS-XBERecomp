@@ -209,6 +209,14 @@ X86_FUNC(sub_00082BA0) {
     game::AdjustPlayerFov(camera, kPlayers, 0x1FC658, 0x1150);
 }
 
+// the movie player (docs/widescreen.md): [[hook]] 0xFC372 sets its scales for the widened frame
+void MovieScale(X86Context& ctx, uint8_t*) { game::MovieScale(ctx); }
+X86_EXTERN_FUNC(__imp__sub_000FC170);
+X86_FUNC(sub_000FC170) {
+    __imp__sub_000FC170(ctx, base);
+    game::MovieEnded();
+}
+
 // The player's near plane pulled in while the view is wider than the original (src/common/fov.h, docs/fov.md):
 // the camera's frustum build 0x82E50 (fastcall camera) and the view's projection build 0x84290 (thiscall (flag),
 // ret 4, camera at [view + 0xE4]) are what read it

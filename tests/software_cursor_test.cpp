@@ -9,7 +9,7 @@
 
 namespace input { bool Playing() { return false; } }
 namespace game { bool MenuMouseCursorVisible() { return false; } }
-namespace app { bool Widescreen() { return true; } }
+namespace app { bool Widescreen() { return true; } float FrameAspect() { return 16.0f / 9.0f; } }
 namespace logx { void Write(Level, const char*, ...) {} }
 
 void Check(bool condition, const char* message) {

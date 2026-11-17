@@ -525,3 +525,9 @@ call = "ParticleDragPooled"
 [[hook]]
 at = 0x151234
 call = "RefireTime"
+
+# The movie player 0xFC170 fits a movie to the 4:3 screen with one scale (docs/widescreen.md): at the FLD after the
+# fit, scales that keep the movie's shape on the widened frame
+[[hook]]
+at = 0xFC372
+call = "MovieScale"

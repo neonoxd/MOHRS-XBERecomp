@@ -64,7 +64,7 @@ void FpsCounter(double fps) {
     if (!Opt().fps_counter) return;
     // the picture is shown in the middle of the window, as BlitFrame places it
     ImVec2 window = ImGui::GetIO().DisplaySize;
-    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float aspect = app::FrameAspect();
     float w = std::min(window.x, window.y * aspect);
     float h = w / aspect;
     float size = std::max(13.0f, h / 36.0f);
@@ -81,7 +81,7 @@ void MissionTimer() {
     uint32_t ticks;
     if (!Opt().mission_timer || !MissionTimerTicks(ticks)) return;
     ImVec2 window = ImGui::GetIO().DisplaySize;
-    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float aspect = app::FrameAspect();
     float w = std::min(window.x, window.y * aspect);
     float h = w / aspect;
     float size = std::max(13.0f, h / 36.0f);
@@ -103,7 +103,7 @@ void SpeedCounter() {
     float speed;
     if (!MovementSpeed(speed)) return;
     ImVec2 window = ImGui::GetIO().DisplaySize;
-    float aspect = app::Widescreen() ? 16.0f / 9.0f : 4.0f / 3.0f;
+    float aspect = app::FrameAspect();
     float w = std::min(window.x, window.y * aspect);
     float h = w / aspect;
     float size = std::max(13.0f, h / 30.0f);
@@ -276,6 +276,7 @@ const app::GameInfo app::kGame = {
     .rumble = game::Rumble,               // changes a rumble before it is set
     .widescreen = true,                   // MOHRS draws 4:3 only; src/common/widescreen.cpp widens its view for 16:9
     .widescreen_option = &game::Opt().widescreen,  // off: 4:3 on any output
+    .widest_aspect = 32.0f / 9.0f,        // Hor+ to the output's shape, 16:10 to 32:9
     .controller_port = game::ControllerPort,
     .supported_hashes = {
         {"default.xbe", "9f5197f8ded3ce1cd3e1c1cae14a756a17c39d56"},  // Original modified USA dump

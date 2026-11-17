@@ -306,9 +306,8 @@ void ProbePointer(input::MenuPointer& pointer, const MenuMouseCalls& calls) {
             pointer.width = float(output.width); pointer.height = float(output.height);
             float guest_w = float(R32(calls.width)), guest_h = float(R32(calls.height));
             float x = (r.rect.left + r.rect.right) * 0.5f, y = (r.rect.top + r.rect.bottom) * 0.5f;
-            bool wide = app::Widescreen();
-            if (wide) x = guest_w * 0.5f + (x - guest_w * 0.5f) * 0.75f;
-            float aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
+            float aspect = app::FrameAspect();
+            x = guest_w * 0.5f + (x - guest_w * 0.5f) * ((4.0f / 3.0f) / aspect);
             float w = std::min(pointer.width, pointer.height * aspect), h = w / aspect;
             pointer.x = (pointer.width - w) * 0.5f + x * w / guest_w;
             // A distinct pre-click move lets hover run after the probe's foreground/size transition settles.
@@ -367,7 +366,7 @@ void Update(X86Context& ctx, uint32_t engine, const MenuMouseCalls& calls) {
     }
     float x, y;
     if (!menu::MapPointer(pointer.x, pointer.y, pointer.width, pointer.height, float(R32(calls.width)),
-                          float(R32(calls.height)), app::Widescreen(), x, y)) return;
+                          float(R32(calls.height)), app::FrameAspect(), x, y)) return;
     if (changed) return;
     const Region* hit = Hit(state.frames[package], x, y);
     // Select/back hints live in the backdrop and act on the CURRENT package, including PC Options' confirm/revert.

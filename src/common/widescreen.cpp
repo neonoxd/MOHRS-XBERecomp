@@ -1,5 +1,6 @@
 #include "common/widescreen.h"
 
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <memory>
@@ -11,6 +12,7 @@
 #include "gpu/ext.h"
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
+#include "core/log.h"
 #include "kernel/kernel.h"
 
 using kernel::G;
@@ -20,8 +22,10 @@ namespace game {
 namespace {
 
 constexpr uint32_t kTanAcross = 0x40;
-constexpr float kWiden = (16.0f / 9.0f) / (4.0f / 3.0f);
 constexpr uint32_t kZAlways = 0x207;  // NV2A depth function
+
+// the playing movie's frame size (0 none), which its texture has: its draw is placed for the widened frame already
+std::atomic<uint32_t> g_movie{0};
 
 // how a vertex program places its vertices: the game's 2D is drawn in screen pixels, either passed through or through
 // an orthographic matrix (the 2D renderer's, 0x17E780, and the sprite batches'), its 3D through a perspective one
@@ -53,7 +57,7 @@ public:
         return false;
     }
 
-    void BeginDraw(const gpu::State&) override { masked_ = false; }
+    void BeginDraw(const gpu::State&) override { masked_ = movie_ = false; }
 
     // a texture with an opaque black border: a full screen mask like the sniper scope's, whose corners are on the
     // screen's edges; drawn in texture mode its middle keeps its shape and the border fills the sides
@@ -71,15 +75,23 @@ public:
         flags |= kMaskTexture;
     }
 
-    void Sampled(const gpu::TextureDesc&, const gpu::Target*, uint8_t flags, gpu::TexInfo&) override {
+    void Sampled(const gpu::TextureDesc& d, const gpu::Target* t, uint8_t flags, gpu::TexInfo&) override {
         masked_ = masked_ || (flags & kMaskTexture);
+        uint32_t movie = g_movie.load(std::memory_order_relaxed);
+        if (!t && movie && d.width == (movie >> 16) && d.height == (movie & 0xFFFF)) {
+            movie_ = true;
+            if (movie != logged_) {
+                logged_ = movie;
+                LOGR("widescreen: movie %ux%u drawn for the %.2f frame", d.width, d.height, app::FrameAspect());
+            }
+        }
     }
 
     void ScreenX(const gpu::State& s, const float (*vsc)[4], const gpu::Target* rt, float* screen) override {
         // the frame's own target with a depth test that always passes, as the HUD and menus have it: no 3D effect
         // projected on the CPU
         bool depth = s.rs[gpu::kRsZEnable] && s.simple[gpu::kMZFunc >> 2] != kZAlways;
-        if (!app::Widescreen() || !rt || rt->gw != frame_w_ || rt->gh != frame_h_ || depth) return;
+        if (!app::Widescreen() || movie_ || !rt || rt->gw != frame_w_ || rt->gh != frame_h_ || depth) return;
         if (!s.vs || !(s.vs_handle & 1)) return;
         const Placement& p = Lookup(*s.vs);
         bool flat = p.passthrough;
@@ -89,7 +101,7 @@ public:
                    std::fabs(w[3] - 1.0f) < 1e-6f;
         }
         if (!flat) return;
-        screen[0] = 1.0f / kWiden;
+        screen[0] = 1.0f / FrameWidening();
         screen[1] = float(rt->gw) / 2;
         screen[2] = masked_ ? 1.0f : 0.0f;
     }
@@ -104,15 +116,35 @@ private:
 
     static constexpr uint8_t kMaskTexture = 1;  // the extension's bit of the texture flags
     bool masked_ = false;  // the draw samples a kMaskTexture
+    bool movie_ = false;   // the draw samples the playing movie's frame
+    uint32_t logged_ = 0;
     uint32_t frame_w_ = 0, frame_h_ = 0;
     std::unordered_map<uint64_t, Placement> programs_;  // render thread only
 };
 
 }  // namespace
 
+float FrameWidening() { return app::FrameAspect() / (4.0f / 3.0f); }
+
 void WidenView(uint32_t camera) {
-    if (camera && app::Widescreen()) G<float>(camera + kTanAcross) *= kWiden;
+    if (camera && app::Widescreen()) G<float>(camera + kTanAcross) *= FrameWidening();
 }
+
+void MovieScale(X86Context& ctx) {
+    // [esp+0x14] the x scale, [esp+0x20] the y scale (both the smaller fit), [esp+0x18]/[esp+0x1C] the screen and
+    // [esp+0x24]/[esp+0x2C] the movie's width and height, as floats; the position is worked out from them after
+    float screen_w = G<float>(ctx.esp + 0x18), screen_h = G<float>(ctx.esp + 0x1C);
+    float movie_w = G<float>(ctx.esp + 0x24), movie_h = G<float>(ctx.esp + 0x2C);
+    if (!(movie_w >= 1 && movie_h >= 1 && movie_w < 65536 && movie_h < 65536 && screen_w > 0 && screen_h > 0)) return;
+    float widen = FrameWidening();
+    float scale_x, scale_y;
+    MovieFit(screen_w, screen_h, movie_w, movie_h, widen, scale_x, scale_y);
+    G<float>(ctx.esp + 0x14) = scale_x;
+    G<float>(ctx.esp + 0x20) = scale_y;
+    g_movie = uint32_t(movie_w) << 16 | uint32_t(movie_h);
+}
+
+void MovieEnded() { g_movie = 0; }
 
 void StartWidescreen() { gpu::SetExtension(std::make_unique<Hud>()); }
 
