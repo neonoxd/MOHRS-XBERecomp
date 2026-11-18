@@ -40,5 +40,8 @@ void ControllerMenuEvent(X86Context& ctx, uint8_t* base, GuestFunction original,
 // profile's cumulative ones) the mission time row added to EndOfLevelSummary.fng (src/common/options_package.h) gets
 // the game's own level timer as m:ss.mmm; state is the game state pointer's address
 void MenuStats(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls, uint32_t state);
+// the FEng message queue (thiscall engine: message, source object, package, target, input mask; ret 0x14), before
+// it: the Exit to Desktop entries' message (src/common/options_package.h) closes the game window
+void MenuMessage(X86Context& ctx);
 
 }  // namespace game

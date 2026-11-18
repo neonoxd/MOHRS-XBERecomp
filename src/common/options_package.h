@@ -73,6 +73,16 @@ inline constexpr char kControllerScreen[] = "ControllerOptions.fng";
 inline constexpr char kAimRow[] = "Modern Aiming";
 std::vector<uint8_t> AddAimRow(const uint8_t* data, size_t size);
 
+// Exit to Desktop as the last entry of the shell's main menu (Single_Multiplayer_selection.fng, titled MAIN MENU: a
+// copy of Multiplayer under it) and of the pause screen's exit page (LoadRestart.fng, a copy of Exit to Shell under
+// it), a row pitch down. A press
+// sends kExitMessage on to the game (response type 2), which the FEng message queue's hook takes
+// (src/common/options_menu.h). Empty for other packages, on failure or when the package has it already.
+inline constexpr char kMainMenu[] = "Single_Multiplayer_selection.fng";
+inline constexpr char kExitEntry[] = "Exit to Desktop button";
+inline constexpr char kExitMessage[] = "MOHRS Exit To Desktop";
+std::vector<uint8_t> AddExitEntry(const uint8_t* data, size_t size);
+
 // Direct mouse tab transitions, cloned from each pause page's native left/right cleanup response.
 // Empty for packages other than pause pages, or when a native transition could not be found.
 std::vector<uint8_t> AddPauseTabs(const uint8_t* data, size_t size);

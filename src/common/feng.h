@@ -48,7 +48,7 @@ struct Object {
     void SetName(std::string_view name);  // its hash too, which the game finds it by
     void SetGuid(uint32_t guid);
     void SetParent(uint32_t guid);
-    void Move(float dx, float dy);
+    void Move(float dx, float dy);  // its position and the positions its scripts set
     // a string object's text and the label the localisation looks up; an unknown label keeps the text
     void SetText(std::string_view text, std::string_view label);
     // the overlay a button's messages open: every message path (Rs) names file in its folder instead
@@ -58,6 +58,8 @@ struct Object {
     bool CopyAnswer(uint32_t message, uint32_t like);
     // one more response (Ri type, Ru value, Rt 0) in the answer to message, its count (MC) raised: false without one
     bool AddResponse(uint32_t message, uint32_t type, uint32_t value);
+    // the answer to message made one response (Ri type, Ru value, Rt 0): false when it has no answer to message
+    bool SetAnswer(uint32_t message, uint32_t type, uint32_t value);
 };
 
 class Package {

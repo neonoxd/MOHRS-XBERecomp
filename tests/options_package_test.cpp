@@ -308,6 +308,67 @@ static void AimRow(const fs::path& file) {
     std::printf("%s: modern aiming row at y %.0f (pitch %.0f)\n", file.string().c_str(), text->Y(), pitch);
 }
 
+static void ExitEntry(const fs::path& file) {
+    std::vector<uint8_t> d = Read(file);
+    std::optional<feng::Package> before = feng::Package::Parse(d.data(), d.size());
+    std::vector<uint8_t> made = game::menu::AddExitEntry(d.data(), d.size());
+    Check(!made.empty(), "exit to desktop not added: " + file.string());
+    Save(file, before->Name().c_str(), made);
+    std::optional<feng::Package> p = feng::Package::Parse(made.data(), made.size());
+    Check(p && p->Write() == made, "exit entry package round trip");
+    Check(p->objects.size() == before->objects.size() + 1 && Buttons(*p) == Buttons(*before) + 1, "one button added");
+    const feng::Object* e = p->Find(game::menu::kExitEntry);
+    Check(e && e->IsButton() && !e->Parent(), "exit entry is a top level button");
+    bool shell = before->Name() == game::menu::kMainMenu;
+    const feng::Object* last = p->Find(shell ? "Multiplayer text" : "Exit button");
+    const feng::Object* up = p->Find(shell ? "Coop Multiplayer Text" : "Save Points button");
+    Check(e->Y() == last->Y() + (last->Y() - up->Y()) && e->X() == last->X(), "a row under the last entry");
+    // the last entry; the main menu's Online Multiplayer, hidden by the screen's setup, has its place
+    for (const feng::Object& o : p->objects)
+        Check(&o == e || !o.IsButton() || o.Y() < e->Y() || (shell && o.Name() == "Online Multiplayer Text"),
+              "the last entry");
+    Check(e->Guid() >= before->NextGuid(), "new GUID");
+    // the positions its scripts set (track To 7, the first key's x, y, z after -1) are its own
+    size_t keys = 0;
+    for (const feng::Chunk& c : e->chunks) {
+        if (c.tag != 0x70726353) continue;  // Scrp
+        uint32_t track = 0;
+        for (const feng::Field& f : c.fields) {
+            if (f.tag == feng::Tag2("To")) track = U32(f.data, 0);
+            if (f.tag != feng::Tag2("Kd") || track != 7) continue;
+            uint32_t yk = U32(f.data, 8);
+            float y;
+            std::memcpy(&y, &yk, 4);
+            Check(y == e->Y(), "a script puts the entry at y " + std::to_string(y));
+            keys++;
+        }
+    }
+    Check(!shell || keys > 0, "the main menu entry's scripts set its position");
+    // a press is one response: the message on to the game (type 2)
+    const feng::Chunk* answers = nullptr;
+    for (const feng::Chunk& c : e->chunks)
+        if (c.tag == 0x5267734D) answers = &c;  // MsgR
+    Check(answers != nullptr, "its answers");
+    uint32_t pressed = feng::Hash("Button_Pressed"), highlight = feng::Hash("Button_Highlight");
+    bool found = false, lit = false;
+    for (size_t i = 0; i < answers->fields.size(); i++) {
+        const feng::Field& f = answers->fields[i];
+        if (f.tag != feng::Tag2("Mi")) continue;
+        lit |= U32(f.data, 0) == highlight;
+        if (U32(f.data, 0) != pressed) continue;
+        Check(i + 4 < answers->fields.size() && U32(answers->fields[i + 1].data, 0) == 1 &&
+                  U32(answers->fields[i + 2].data, 0) == 2 &&
+                  U32(answers->fields[i + 3].data, 0) == feng::Hash(game::menu::kExitMessage) &&
+                  (i + 5 == answers->fields.size() || answers->fields[i + 5].tag == feng::Tag2("Mi")),
+              "press sends the exit message");
+        found = true;
+    }
+    Check(found && lit, "press and highlight answers");
+    Check(game::menu::AddExitEntry(made.data(), made.size()).empty(), "exit entry cannot be added twice");
+    Check(shell || !game::menu::AddPauseTabs(made.data(), made.size()).empty(), "the exit page keeps its mouse tabs");
+    std::printf("%s: exit to desktop at y %.0f\n", file.string().c_str(), e->Y());
+}
+
 int main(int argc, char** argv) {
     std::vector<fs::path> dirs;
     for (int i = 1; i < argc; i++) {
@@ -330,6 +391,7 @@ int main(int argc, char** argv) {
             std::string name = f.path().filename().string();
             PauseTabs(f.path());
             if (name == game::menu::kSummary) MissionTime(f.path());
+            if (name == game::menu::kMainMenu || name == "LoadRestart.fng") ExitEntry(f.path());
             if (name == game::menu::kControllerScreen) AimRow(f.path());
             if (name == "HUD.fng") {
                 HudRows(f.path());

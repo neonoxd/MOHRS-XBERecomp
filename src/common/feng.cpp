@@ -216,6 +216,23 @@ void Object::Move(float dx, float dy) {
     y += dy;
     std::memcpy(f->data.data() + kPosition, &x, 4);
     std::memcpy(f->data.data() + kPosition + 4, &y, 4);
+    // a script's position track (To, the attribute's word, 7: the position after the colour and the pivot) holds the
+    // position it sets: its first key (Kd: -1, then x, y, z) moves too, or the script puts the object back
+    for (Chunk& c : chunks) {
+        if (c.tag != kScript) continue;
+        uint32_t track = 0;
+        for (Field& k : c.fields) {
+            if (k.tag == Tag2("To")) track = Get32(k.data, 0);
+            if (k.tag != Tag2("Kd") || track != kPosition / 4 || k.data.size() < 12) continue;
+            float kx, ky;
+            std::memcpy(&kx, k.data.data() + 4, 4);
+            std::memcpy(&ky, k.data.data() + 8, 4);
+            kx += dx;
+            ky += dy;
+            std::memcpy(k.data.data() + 4, &kx, 4);
+            std::memcpy(k.data.data() + 8, &ky, 4);
+        }
+    }
 }
 
 // St the UTF-16 text, Sb the characters its buffer holds, SL the label and SH its hash
@@ -291,6 +308,23 @@ bool Object::AddResponse(uint32_t message, uint32_t type, uint32_t value) {
             count->data = U32(Get32(count->data, 0) + 1);
             std::vector<Field> response{{Tag2("Ri"), U32(type)}, {Tag2("Ru"), U32(value)}, {Tag2("Rt"), U32(0)}};
             c.fields.insert(c.fields.begin() + end, response.begin(), response.end());
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Object::SetAnswer(uint32_t message, uint32_t type, uint32_t value) {
+    for (Chunk& c : chunks) {
+        if (c.tag != kMessages) continue;
+        for (size_t begin = 0; begin < c.fields.size(); begin++) {
+            if (c.fields[begin].tag != Tag2("Mi") || Get32(c.fields[begin].data, 0) != message) continue;
+            size_t end = begin + 1;
+            while (end < c.fields.size() && c.fields[end].tag != Tag2("Mi")) end++;
+            std::vector<Field> answer{{Tag2("Mi"), U32(message)}, {Tag2("MC"), U32(1)}, {Tag2("Ri"), U32(type)},
+                                      {Tag2("Ru"), U32(value)},   {Tag2("Rt"), U32(0)}};
+            c.fields.erase(c.fields.begin() + begin, c.fields.begin() + end);
+            c.fields.insert(c.fields.begin() + begin, answer.begin(), answer.end());
             return true;
         }
     }

@@ -493,6 +493,13 @@ X86_FUNC(sub_00127FD0) { game::ControllerMenuEvent(ctx, base, __imp__sub_00127FD
 X86_EXTERN_FUNC(__imp__sub_00136D00);
 X86_FUNC(sub_00136D00) { game::MenuStats(ctx, base, __imp__sub_00136D00, kMenuCalls, 0x2447D8); }
 
+// the FEng message queue: the Exit to Desktop entries' message closes the window (src/common/options_menu.h)
+X86_EXTERN_FUNC(__imp__sub_00093260);
+X86_FUNC(sub_00093260) {
+    game::MenuMessage(ctx);
+    __imp__sub_00093260(ctx, base);
+}
+
 // FEng menu pointer adapter; actual text/sprite draws supply the clickable geometry (docs/menus.md).
 constexpr game::MenuMouseCalls kMouseMenu = {
     0x96900, 0x93260, 0x958D0, 0x162B20, 0x88630,

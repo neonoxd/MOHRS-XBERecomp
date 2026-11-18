@@ -393,6 +393,35 @@ the game's heap (`0x112F20`).
 | Weapon: definition, WeaponType | `+0x2F0`, `+0x310` | `+0x300`, `+0x320` |
 | Holder: weapon `+0x2BC`, next `+0x2B4`, flags `+0x3C0` | same | same |
 
+## Exit to Desktop
+
+The shell's main menu (`Single_Multiplayer_selection.fng`, titled MAIN MENU) and the pause screen's Exit page
+(`LoadRestart.fng`, single player and co-op) end with an **Exit to Desktop** entry, which closes the game at once with no confirmation, as the window's close
+button does (`WM_CLOSE`: the window goes, the message loop ends, the kernel shuts down).
+
+- `menu::AddExitEntry` (`src/common/options_package.cpp`) copies an entry one row pitch under the last one: in the
+  main menu Multiplayer under it (pitch 53, y 78), in the Exit page Exit to Shell under it (pitch 40, y 10). The
+  main menu's fourth entry, Online Multiplayer, is at y 78 too: the screen's handler (vtable `0x1ED2B0`, event
+  `0x12B5E0`) runs its `Hide` script and disables it on `Setup First Menu`, so it is neither drawn nor reached.
+  Every script of the main menu's entries sets the entry's position: a track with `To` 7 (the attribute word of the
+  position, after the colour and the pivot) whose first key (`Kd`: -1, then x, y, z) is the entry's own place, so
+  `Object::Move` moves those keys with the object (the second key some have, 0, -400, 0, 0, is the same on every
+  entry and stays). The copy is `Exit to Desktop button` (text `Exit to
+  Desktop`, label `EXIT_TO_DESKTOP`, not in the string tables) and is added to the pattern's target lists, so it
+  gets the highlight and choreography messages. Its `Button_Pressed` answer is one response, type 2 with
+  `MOHRS Exit To Desktop`'s hash as its value, which the answer lookup (`0x93370`) queues to the game with target
+  `0xFFFFFFFF`. The pattern's own press (opening an overlay, or Exit to Shell's `0x2C0` and `ConfirmQuit.fng`) is
+  dropped (the main menu's entries answer it with their flash script, `0x9A9CCA68`). Up and
+  down reach it by the directional search like any button, the mouse by its text.
+- `MenuMessage` (`src/common/options_menu.cpp`) runs at the FEng message queue's entry and posts `WM_CLOSE` to the
+  game window when the message is that hash, once.
+
+| | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| FEng message queue (thiscall engine: message, source object, package, target, input mask; ret 0x14) | `0x93260` | `0x85BC0` |
+| Message answer's responses (type 2: the value queued with target `0xFFFFFFFF`) | `0x93370` | `0x85CD0` |
+| Main menu handler's event (Setup First Menu hides Online Multiplayer) | `0x12B5E0` | `0x125BD0` |
+
 ## Mission time
 
 The end-of-level stats (`EndOfLevelSummary.fng` in the pause archive) get a **Mission time** row under Hits, shown

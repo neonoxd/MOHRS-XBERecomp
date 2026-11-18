@@ -9,6 +9,14 @@
 #include <string>
 #include <vector>
 
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include "app/app.h"
 #include "common/cheats.h"
 #include "common/custom_movement.h"
@@ -240,7 +248,7 @@ struct Made {
     uint32_t copies = 0;
 };
 Made g_made[] = {{menu::kScreen, false}, {menu::kScreen, true}, {menu::kCheatsScreen, true},
-                 {"Option_overlay.fng", false},
+                 {"Option_overlay.fng", false}, {menu::kMainMenu, false},
                  {"Preferences.fng", true, true}, {"MPPreferences.fng", true, true},
                  {"ObjectivesOverlay.fng", true, true}, {"Notes.fng", true, true}, {"LoadRestart.fng", true, true},
                  {"MPLeaderBoard.fng", true, true}, {"MPLoadRestart.fng", true, true},
@@ -641,6 +649,10 @@ void MenuFile(X86Context& ctx, uint8_t* base, GuestFunction original) {
             modified = menu::AddAimRow(data, size);
         } else if (EqualNoCase(file, menu::kSummary)) {
             modified = menu::AddMissionTime(data, size);
+        } else if (EqualNoCase(file, menu::kMainMenu) || EqualNoCase(file, "LoadRestart.fng")) {
+            modified = menu::AddExitEntry(data, size);
+            // the pause page still gets its mouse tabs without it
+            if (modified.empty() && made->tabs) modified.assign(data, data + size);
         } else if (EqualNoCase(file, "Preferences.fng")) {
             // single player and co-op: PC Options, then Cheats under it
             modified = menu::AddEntry(data, size);
@@ -741,6 +753,17 @@ void MenuStats(X86Context& ctx, uint8_t* base, GuestFunction original, const Men
     if (!R32(state)) return;
     std::string text = FormatMissionTime(MissionTicksNow(state));
     kernel::CallGuest(ctx, calls.set_text, {package, Text(menu::kTimeValue), Scratch(text)});
+}
+
+void MenuMessage(X86Context& ctx) {
+    static const uint32_t kExit = feng::Hash(menu::kExitMessage);
+    if (R32(ctx.esp + 4) != kExit) return;
+    // as the window's close button: the window goes, the message loop ends and the process with it
+    static bool closing = false;
+    if (closing) return;
+    closing = true;
+    LOGI("Menus: exit to desktop");
+    PostMessageW(static_cast<HWND>(app::Window()), WM_CLOSE, 0, 0);
 }
 
 }  // namespace game

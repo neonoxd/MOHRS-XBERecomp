@@ -68,6 +68,9 @@ The arrow keys also move, Enter confirms, Backspace goes back, and so does Escap
 save screens (in the pause menu Escape resumes). Gameplay bindings can be changed in PC Options (below) or in
 the [keys] table of settings.toml.
 
+Exit to Desktop, the last entry of the main menu and of the pause screen's Exit page, closes the game at once,
+as the window's close button does. Progress since the last save is lost.
+
 
 Settings
 --------
@@ -132,7 +135,8 @@ Known limits of this preview
 - The whole campaign has not been played through on this port yet; the later levels (1_5, 1_7, 1_8, 1_9) have
   not been checked.
 - Multiplayer over a network and Xbox Live are not supported. Split-screen and co-op work.
-- The new PC Options and Cheats screens and the mission time rows are in English in every language.
+- The new PC Options and Cheats screens, the mission time rows and Exit to Desktop are in English in every
+  language.
 
 
 Reporting problems

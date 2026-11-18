@@ -397,6 +397,12 @@ X86_FUNC(sub_001225D0) { game::ControllerMenuEvent(ctx, base, __imp__sub_001225D
 // the stats screens' fill (0x136D00), with the game state pointer at 0x23C9D0 (0x2447D8)
 X86_EXTERN_FUNC(__imp__sub_0012FFD0);
 X86_FUNC(sub_0012FFD0) { game::MenuStats(ctx, base, __imp__sub_0012FFD0, kMenuCalls, 0x23C9D0); }
+// the FEng message queue (0x93260): the Exit to Desktop entries' message closes the window
+X86_EXTERN_FUNC(__imp__sub_00085BC0);
+X86_FUNC(sub_00085BC0) {
+    game::MenuMessage(ctx);
+    __imp__sub_00085BC0(ctx, base);
+}
 
 // The same FEng pointer/drawing paths as default.xbe, verified in the co-op image.
 constexpr game::MenuMouseCalls kMouseMenu = {

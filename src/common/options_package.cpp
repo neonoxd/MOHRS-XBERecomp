@@ -224,6 +224,45 @@ std::vector<uint8_t> AddAimRow(const uint8_t* data, size_t size) {
     return p.Write();
 }
 
+std::vector<uint8_t> AddExitEntry(const uint8_t* data, size_t size) {
+    std::optional<feng::Package> parsed = feng::Package::Parse(data, size);
+    if (!parsed) return {};
+    feng::Package& p = *parsed;
+    // the entry copied, and the last entry and the one above it: the new entry goes their pitch under the last
+    const char* pattern;
+    const char* above;
+    const char* last;
+    if (p.Name() == kMainMenu) {
+        // Online Multiplayer under Multiplayer is hidden and disabled by the screen's setup (0x12B5E0), so the entry
+        // takes its place
+        pattern = "Multiplayer text", above = "Coop Multiplayer Text", last = "Multiplayer text";
+    } else if (p.Name() == "LoadRestart.fng") {
+        pattern = "Exit button", above = "Save Points button", last = "Exit button";
+    } else {
+        return {};
+    }
+    size_t at = p.Index(pattern);
+    const feng::Object* up = p.Find(above);
+    const feng::Object* end = p.Find(last);
+    if (at == p.objects.size() || !up || !end || p.Find(kExitEntry)) return {};
+    float pitch = end->Y() - up->Y();
+    if (pitch <= 0.0f) return {};
+    static const uint32_t kPressed = feng::Hash("Button_Pressed");
+    constexpr uint32_t kToGame = 2;
+    feng::Object e = p.objects[at];
+    uint32_t like = e.Guid();
+    float y = end->Y() + pitch;
+    e.SetName(kExitEntry);
+    e.SetGuid(p.NextGuid());
+    e.SetText("Exit to Desktop", "EXIT_TO_DESKTOP");
+    e.Move(0.0f, y - e.Y());
+    if (!e.SetAnswer(kPressed, kToGame, feng::Hash(kExitMessage))) return {};
+    // the highlight, press and choreography messages reach it too
+    p.AddTarget(like, e.Guid());
+    p.objects.insert(p.objects.begin() + at + 1, e);
+    return p.Write();
+}
+
 std::vector<uint8_t> AddPauseTabs(const uint8_t* data, size_t size) {
     auto p = feng::Package::Parse(data, size);
     if (!p) return {};
