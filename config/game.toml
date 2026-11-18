@@ -465,6 +465,12 @@ call = "LightTicks"
 at = 0xD6DFA
 call = "LandingTicks"
 
+# Animation loop seams (docs/frame-timing.md): the first-person weapon's clips repeat from their last key, right
+# after the clip channel's sample (call 0x68B40) in 0x6FCE0.
+[[hook]]
+at = 0x6FDA9
+call = "LoopSeam"
+
 # Multiplayer bot AI (docs/frame-timing.md): once per 4 ticks per bot, set at the parity test's xor ecx,[0x270140]
 # in 0x65A80, with the time since the bot's last AI update after its time is doubled.
 [[hook]]

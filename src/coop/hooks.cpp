@@ -7,6 +7,7 @@
 #include "common/fov.h"
 #include "common/frame_timing.h"
 #include "common/keep_bodies.h"
+#include "common/loop_seam.h"
 #include "common/mission_timer.h"
 #include "common/modern_aim.h"
 #include "common/options_menu.h"
@@ -317,6 +318,8 @@ void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
 void LightTicks(X86Context& ctx, uint8_t*) { game::LightTicks(ctx); }
 // [[hook]] 0xCBA9A in the footstep and landing sounds 0xCB910, default.xbe's 0xD6DFA in 0xD6C70
 void LandingTicks(X86Context& ctx, uint8_t*) { game::LandingTicks(ctx); }
+// [[hook]] 0x627E9 in the clip channel update 0x62720, default.xbe's 0x6FDA9 in 0x6FCE0: loop seams
+void LoopSeam(X86Context& ctx, uint8_t*) { game::LoopSeam(ctx, game::kCoopLoopSeam); }
 void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
 // [[hook]] 0xD4EB9 in the player update 0xD4BF0, default.xbe's 0xDB7C4: Custom Movement's rules
 void MovementGround(X86Context& ctx, uint8_t*) {

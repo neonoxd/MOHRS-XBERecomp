@@ -207,8 +207,32 @@ def audit_landing(image, config, hook, counter, half):
     print(f"{image}: the landing sound countdown verified")
 
 
+def audit_loop_seam(image, config, update, hook, sample, getter, stack, depth):
+    # the clip channel update (thiscall (time, pose)): sub esp,0x88; push ebx/ebp/esi; mov esi,ecx; call the graph
+    # stack's top (mov eax,[depth]; mov eax,[stack+eax*4]); later mov eax,[esp+0x10] (the new time); mov ecx,[esi+0x34];
+    # push edi/ebp/eax/ebx; call the sample, then the hook at lea ecx,[esp+0x24]
+    base, data, _ = load(str(ROOT / "assets/xbe" / image))
+    text = (ROOT / "config" / config).read_text()
+
+    def call_target(at):
+        assert data[at - base] == 0xE8, f"{image}: expected a call at {at:X}"
+        return (at + 5 + struct.unpack_from("<i", data, at + 1 - base)[0]) & 0xFFFFFFFF
+
+    assert data[update - base:update + 11 - base] == bytes.fromhex("81ec88000000535556" "8bf1"), f"{image}: clip update"
+    assert call_target(update + 11) == getter, f"{image}: clip update must read the graph stack"
+    code = bytes.fromhex("a1") + struct.pack("<I", depth) + bytes.fromhex("8b0485") + struct.pack("<I", stack)
+    assert data[getter - base:getter + len(code) + 1 - base] == code + b"\xc3", f"{image}: graph stack top"
+    assert data[hook - 16 - base:hook - 5 - base] == bytes.fromhex("8b4424108b4e345755" "5053"), f"{image}: sample args"
+    assert call_target(hook - 5) == sample, f"{image}: the sample call before {hook:X}"
+    assert data[hook - base:hook + 4 - base] == bytes.fromhex("8d4c2424"), f"{image}: expected lea ecx,[esp+0x24]"
+    assert f'at = 0x{hook:X}\ncall = "LoopSeam"' in text, f"{image}: missing LoopSeam at {hook:X}"
+    print(f"{image}: the clip channel's sample and graph stack verified")
+
+
 if __name__ == "__main__":
     audit_loader()
+    audit_loop_seam("default.xbe", "game.toml", 0x6FCE0, 0x6FDA9, 0x68B40, 0x69770, 0x269CE4, 0x269D68)
+    audit_loop_seam("moh3rdc.xbe", "coop.toml", 0x62720, 0x627E9, 0x5B510, 0x5C140, 0x25EE4C, 0x25EED0)
     audit_landing("default.xbe", "game.toml", 0xD6DFA, 0x10C0, 0x1E0478)
     audit_landing("moh3rdc.xbe", "coop.toml", 0xCBA9A, 0x11A0, 0x1D9878)
     audit_bots("default.xbe", "game.toml", 0x65A95, 0x65ABA)

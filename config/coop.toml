@@ -449,6 +449,11 @@ call = "LightTicks"
 at = 0xCBA9A
 call = "LandingTicks"
 
+# Animation loop seams, default.xbe's 0x6FDA9 in 0x6FCE0: after the sample call (0x5B510) in 0x62720.
+[[hook]]
+at = 0x627E9
+call = "LoopSeam"
+
 # Loading medal/stars, corresponding to default.xbe's 0xFC9FD / 0xFD3DC.
 [[hook]]
 at = 0xF550D

@@ -173,6 +173,8 @@ caller. The lookup has 20 callers in default.xbe.
 | `MOHRS_CORPSE_TRACE=1` | each AI soldier's removal (record destroy, default.xbe `0x4F990`, moh3rdc.xbe `0x52CF0`): seconds since start, record, hit points (`+0x14`), brain (`+8`), model (`+0xF8`) and the guest call chain; each removal from the world (`0xFA3E0`, co-op `0xF2EB0`), free (`0xCA7C0`), deactivate (`0xE4CB0`) and reset (`0xCFE20`) of a listed soldier's model, with its hit points, team and call chain (free, deactivate and reset single player only) |
 | `MOHRS_ANIM_TRACE=<event tables>` or `all` | animation channels playing them and who starts them |
 | `MOHRS_GRAPH_TRACE` | animation graph state requests (`0x6A120`, `0xCE030`) |
+| `MOHRS_LOOP_SEAM_TRACE=1` | each loop wrap or clip change of a first-person weapon animation: keys, time, and the angles from the end pose to key 0 and key 0 to 1 ([frame timing](frame-timing.md)); `=all` also every other animation graph's new channels, wraps and clip changes, tagged weapon, player or other; `=frames[:<s>]` every channel update (time, elapsed, duration) for 3 s from that long (default 10) after the first |
+| `MOHRS_LOOP_SEAM_ORIGINAL=1` | first-person weapon clips repeat from key 0, as before the loop seam fix |
 | `MOHRS_NATIVE_TRACE=find\|<owner>\|player\|dead` | a script's native calls (`player`: the first player's script; `dead`: every dead AI soldier's, timed; single player) |
 | `MOHRS_MESSAGE_TRACE` (or `=0x28` for one message) | posted script messages (`0x4ADB0`), each followed by whether a handler of the target's current state took it |
 | `MOHRS_ENTITY_DUMP=<seconds>[:<radius>]` | entities near the player, once; `MOHRS_DUMP=<addr>:<bytes>` adds a memory dump |

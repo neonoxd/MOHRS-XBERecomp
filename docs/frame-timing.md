@@ -55,6 +55,9 @@ advanced once at its conversion site, not per entity.
 | Threat memory decay, hook after the 0.01 load | `0x223A8` | `0x21F58` |
 | Light update keyframe ticks, hook after CVTTSS2SI | `0x8599E` | `0x782EE` |
 | Footstep and landing sounds, late landing countdown, hook after CVTTSS2SI EDX | `0xD6DFA` | `0xCBA9A` |
+| Clip channel update (`0x6FCE0` / `0x62720`), hook after its sample call | `0x6FDA9` | `0x627E9` |
+| Clip sample, thiscall (skeleton, seconds, pose, joint mask) | `0x68B40` | `0x5B510` |
+| Animation graph stack top, `stack[depth]` | `0x269CE4[0x269D68]` | `0x25EE4C[0x25EED0]` |
 | Multiplayer bot AI update test, hook at XOR ECX,[0x270140] | `0x65A95` | none (no bots) |
 | Its time, hook after MULSS by 2 | `0x65ABA` | none |
 | Player floor ray: collision world before the cast | `0xDAC19` | `0xD1581` |
@@ -146,6 +149,35 @@ landing's sounds (`0xFFE30`, `Mvmt_<name>` events) and set a counter (player `+0
 Step_Hard and Rustle_Dramatic (types 9 and 0x14). At 30 FPS that is 2 a frame, at 60 FPS 1; between 60 and 120 FPS it
 rounds up and the sounds came early, above 120 FPS it is 0 and they never played. `LandingTicks` gives each player
 whole ticks from a `KeyedTickRemainder` keyed by ESI. It applies in the 60 FPS and unlocked modes.
+
+### Animation loop seams
+
+The first-person weapon's bob is its holder's skeletal animation: the holder (player `+0xE6C`, co-op `+0xF4C`) holds
+its animation graph at `+0x54`, updated (`0x69BD0`, co-op `0x5C5A0`) with the frame's time in seconds. A clip channel
+(update `0x6FCE0`, co-op `0x62720`; thiscall (time, pose)) adds the time to `+0x3C`, wraps it by the length `+0x44`
+and samples the clip (`0x68B40`) into the pose: 12 floats a joint, scale `+0x00`, quaternion `+0x10`, translation
+`+0x20`, for the joints of the graph's mask. The length is (keys - 1) / 30 s (`0x68A60`, co-op `0x5B430`), so the last
+key and key 0 share a moment; a channel plays a random number of loops (`0x6DAF0`, duration `+0x40`, 0 for endless)
+and the graph then starts a new channel. The decoders (`0x18B640` -> `0x19B7E0`) interpolate between keys per
+component.
+
+At 30 FPS every frame lands on a key, so a repeat shows the last key and then key 1. Faster, the first gap after a
+wrap runs from key 0 to key 1, and a clip whose last key is not key 0 jumps at the seam, which the 30 Hz steps hid.
+Most first-person clips are played once per channel. The walk is two 23-key clips (0.733 s) played in turn with no
+blend: the graph ends a channel when its elapsed time is within 0.001 s of its duration (`0x6F340`) and starts the next
+at time 0 in the following frame, in the memory of a finished channel. Faster than 30 FPS that is the last key followed
+by the new clip's key 0; at 30 FPS the new clip's first frame is a key gap in, key 1.
+
+`LoopSeam`, right after the sample call, finds the graph on the update's stack (`0x69770` reads its top) and works for
+a player's holder. It keeps the pose of the graph's last channel to run out. On a wrap it samples the clip at its length;
+on a channel's first update (its time was 0 and its elapsed time is this update's) within 0.1 s of another running
+out it takes that kept pose. Either way it samples the clip
+at 1/30 s and then at the frame's time again, so the pose and the decoders are as the game left them. Until the time
+passes 1/30 s it sets every masked joint but the root (joint 0, taken by the root motion next) to that end pose
+interpolated towards key 1 by the time in key gaps. That is what the console shows at its frames, and a clip that
+continues from where the last one ended is unchanged. It applies in the 60 FPS and unlocked modes;
+`MOHRS_LOOP_SEAM_ORIGINAL=1` turns it off and `MOHRS_LOOP_SEAM_TRACE=1` logs each wrap and clip change with the angle
+from the end pose to key 0 (the seam) and from key 0 to key 1 (a normal step).
 
 ### Multiplayer bots
 

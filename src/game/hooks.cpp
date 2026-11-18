@@ -7,6 +7,7 @@
 #include "common/frame_timing.h"
 #include "common/keep_bodies.h"
 #include "common/level_weapons.h"
+#include "common/loop_seam.h"
 #include "common/options_menu.h"
 #include "common/pool_lock.h"
 #include "common/quick_save.h"
@@ -340,6 +341,8 @@ void ThreatDecay(X86Context& ctx, uint8_t*) { game::ThreatDecay(ctx); }
 void LightTicks(X86Context& ctx, uint8_t*) { game::LightTicks(ctx); }
 // [[hook]] 0xD6DFA in the footstep and landing sounds 0xD6C70: the late landing sounds' countdown ticks
 void LandingTicks(X86Context& ctx, uint8_t*) { game::LandingTicks(ctx); }
+// [[hook]] 0x6FDA9 in the clip channel update 0x6FCE0, after its sample: the first-person weapon's loop seams
+void LoopSeam(X86Context& ctx, uint8_t*) { game::LoopSeam(ctx, game::kDefaultLoopSeam); }
 void FloorRayWorld(X86Context& ctx, uint8_t*) { game::FloorRayWorld(ctx); }
 // [[hook]] 0xDB7C4 in the player update 0xDB530, after its ground test (bl): Custom Movement's rules
 void MovementGround(X86Context& ctx, uint8_t*) {
