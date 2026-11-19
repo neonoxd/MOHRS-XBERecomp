@@ -27,4 +27,10 @@ Result Save(X86Context& ctx, const void* site);
 Result Load(X86Context& ctx, const void* site);
 bool Has();
 
+// Called by a load once guest memory and every part are back, before the other guest threads go on, with how far the
+// guest clocks moved (nanoseconds, negative to an earlier save). For what the title keeps on those threads' stacks,
+// which a load leaves as they are: absolute guest times there are that far off.
+using AfterRestore = void (*)(int64_t clock_moved_ns);
+void SetAfterRestore(AfterRestore fn);
+
 }  // namespace snapshot

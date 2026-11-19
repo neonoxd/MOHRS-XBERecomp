@@ -11,6 +11,7 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <cwchar>
 #include <cwctype>
 #include <chrono>
@@ -106,6 +107,7 @@ constexpr PartReader kReaders[] = {mem::ReadMemory, kernel::ReadObjects, dsound:
 
 std::mutex g_lock;
 std::shared_ptr<const Saved> g_saved;
+std::atomic<AfterRestore> g_after_restore{nullptr};
 std::mutex g_file_lock;  // one file write at a time, the newest last
 
 std::filesystem::path FilePath() {
@@ -315,8 +317,10 @@ Result Load(X86Context& ctx, const void* site) {
         }
     }
     // the guest clocks go on from the saved moment, before the clock thread writes them over the memory put back
-    kernel::ShiftGuestClock(kernel::GuestClockNs() - saved->clock_ns);
+    int64_t moved = saved->clock_ns - kernel::GuestClockNs();
+    kernel::ShiftGuestClock(-moved);
     for (const PartRef& p : saved->parts) p->Restore(info);
+    if (AfterRestore after = g_after_restore.load()) after(moved);
     void* host = ctx.host;
     uint32_t handle = ctx.thread_handle;
     ctx = saved->ctx;
@@ -326,6 +330,8 @@ Result Load(X86Context& ctx, const void* site) {
     LOGR("snapshot: loaded%s in %.1f ms", saved->from_file ? " from the file" : "", MsSince(start));
     return Result::Done;
 }
+
+void SetAfterRestore(AfterRestore fn) { g_after_restore.store(fn); }
 
 bool Has() {
     std::lock_guard<std::mutex> lock(g_lock);

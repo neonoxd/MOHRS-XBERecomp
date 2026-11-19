@@ -1,5 +1,6 @@
 // Hooks for default.xbe. A strong definition replaces the recompiled function at that address.
 #include "common/mouse_look.h"
+#include "common/checkpoint_weapons.h"
 #include "common/cheats.h"
 #include "common/controller_routing.h"
 #include "common/custom_movement.h"
@@ -17,11 +18,13 @@
 #include "common/modern_aim.h"
 #include "common/stream_lock.h"
 #include "common/test_hooks.h"
+#include "common/time_events.h"
 #include "common/weapon_select.h"
 #include "common/widescreen.h"
 #include "common/mouse_keyboard.h"
 #include <cstdlib>
 
+#include "app/snapshot.h"
 #include "kernel/kernel.h"
 #include "xdk/d3d8.h"
 #include "xdk/hle.h"
@@ -55,6 +58,19 @@ X86_FUNC(sub_000DF320) {
     game::CheatRingBuilt(ctx.ecx);
     __imp__sub_000DF320(ctx, base);
 }
+
+// a checkpoint's weapons (src/common/checkpoint_weapons.h): the player's checkpoint save (fastcall player) starts
+// with its slots empty, and the slot calls keep only weapons the player has or has ammo for, in single player in
+// both players' slots
+X86_EXTERN_FUNC(__imp__sub_000DB210);
+X86_FUNC(sub_000DB210) {
+    game::CheckpointSaveStart(ctx.ecx, game::kDefaultCheckpoint);
+    __imp__sub_000DB210(ctx, base);
+}
+X86_FUNC(sub_0009D310) { game::CheckpointStore(ctx, game::kDefaultCheckpoint); }
+X86_FUNC(sub_0009D3B0) { game::CheckpointCounts(ctx, game::kDefaultCheckpoint); }
+X86_FUNC(sub_0009D430) { game::CheckpointSetUsable(ctx, game::kDefaultCheckpoint); }
+X86_FUNC(sub_0009D490) { game::CheckpointUsable(ctx, game::kDefaultCheckpoint); }
 
 // the small-block pools' search and free, under one lock (src/common/pool_lock.h)
 X86_EXTERN_FUNC(__imp__sub_00111BE0);
@@ -109,6 +125,12 @@ X86_FUNC(sub_0009D180) {
 // published for the overlay (src/common/mission_timer.h)
 X86_EXTERN_FUNC(__imp__sub_000A4A90);
 X86_FUNC(sub_000A4A90) {
+    // a quick load moves the timer events the XDK keeps on its timer thread's stack with the guest clocks
+    // (src/common/time_events.h)
+    static const bool timer_events = (snapshot::SetAfterRestore([](int64_t moved) {
+        game::ShiftTimeEvents(moved, game::kDefaultTimeEvents);
+    }), true);
+    (void)timer_events;
     game::QuickSaveFrame(ctx, reinterpret_cast<const void*>(&sub_000A4A90));
     game::CheatFrame(ctx, game::kDefaultCheats);
     game::MissionTimerFrame(game::kDefaultMissionTimer);

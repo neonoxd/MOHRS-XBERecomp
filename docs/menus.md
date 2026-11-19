@@ -372,6 +372,18 @@ the game's heap (`0x112F20`).
   allocator first, as the game stops on a failed one. The XDK's D3D masks physical addresses to 28 bits. An archive grows by at most that less 3 MB, a
   weapon at a time. Co-op has no heap hook, so it gets no weapons from other levels.
 
+- Checkpoints: a checkpoint save (`0x9FE80` → `0xDB210` per player) writes every holder of the player's weapon map
+  (`+0xE60`, by weapon id), owned or not, into the game state's weapon slots (`[0x2447D8] + 0x3167C`, `0x60` a player,
+  8 slots of 12 bytes: id, two counts, bit 0 usable), then the grenades (`+0xE74`); the restart's restore
+  (`0x9FB60` → `0xDE660`) gives each holder the counts and usable bit of its slot, none and 0 for a weapon with no
+  slot. The slots have room for 2 players (`+0x3173C` is the players' health). With the added weapons a level has
+  more than 8 holders, and the player's own weapons past the first 8 by id were lost at a death. In single player
+  `src/common/checkpoint_weapons.{h,cpp}` replaces the slot calls: the save starts with the player's slots empty,
+  a weapon neither owned nor with ammo takes none (it loads the same without one), and the first player has the
+  second player's 8 slots too. With two players each has its own 8, as in the game. Test:
+  `tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/runtime tests/checkpoint_weapons_test.cpp
+  src/common/checkpoint_weapons.cpp -o re/checkpoint_weapons_test.exe`.
+
 | | default.xbe |
 |---|---:|
 | Level load steps (`{1, function}`), the bank load among them | `0x1FF54C` |
@@ -381,6 +393,8 @@ the game's heap (`0x112F20`).
 | Level archive file (cdecl name, size out) | `0x114120` |
 | Database loader, template table build | `0x114370`, `0xCB5E0` |
 | XPhysicalAlloc (stdcall size, address, alignment, protection), main heap setup | `0x1A60FA`, `0x10FFD0` |
+| Checkpoint save of a player (fastcall player), restore | `0xDB210`, `0xDE660` |
+| Weapon slots (thiscall `0x2447D8`): store (id, count, count, index), counts (id, out, out, index), set usable (id, usable, index), usable (id, index) | `0x9D310`, `0x9D3B0`, `0x9D430`, `0x9D490` |
 
 | | default.xbe | moh3rdc.xbe |
 |---|---:|---:|
