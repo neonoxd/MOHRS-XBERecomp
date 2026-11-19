@@ -44,6 +44,7 @@ models (`0x22E0` bytes each).
 | Watch list head node; its join (thiscall entry), removal (cdecl entry) | `0x1FC7C0`; `0x28220`, `0x27D50` | `0x1F56E8`; `0x278F0`, `0x27420` |
 | Deferred-delete pass (each game loop update) | `0xF8680` | `0xF0FE0` |
 | Level's records start | `0x4E690` | `0x519F0` |
+| Part pool (150 objects, factory `+0x10`), its creation, its allocation | `0x270600` (`0x3C0` each), `0x152370`, `0x152480` | `0x265780` (`0x3D0` each), `0x14B710`, |
 | Level's shutdown (`Gameloop_Shutdown`) | `0xA3380` | `0x965B0` |
 
 A soldier model starts with team -1 (the model reset `0xCFE20`); the spawn's script gives it a team, and a soldier
@@ -88,6 +89,13 @@ null pointer and crashes. The model's deactivation gives all four back (the coll
 and the mesh's bounds (`+0xC0`) when there are none. The soldier draw ends with its shadow (`+0xFCC`, vtable `+4`,
 `0xB5E20`), which copies the shape the model's vtable `+0x44` gives for 3 (`0xE4210`: `+0x118`; 0 gives `+0x11C`).
 
+A soldier's parts are objects (vtable `0x1F2CE0`) from one pool of 150 for the whole level, made by `0x152370` (co-op
+`0x14B710`) at factory `0x2705F0` / `0x265770` `+0x10`: its attached objects (`+0xB54`-`+0xB60`), its part meshes
+(the parts' objects, `+0xB70` + 0x60 each) and the object at `+0x1040`. A living soldier holds about 4. The allocation
+(`0x152480`) returns 0 when the pool is full, and a soldier spawned then has none: it stands in the bind pose and does
+not act. The model's deactivation (`0xE4CB0`: `0xE40D0` for the attached objects and `+0x1040`, `0xEAA20` for the head
+part) and the model's free give them back.
+
 A model pool (`0xD1E90`) holds its number at `+0`, the number in use at `+4`, the model size rounded to 16 at `+0xC`,
 its slots at `+0x10` and the last allocation's number at `+0x14`. Each slot is a 0x10-byte header and then the model
 (the soldier allocation `0xCB9D0`, co-op `0xC0260`): the header's `+4` is the model's `+0x3C` (its second interface),
@@ -106,8 +114,8 @@ vtable) has no hit points left; a model with no brain, a body brain or an owner 
 the team. At the record destroy the record itself is checked too. A living soldier a script removes is faded, released
 and freed as in the game.
 
-- The pool creation override adds 128 (co-op 64) to the soldier pool's count, whatever the setting, so it can be
-  turned on in a level. Should the larger block not be had, the pool is made again with the game's count, and Keep
+- The pool creation override adds 128 (co-op 64) to the soldier pool's count and 4 for each of those to the part
+  pool's, whatever the setting, so it can be turned on in a level. Should the larger block not be had, the pool is made again with the game's count, and Keep
   Bodies keeps nothing in that level. The spare models are the pool's number less the level's limit, read from guest
   memory each time.
 - The fade start runs, then with the setting on the fader of a dead soldier's model is switched off (`+0xFB0` = 0):
@@ -132,15 +140,20 @@ and freed as in the game.
 - On being kept, the body's AI controller leaves the watch list, so the level's soldiers find its nodes as in the game.
   The watch list removal override passes over an entry that is not on the list: the controller's destructor at the
   body's free.
-- The bodies are kept oldest first. Before one more is kept when there are as many as spare models, the oldest is
-  deactivated and freed, as the record destroy would have. Live soldiers never number more
+- A body keeps its parts, so it is still drawn whole. Its parts are the part pool's slots in use that the model's
+  words point into, each counted once. The parts all bodies hold never number more than the slots added to the part
+  pool (the pool's number less 150), so the level's soldiers find the game's 150. A body with more parts than that is
+  not kept.
+- The bodies are kept oldest first. Before one more is kept when there are as many as spare models, or when its parts
+  would pass the added slots, the oldest is deactivated and freed, as the record destroy would have. Live soldiers never number more
   than the limit, so the pool always has a model for a spawn.
 - The level's shutdown frees every body before the game's own shutdown runs, and keeps none until it is done. A level's
   records start empties the list.
 - With the setting turned off, the next pass frees every body.
 - After a quick load the next pass finds the bodies again: the soldier pool's models in use (at the slot's `+0x10`,
   the header pointing at its `+0x3C`) that are dead with a body brain (recognised by its bytes, so one an earlier
-  instance made still counts). The count is logged.
+  instance made still counts), with their parts counted again. Past the spares or the added part slots (a save whose
+  part pool has the game's count) the oldest are freed. The count is logged.
 
 ## Tests
 
@@ -153,5 +166,6 @@ Covers the pool count, the setting off, a living soldier with no team left to th
 outliving it out of the world with the body brain, the body's AI controller off the watch list, its collision objects
 and first shape freed and the shadow's shape kept, the bodies drawn from
 the world's draw only, the oldest body freed past the spares (registers put back), no spares, the shutdown, turning
-the setting off and finding the bodies in the pool after a quick load. `MOHRS_CORPSE_TRACE=1` ([debugging.md](debugging.md)) logs soldier record destroys and
+the setting off, finding the bodies in the pool after a quick load, the bodies' parts kept within the part pool's added
+slots, and the bodies of a save whose part pool has the game's count freed after its load. `MOHRS_CORPSE_TRACE=1` ([debugging.md](debugging.md)) logs soldier record destroys and
 model removals with their callers.

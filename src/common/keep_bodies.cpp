@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <deque>
+#include <vector>
 
 #include "common/guest_block.h"
 #include "common/options.h"
@@ -16,7 +17,12 @@ namespace game {
 
 namespace {
 
-std::deque<uint32_t> g_bodies;  // kept models, oldest first; the game thread only
+struct Kept {
+    uint32_t model;
+    uint32_t parts;  // the part pool's objects it holds
+};
+std::deque<Kept> g_bodies;      // kept models, oldest first; the game thread only
+uint32_t g_parts = 0;           // the part pool's objects the bodies hold
 bool g_loaded = false;          // a quick load since the last pass
 bool g_shutdown = false;        // the level is shutting down
 
@@ -67,6 +73,30 @@ uint32_t Spare(const BodyLayout& l) {
     return spare > 0 ? uint32_t(spare) : 0;
 }
 
+// the part pool's slots added for the bodies: its number less the game's
+uint32_t SpareParts(const BodyLayout& l) {
+    int32_t spare = int32_t(R32(l.part_pool)) - int32_t(l.part_count);
+    return spare > 0 ? uint32_t(spare) : 0;
+}
+
+// The part pool's objects a model holds (its attached objects, gun and part meshes): the slots in use that the model's
+// words point into, each once.
+uint32_t Parts(uint32_t model, const BodyLayout& l) {
+    uint32_t number = R32(l.part_pool), step = R32(l.part_pool + 0xC) + 0x10, slots = R32(l.part_pool + 0x10);
+    uint32_t size = R32(l.model_pool + 0xC);
+    if (!slots || !number || number > 0x10000 || step <= 0x10 || size > 0x10000) return 0;
+    uint32_t span = number * step;
+    std::vector<uint32_t> seen;
+    for (uint32_t at = 0; at + 4 <= size; at += 4) {
+        uint32_t offset = R32(model + at) - slots;
+        if (offset >= span) continue;
+        uint32_t slot = offset / step;
+        if (R32(slots + slot * step + 8) && std::find(seen.begin(), seen.end(), slot) == seen.end())
+            seen.push_back(slot);
+    }
+    return uint32_t(seen.size());
+}
+
 uint32_t ThisCall(X86Context& ctx, uint32_t fn, uint32_t self, std::initializer_list<uint32_t> args) {
     uint32_t ecx = ctx.ecx;
     ctx.ecx = self;
@@ -111,21 +141,37 @@ void FreeBody(X86Context& ctx, uint32_t model, const BodyLayout& l) {
 }
 
 void FreeOldest(X86Context& ctx, const BodyLayout& l) {
-    uint32_t model = g_bodies.front();
+    Kept kept = g_bodies.front();
     g_bodies.pop_front();
-    if (Body(model, l)) FreeBody(ctx, model, l);
+    g_parts -= std::min(g_parts, kept.parts);
+    if (Body(kept.model, l)) FreeBody(ctx, kept.model, l);
 }
 
-// after a quick load: the bodies in the model pool, the dead soldier models in use with the body brain
-void FindBodies(const BodyLayout& l) {
+// the bodies within the spare models and the part pool's added slots, the oldest freed first
+void Trim(X86Context& ctx, const BodyLayout& l, size_t models, uint32_t parts) {
+    while (!g_bodies.empty() && (g_bodies.size() + models > Spare(l) || g_parts + parts > SpareParts(l)))
+        FreeOldest(ctx, l);
+}
+
+// after a quick load: the bodies in the model pool, the dead soldier models in use with the body brain (a save from
+// before the part pool was made larger has bodies holding its slots: they are freed)
+void FindBodies(X86Context& ctx, const BodyLayout& l) {
     g_bodies.clear();
+    g_parts = 0;
     uint32_t count = R32(l.model_pool), step = R32(l.model_pool + 0xC) + 0x10, slots = R32(l.model_pool + 0x10);
     for (uint32_t i = 0; slots && i < count && i < 4096; i++) {
         uint32_t slot = slots + i * step, model = slot + 0x10;  // the soldier allocation (0xCB9D0) puts it there
-        if (R32(slot + 8) && R32(slot + 4) == model + 0x3C && Body(model, l)) g_bodies.push_back(model);
+        if (R32(slot + 8) && R32(slot + 4) == model + 0x3C && Body(model, l)) {
+            uint32_t parts = Parts(model, l);
+            g_bodies.push_back({model, parts});
+            g_parts += parts;
+        }
     }
-    while (g_bodies.size() > Spare(l)) g_bodies.pop_front();  // never: the save had no more
-    if (Opt().keep_bodies) LOGR("keep bodies: %zu bodies after the load", g_bodies.size());
+    size_t found = g_bodies.size();
+    Trim(ctx, l, 0, 0);
+    if (Opt().keep_bodies || found)
+        LOGR("keep bodies: %zu bodies after the load (%zu freed), holding %u of %u added parts", g_bodies.size(),
+             found - g_bodies.size(), g_parts, SpareParts(l));
 }
 
 }  // namespace
@@ -142,23 +188,28 @@ bool KeepBodyInWorld(const X86Context& ctx, const BodyLayout& l) {
 bool KeepBodyModel(X86Context& ctx, const BodyLayout& l) {
     uint32_t model = R32(ctx.esi + 0xF8);
     if (!Opt().keep_bodies || g_shutdown || LivingRecord(ctx.esi, l) || !DeadModel(model, l)) return false;
-    uint32_t spare = Spare(l);
-    if (!spare) return false;
-    while (g_bodies.size() >= spare) FreeOldest(ctx, l);
+    uint32_t spare = Spare(l), parts = Parts(model, l), spare_parts = SpareParts(l);
+    // a body may not hold the level's own parts: the next spawns would find none
+    if (!spare || parts > spare_parts) return false;
+    Trim(ctx, l, 1, parts);
     G<uint32_t>(model + 0x120) = NewBodyBrain();  // its own brain goes with the record
     LeaveWatchList(ctx, model, l);
     ThisCall(ctx, l.leave_world, l.world, {model});  // as the record destroy does; drawn by DrawBodies from now on
     FreeCollision(ctx, model, l);
-    g_bodies.push_back(model);
+    g_bodies.push_back({model, parts});
+    g_parts += parts;
     static uint32_t logged = 0;
-    if (logged++ < 8) LOGR("keep bodies: model %08X kept (%zu of %u bodies)", model, g_bodies.size(), spare);
+    if (logged++ < 8)
+        LOGR("keep bodies: model %08X kept (%zu of %u bodies, %u parts, %u of %u added parts)", model,
+             g_bodies.size(), spare, parts, g_parts, spare_parts);
     return true;
 }
 
 void DrawBodies(X86Context& ctx, const BodyLayout& l) {
     if (ctx.esi != l.world || g_bodies.empty()) return;
     uint32_t view = ctx.ebp;
-    for (uint32_t model : g_bodies) {
+    for (const Kept& kept : g_bodies) {
+        uint32_t model = kept.model;
         if (!Body(model, l)) continue;
         uint32_t vtable = R32(model);
         if ((ThisCall(ctx, R32(vtable + 0x68), model, {}) & 0xFF) &&
@@ -175,13 +226,15 @@ bool OnWatchList(uint32_t entry, const BodyLayout& l) {
 }
 
 uint32_t ModelPoolCount(uint32_t pool, uint32_t count, const BodyLayout& l) {
-    return pool == l.model_pool ? count + l.spare : count;
+    if (pool == l.model_pool) return count + l.spare;
+    if (pool == l.part_pool) return count + l.spare * kPartsPerBody;
+    return count;
 }
 
 void KeepBodiesPass(X86Context& ctx, const BodyLayout& l) {
     if (g_loaded) {
         g_loaded = false;
-        FindBodies(l);
+        FindBodies(ctx, l);
     }
     if (!Opt().keep_bodies)
         while (!g_bodies.empty()) FreeOldest(ctx, l);
@@ -195,6 +248,7 @@ void BodiesShutdown(X86Context& ctx, const BodyLayout& l, bool starting) {
 
 void ForgetBodies() {
     g_bodies.clear();
+    g_parts = 0;
     g_shutdown = false;
 }
 

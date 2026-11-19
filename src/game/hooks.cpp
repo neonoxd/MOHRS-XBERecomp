@@ -277,8 +277,8 @@ X86_FUNC(sub_000F8680) {
     game::KeepBodiesPass(ctx, game::kDefaultBodies);
     __imp__sub_000F8680(ctx, base);
 }
-// a game object pool's creation (thiscall pool, size, count, flags; ret 0xC): the soldier models get spares. Should
-// the larger block not be had, the pool is made with the game's count.
+// a game object pool's creation (thiscall pool, size, count, flags; ret 0xC): the soldier models and the part pool
+// get room for the bodies. Should the larger block not be had, the pool is made with the game's count.
 X86_EXTERN_FUNC(__imp__sub_000D1E90);
 X86_FUNC(sub_000D1E90) {
     uint32_t esp = ctx.esp, count = R32(esp + 8);
@@ -287,7 +287,7 @@ X86_FUNC(sub_000D1E90) {
     kernel::W32(esp + 8, more);
     __imp__sub_000D1E90(ctx, base);
     if (ctx.eax || more == count) return;
-    LOGR("keep bodies: no room for %u more soldier models", more - count);
+    LOGR("keep bodies: no room for %u more objects in pool %08X", more - count, pool);
     ctx.esp = esp;
     ctx.ecx = pool;
     kernel::W32(esp + 8, count);

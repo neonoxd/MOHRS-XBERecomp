@@ -77,6 +77,18 @@ void Spawn(int i) {
     G<uint32_t>(L.world) = m;
     G<uint32_t>(r + 0xF8) = m;
 }
+// the part pool: slots of a 0x10-byte header and a 0x3C0-byte object from 0x500000
+constexpr uint32_t kPartSlots = 0x500000, kPartStep = 0x3C0 + 0x10;
+uint32_t PartSlot(uint32_t n) { return kPartSlots + n * kPartStep; }
+// soldier i takes n parts (its slots i * 4 ..): pointed at by +0xB54.., the first also through its +0x38 at +0x1040
+void GiveParts(int i, uint32_t n) {
+    for (uint32_t k = 0; k < n; k++) {
+        uint32_t slot = PartSlot(uint32_t(i) * 4 + k);
+        G<uint32_t>(slot + 8) = 1;
+        G<uint32_t>(Model(i) + 0xB54 + k * 4) = slot + 0x10;
+    }
+    if (n) G<uint32_t>(Model(i) + 0x1040) = PartSlot(uint32_t(i) * 4) + 0x10 + 0x38;
+}
 void Die(int i) {
     G<float>(Record(i) + 0x14) = 0.0f;
     G<int32_t>(Model(i) + 0x124) = -1;
@@ -107,6 +119,9 @@ void Level(int32_t limit) {
     G<uint32_t>(L.watch_list) = L.watch_list;
     G<uint32_t>(L.watch_list + 4) = L.watch_list;
     G<uint32_t>(L.model_pool) = game::ModelPoolCount(L.model_pool, uint32_t(limit), L);
+    G<uint32_t>(L.part_pool) = game::ModelPoolCount(L.part_pool, L.part_count, L);
+    G<uint32_t>(L.part_pool + 0xC) = kPartStep - 0x10;
+    G<uint32_t>(L.part_pool + 0x10) = kPartSlots;
     game::ForgetBodies();
     freed.clear();
     deactivated.clear();
@@ -185,6 +200,8 @@ int main() {
     game::Options& o = game::Opt();
 
     Check(game::ModelPoolCount(L.model_pool, 15, L) == 15 + L.spare, "the soldier model pool gets the spares");
+    Check(game::ModelPoolCount(L.part_pool, 150, L) == 150 + L.spare * game::kPartsPerBody,
+          "the part pool gets room for the bodies' parts");
     Check(game::ModelPoolCount(L.model_pool + 0x20, 5, L) == 5, "the other pools keep their count");
 
     // off: nothing changes
@@ -270,6 +287,40 @@ int main() {
     Check(ctx.eax == 7 && ctx.ecx == 0x55, "registers are put back");
     Check(R32(L.watch_list + 4) == L.watch_list, "no body is on the watch list");
 
+    // the bodies' parts never take the level's own: with 5 added slots, a third body of 2 parts frees the oldest
+    Level(8);
+    G<uint32_t>(L.part_pool) = L.part_count + 5;
+    for (int i = 0; i < 3; i++) {
+        Spawn(i);
+        GiveParts(i, 2);
+        Die(i);
+        ctx.esi = Record(i);
+        Check(game::KeepBodyModel(ctx, L), "a body with parts is kept");
+    }
+    Check(freed.size() == 1 && freed[0] == Model(0), "past the added part slots the oldest body is freed");
+    DrawWorld(ctx);
+    Check(drawn.size() == 2 && drawn[0] == Model(1) && drawn[1] == Model(2), "the other two stay");
+    Spawn(3);
+    GiveParts(3, 4);
+    G<uint32_t>(PartSlot(3 * 4 + 3) + 8) = 0;  // a pointer to a free slot is no part
+    Die(3);
+    ctx.esi = Record(3);
+    Check(game::KeepBodyModel(ctx, L) && freed.size() == 2 && freed[1] == Model(1),
+          "a body of 3 parts frees the oldest one, 2 + 3 fit");
+    Spawn(4);
+    GiveParts(4, 4);
+    Spawn(5);
+    GiveParts(5, 2);
+    G<uint32_t>(L.part_pool) = L.part_count + 3;
+    Die(4);
+    ctx.esi = Record(4);
+    Check(!game::KeepBodyModel(ctx, L) && freed.size() == 2, "more parts than the added slots: not kept");
+    // the part pool at the game's count (its larger block could not be had): bodies with parts are not kept
+    G<uint32_t>(L.part_pool) = L.part_count;
+    Die(5);
+    ctx.esi = Record(5);
+    Check(!game::KeepBodyModel(ctx, L), "no added part slots: a body with parts is not kept");
+
     // no spares (the larger pool could not be had): the game's way
     Level(4);
     G<uint32_t>(L.model_pool) = 4;
@@ -325,7 +376,25 @@ int main() {
     o.keep_bodies = false;
     game::KeepBodiesPass(ctx, L);
     Check(freed.size() == 1 && freed[0] == Model(0), "after a load only the dead model with the body brain is a body");
+    o.keep_bodies = true;
+
+    // a quick load of a save whose part pool has the game's count: its bodies hold the level's parts and are freed
+    Level(4);
+    Spawn(0);
+    GiveParts(0, 2);
+    Spawn(1);
+    Die(0);
+    ctx.esi = Record(0);
+    game::KeepBodyModel(ctx, L);
+    Check(freed.empty(), "kept while the pool has room");
+    game::ForgetBodies();
+    G<uint32_t>(L.part_pool) = L.part_count;
+    game::BodiesAfterLoad();
+    game::KeepBodiesPass(ctx, L);
+    Check(freed.size() == 1 && freed[0] == Model(0), "after loading such a save the body holding parts is freed");
+    DrawWorld(ctx);
+    Check(drawn.empty(), "and not drawn");
 
     std::puts("keep bodies: living soldiers with no team left alone, fade off, kept past its record out of the world and drawn, off the watch list, collision "
-              "freed, spares never exceeded, shutdown, off and quick load");
+              "freed, spares and added part slots never exceeded, shutdown, off and quick load");
 }

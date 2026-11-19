@@ -25,6 +25,10 @@
 // - the body's collision objects (+0x114, +0x11C) and one shape (+0x110) go back to their pools, as the model's
 //   deactivation does after the same world removal: the level's pool holds the collision objects for 25 soldiers
 //   (0x4E690), and a spawn with none left crashes. The shape at +0x118 stays for the draw's shadow.
+// - the body keeps its parts (the attached objects, gun and part meshes from the level's object pool, 150 for the
+//   whole level: default.xbe 0x152370, moh3rdc.xbe 0x14B710). A soldier spawned with that pool empty gets none and
+//   stands in the bind pose with no AI, so the pool is made larger for the bodies too, and the parts the bodies hold
+//   never number more than the slots added.
 // The soldier model pool is made larger by a number of spare models when the level's objects start (0xCB5E0 makes it
 // with the level's soldier limit), so live soldiers always find a model. The bodies are kept here, oldest first, never
 // more than the spare models: the oldest is freed before one more is kept. All are freed when the level shuts down.
@@ -53,12 +57,19 @@ struct BodyLayout {
     uint32_t watch_entry;   // the AI controller's entry on it (controller +)
     uint32_t free_shape;    // cdecl shape: back to its pool (the model's +0x110 and +0x118)
     uint32_t record_vtable; // the AI soldier record's (vtable +8 the record destroy); hit points at record +0x14
+    uint32_t part_pool;     // the level's object pool (factory +0x10) the soldiers' parts come from: same layout as
+                            // the model pool, the object at slot +0x10
+    uint32_t part_count;    // the game's number of objects in it
 };
+// the part pool's slots added for each spare model
+inline constexpr uint32_t kPartsPerBody = 4;
 
 inline constexpr BodyLayout kDefaultBodies{0x25E9A0, 0x1E99A0, 0x270630, 0xFA3E0,  0x168,  0x270460, 0xCA7C0,
-                                           0x270470, 128,      0x1FC7C0, 0x27D50, 0xD30,   0x4E570, 0x1E21A4};
+                                           0x270470, 128,      0x1FC7C0, 0x27D50, 0xD30,   0x4E570, 0x1E21A4,
+                                           0x270600, 150};
 inline constexpr BodyLayout kCoopBodies{0x256BD0, 0x1E25C0, 0x2657B0, 0xF2EB0,  0x160,  0x2655E0, 0xBF070,
-                                        0x2655F0, 64,       0x1F56E8, 0x27420, 0xD20,   0x518D0, 0x1DB4C4};
+                                        0x2655F0, 64,       0x1F56E8, 0x27420, 0xD20,   0x518D0, 0x1DB4C4,
+                                        0x265780, 150};
 
 // after the model's fade starts (default.xbe 0xE57C0, moh3rdc.xbe 0xDD940: thiscall model, seconds): the fader at
 // +0xFB0 off again for a dead soldier's model
@@ -75,7 +86,8 @@ void DrawBodies(X86Context& ctx, const BodyLayout& layout);
 // the watch list removal (default.xbe 0x27D50, moh3rdc.xbe 0x27420: cdecl entry): false for an entry not on the list,
 // whose removal must be passed over (the game's would unlink the list's head node)
 bool OnWatchList(uint32_t entry, const BodyLayout& layout);
-// the model pool's creation (thiscall pool, size, count, flags): the count to make it with
+// a game object pool's creation (thiscall pool, size, count, flags): the count to make it with (the soldier models
+// and the part pool get room for the bodies)
 uint32_t ModelPoolCount(uint32_t pool, uint32_t count, const BodyLayout& layout);
 // at the deferred-delete pass's start: bodies found again after a quick load; all freed with the setting off
 void KeepBodiesPass(X86Context& ctx, const BodyLayout& layout);
