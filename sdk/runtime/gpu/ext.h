@@ -17,6 +17,7 @@
 #include "gpu/shaders.h"
 #include "gpu/state.h"
 #include "gpu/texture.h"
+#include "gpu/vertex.h"
 
 namespace gpu {
 
@@ -89,8 +90,9 @@ public:
     // a draw's screen x, screen = scale, center, texture mode: console pixels drawn at center + (x - center) * scale, a
     // vertex on the target's left or right edge kept there, and in texture mode (non zero) that vertex's first texture
     // coordinate scaled out from 0.5 by 1 / scale instead; vsc the vertex registers as uploaded. Untouched (scale 1)
-    // draws as the console does.
-    virtual void ScreenX(const State&, const float (*/*vsc*/)[4], const Target* /*rt*/, float* /*screen*/) {}
+    // draws as the console does. a: the draw's vertices, as the input assembler reads them.
+    virtual void ScreenX(const State&, const Assembled& /*a*/, const float (*/*vsc*/)[4], const Target* /*rt*/,
+                         float* /*screen*/) {}
     // a target with range other than 1 is read, copied or presented
     virtual void Resolve(Context&, Target&) {}
 };

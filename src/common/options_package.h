@@ -58,12 +58,15 @@ inline constexpr char kTimeLabel[] = "Mission Time label";
 inline constexpr char kTimeValue[] = "Mission Time value";
 std::vector<uint8_t> AddMissionTime(const uint8_t* data, size_t size);
 
-// HUD Options (HUD.fng, the shell's and the pause screen's) with Mission Timer and FPS Counter rows under HUD Type,
-// made from the Crosshairs row: its text, the game's On and Off texts, which the handler shows one of, and its
-// button with the arrows. Empty on failure or when the package has them already.
+// HUD Options (HUD.fng, the shell's and the pause screen's) with Mission Timer, FPS Counter, HUD Position and HUD
+// Offset rows under HUD Type, made from the Crosshairs row: its text, the game's On and Off texts, which the handler
+// shows one of, and its button with the arrows. HUD Position and HUD Offset have one " value" text (made from On)
+// instead, which the handler fills in. Empty on failure or when the package has them already.
 inline constexpr char kHudScreen[] = "HUD.fng";
 inline constexpr char kTimerRow[] = "Mission Timer";  // the objects: "<row> text", " On", " Off", " button"
 inline constexpr char kFpsRow[] = "FPS Counter";
+inline constexpr char kHudPositionRow[] = "HUD Position";  // the objects: "<row> text", " value", " button"
+inline constexpr char kHudOffsetRow[] = "HUD Offset";
 std::vector<uint8_t> AddHudRows(const uint8_t* data, size_t size);
 
 // Controller Options (ControllerOptions.fng, the shell's and the pause screen's) with a Modern Aiming row under

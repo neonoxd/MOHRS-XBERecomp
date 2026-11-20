@@ -157,20 +157,24 @@ std::vector<uint8_t> AddMissionTime(const uint8_t* data, size_t size) {
 namespace {
 
 // a copy of an On/Off row (its "<pattern> text", " Off", " On" and " button" with the arrows) named row, moved down,
-// after the button named after (and its arrows); false when an object is missing or the row is there already
+// after the button named after (and its arrows); false when an object is missing or the row is there already. A value
+// row gets one " value" text instead of Off and On, made from On, empty and hidden until the handler fills it in.
 bool CopyToggleRow(feng::Package& p, const std::string& pattern, const std::string& row, const char* label,
-                   float down, const std::string& after) {
+                   float down, const std::string& after, bool value = false) {
     size_t at = p.Index(pattern + " button"), last = p.Index(after + " button");
     if (at == p.objects.size() || last == p.objects.size() || p.Find(row + " button") || down <= 0.0f) return false;
     uint32_t guid = p.NextGuid(), group_like = p.objects[at].Guid();
     std::vector<feng::Object> rows;
     for (const char* part : {" text", " Off", " On"}) {
+        if (value && std::string(part) == " Off") continue;
         const feng::Object* o = p.Find(pattern + part);
         if (!o) return false;
         feng::Object c = *o;
-        c.SetName(row + part);
+        bool shown = value && std::string(part) == " On";
+        c.SetName(row + (shown ? " value" : part));
         c.SetGuid(guid++);
         if (std::string(part) == " text") c.SetText(row, label);
+        if (shown) c.SetText("", std::string(label) + "_VALUE");
         c.Move(0.0f, down);
         rows.push_back(c);
     }
@@ -204,10 +208,12 @@ std::vector<uint8_t> AddHudRows(const uint8_t* data, size_t size) {
     const feng::Object* first = p.Find("Crosshairs text");
     const feng::Object* second = p.Find("HUD text");
     if (!first || !second) return {};
-    // two and three rows under Crosshairs, at the rows' pitch, after HUD Type's and then Mission Timer's button
+    // two to five rows under Crosshairs, at the rows' pitch, each after the button of the row above it
     float pitch = second->Y() - first->Y();
     if (!CopyToggleRow(p, "Crosshairs", kTimerRow, "MISSION_TIMER", 2.0f * pitch, "HUD")) return {};
     if (!CopyToggleRow(p, "Crosshairs", kFpsRow, "FPS_COUNTER", 3.0f * pitch, kTimerRow)) return {};
+    if (!CopyToggleRow(p, "Crosshairs", kHudPositionRow, "HUD_POSITION", 4.0f * pitch, kFpsRow, true)) return {};
+    if (!CopyToggleRow(p, "Crosshairs", kHudOffsetRow, "HUD_OFFSET", 5.0f * pitch, kHudPositionRow, true)) return {};
     return p.Write();
 }
 

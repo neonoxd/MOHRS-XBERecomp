@@ -532,8 +532,8 @@ private:
     void ExpandPoints(D3D12_GRAPHICS_PIPELINE_STATE_DESC& d);
     float TargetScale() const;  // host pixels per console pixel of the bound target
     float RenderTargetShift(const State& s, const DrawShaders& sh) const;
-    void UploadConstants(const State& s, const DrawShaders& sh, const PsoKey& k, const DrawTextures& stages,
-                         GuestExtent size, DrawConstants& c);
+    void UploadConstants(const State& s, const Assembled& a, const DrawShaders& sh, const PsoKey& k,
+                         const DrawTextures& stages, GuestExtent size, DrawConstants& c);
     void FillTextureConstants(const State& s, const DrawShaders& sh, const DrawTextures& stages, DrawConstants& c);
     void FillTexelConstants(int i, const TextureDesc& d, const DrawTextures& stages, DrawConstants& c);
     void CaptureDraw(const State& s, uint32_t prim, uint32_t count, const PsoKey& k, const DrawConstants& c,
@@ -2554,8 +2554,8 @@ void FillLightConstants(const State& s, const FixedKey& fk, DrawConstants& c) {
     }
 }
 
-void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const PsoKey& k, const DrawTextures& stages,
-                                   GuestExtent size, DrawConstants& c) {
+void D3D12Backend::UploadConstants(const State& s, const Assembled& a, const DrawShaders& sh, const PsoKey& k,
+                                   const DrawTextures& stages, GuestExtent size, DrawConstants& c) {
     Alloc vc = Upload(s.vsc.bytes(), 256);
     std::memcpy(vc.cpu, s.vsc.data(), s.vsc.bytes());
     Alloc dc = Upload(sizeof(DrawConstants), 256);
@@ -2566,7 +2566,7 @@ void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const 
     FillCombinerConstants(s, c);
     if (ext_) ext_->Constants(reinterpret_cast<float(*)[4]>(vc.cpu), c.ext, bound_rt_, k.blend ? k.src : 1);
     c.screen[0] = 1;
-    if (ext_) ext_->ScreenX(s, reinterpret_cast<const float(*)[4]>(vc.cpu), bound_rt_, c.screen);
+    if (ext_) ext_->ScreenX(s, a, reinterpret_cast<const float(*)[4]>(vc.cpu), bound_rt_, c.screen);
     FillTextureConstants(s, sh, stages, c);
     if (sh.fixed_transform) {
         FillTransformConstants(s, size, c);
@@ -2932,7 +2932,7 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     GuestExtent size;
     SurfaceSize(bound_rt_ ? s.rt : s.zs, size.w, size.h);
     DrawConstants c{};
-    UploadConstants(s, sh, k, stages, size, c);
+    UploadConstants(s, a, sh, k, stages, size, c);
 
     if (cap_) {
         CaptureDraw(s, prim, count, k, c, stages);

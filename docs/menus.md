@@ -453,20 +453,27 @@ movies, on the end-of-level screens (their modal loop does not run the gameplay 
 shows the paused time in the pause screen.
 
 HUD Options (`HUD.fng`, the shell's and the pause screen's) gets a **Mission Timer** row (On, Off) under HUD Type,
-and under it an **FPS Counter** row (On, Off; `fps_counter`, frames a second in the picture's top left corner):
+under it an **FPS Counter** row (On, Off; `fps_counter`, frames a second in the picture's top left corner), then
+**HUD Position** (Center, Edge; `hud_edge`) and **HUD Offset** (0 to 10; `hud_offset`), which place the gameplay HUD
+on a widescreen frame ([widescreen.md](widescreen.md#hud-position)):
 
 - `menu::AddHudRows` (`src/common/options_package.cpp`) copies the Crosshairs row two row pitches down (the pitch is
   HUD text's Y minus Crosshairs text's: 32 in the pause screen, 37 in the shell) as `Mission Timer text` (text
   `Mission Timer`, label `MISSION_TIMER`, not in the string tables), `Mission Timer On` / `Off` (the game's `ON` /
   `OFF` texts, so localised) and `Mission Timer button` with its arrows, and adds the button to Crosshairs button's
   highlight target lists; the same three pitches down as `FPS Counter ...` (label `FPS_COUNTER`), after the
-  Mission Timer button. The archive hook gives each folder its own copy.
+  Mission Timer button. HUD Position and HUD Offset are four and five pitches down (labels `HUD_POSITION`,
+  `HUD_OFFSET`), each with one `<row> value` text made from Crosshairs On, emptied (label `<label>_VALUE`), in place of
+  On and Off. The archive hook gives each folder its own copy.
 - The screen's handler (`0x12A620` / `0x124C20`) runs Crosshairs and HUD Type by the focused button's name hash and
   logs any other button as an unknown option. `MenuEvent` takes Pad_Left/Pad_Right while `Mission Timer button` or
   `FPS Counter button` has the focus: the switch flips, the handler's toggle sound plays (1 on, 0 off) and RunScript Show/Hide picks the On or
-  Off text. Every other event goes to the handler first; after `HUD Setup` the rows are shown and remembered, after
+  Off text. On `HUD Position button` left and right switch Center and Edge, on `HUD Offset button` they step the
+  offset down and up (0 to 10); the slider sounds play (6 up, 7 down) and SetText fills the value, RunScript Show
+  shows it. Every other event goes to the handler first; after `HUD Setup` the rows are shown and remembered, after
   `HUD Config Confirm` a change is written to `settings.toml`, after `HUD Config Revert` the rows are put back.
-- The menu mouse (`src/common/menu_mouse.cpp`) maps the rows' text, On and Off to their buttons, like the game's rows.
+- The menu mouse (`src/common/menu_mouse.cpp`) maps the rows' text, On, Off and value to their buttons, like the
+  game's rows.
 
 The end-of-level stats:
 

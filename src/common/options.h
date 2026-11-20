@@ -14,6 +14,8 @@ struct Options {
     bool fps_counter = false;     // frames a second in the picture's top left corner
     bool mission_timer = false;   // the level's time in its top right corner (src/common/mission_timer.h)
     bool widescreen = true;       // 16:9 on a 3:2 or wider output, the view widened (src/common/widescreen.cpp)
+    bool hud_edge = false;        // widescreen: the gameplay HUD at the frame's edges, not in its middle 4:3
+    uint32_t hud_offset = 0;      // HUD Offset steps (game::kHudOffsetStep): centre moves out, edge moves in
     bool fps60 = true;            // a frame each vertical blank, as the PS2's 60 fps patch; off: every second one (30)
     bool unlocked_fps = false;    // experimental elapsed-time updates; fps_cap/vsync set the presentation rate
     uint32_t fov = kDefaultFov;    // horizontal degrees on a 4:3 frame; 70 original, widescreen adds Hor+

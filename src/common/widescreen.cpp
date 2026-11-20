@@ -3,17 +3,21 @@
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
+#include <mutex>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "app/app.h"
+#include "common/options.h"
 #include "gpu/ext.h"
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
+#include "xdk/d3d8.h"
 
 using kernel::G;
 
@@ -23,6 +27,7 @@ namespace {
 
 constexpr uint32_t kTanAcross = 0x40;
 constexpr uint32_t kZAlways = 0x207;  // NV2A depth function
+constexpr uint32_t kHudTag = 0x48554431;  // State::tag of the gameplay HUD's draws ("HUD1")
 
 // the playing movie's frame size (0 none), which its texture has: its draw is placed for the widened frame already
 std::atomic<uint32_t> g_movie{0};
@@ -32,6 +37,8 @@ std::atomic<uint32_t> g_movie{0};
 struct Placement {
     bool passthrough = false;  // oPos = v0
     int matrix = -1;           // oPos.x = dot(v0, c[matrix]) and on through c[matrix + 3] for w
+    // then the viewport, as the XDK's screen space programs end: oPos.xyz * c[scale] / w + c[offset], -1 none
+    int scale = -1, offset = -1;
 };
 
 // from the runtime's HLSL for the program: its own translation, so the patterns hold for this SDK
@@ -47,7 +54,51 @@ Placement Classify(const std::vector<uint32_t>& program) {
     const std::string dot = "dot(((i.v0).xyzw), ((c[";
     size_t d = h.rfind(dot, x);
     if (d != std::string::npos && x - d < 80) p.matrix = std::atoi(h.c_str() + d + dot.size());
+    // the sprite batches' program: the matrix gives clip space, the viewport (c[58], c[59]) the console's pixels
+    // oPos * c[scale], then oPos * (1 / w) + c[offset] on a line of its own (other outputs can come between)
+    const std::string scale = "mac_mul(((oPos).xyzw), ((c[", divide = "(mac_mul(((oPos).xyzw), ((R", offset = "+ ((c[";
+    size_t s = h.find(scale, x);
+    if (p.matrix >= 0 && s != std::string::npos) {
+        p.scale = std::atoi(h.c_str() + s + scale.size());
+        size_t d = h.find(divide, s);
+        size_t o = d == std::string::npos ? d : h.find(offset, d);
+        if (o != std::string::npos && h.find('\n', d) > o) p.offset = std::atoi(h.c_str() + o + offset.size());
+    }
     return p;
+}
+
+// the console x range of a draw's vertices as its program places them (v0, passed through, or through the matrix and
+// the viewport); false when its positions are not plain floats
+bool DrawX(const gpu::Assembled& a, const Placement& p, const float (*vsc)[4], float& lo, float& hi) {
+    if (!(a.regs & 1) || (a.decode & 0xF)) return false;
+    const gpu::VertexElement& e = a.elements[0];
+    if (e.buffer >= a.buffer_count) return false;
+    uint32_t n = e.format == DXGI_FORMAT_R32G32B32A32_FLOAT ? 4
+                 : e.format == DXGI_FORMAT_R32G32B32_FLOAT  ? 3
+                 : e.format == DXGI_FORMAT_R32G32_FLOAT     ? 2
+                                                            : 0;
+    const gpu::VertexBuffer& b = a.buffers[e.buffer];
+    if (!n || !b.src || !b.stride) return false;
+    lo = 1e30f;
+    hi = -1e30f;
+    for (uint32_t i = 0; i < a.vertex_count; i++) {
+        size_t at = size_t(i) * b.stride + e.offset;
+        if (at + n * 4 > b.bytes) break;
+        float v[4] = {0, 0, 0, 1};
+        std::memcpy(v, b.src + at, n * 4);
+        float x = v[0];
+        if (!p.passthrough) {
+            // w is 1: the draw is flat (c[matrix + 3] is 0 0 0 1)
+            const float* m = vsc[p.matrix];
+            x = v[0] * m[0] + v[1] * m[1] + v[2] * m[2] + v[3] * m[3];
+            if (p.scale >= 0 && p.scale < 192) x *= vsc[p.scale][0];
+            if (p.offset >= 0 && p.offset < 192) x += vsc[p.offset][0];
+        }
+        if (!std::isfinite(x)) return false;
+        lo = std::min(lo, x);
+        hi = std::max(hi, x);
+    }
+    return lo <= hi;
 }
 
 class Hud : public gpu::Extension {
@@ -87,7 +138,8 @@ public:
         }
     }
 
-    void ScreenX(const gpu::State& s, const float (*vsc)[4], const gpu::Target* rt, float* screen) override {
+    void ScreenX(const gpu::State& s, const gpu::Assembled& a, const float (*vsc)[4], const gpu::Target* rt,
+                 float* screen) override {
         // the frame's own target with a depth test that always passes, as the HUD and menus have it: no 3D effect
         // projected on the CPU
         bool depth = s.rs[gpu::kRsZEnable] && s.simple[gpu::kMZFunc >> 2] != kZAlways;
@@ -101,9 +153,17 @@ public:
                    std::fabs(w[3] - 1.0f) < 1e-6f;
         }
         if (!flat) return;
-        screen[0] = 1.0f / FrameWidening();
+        float widen = FrameWidening();
+        screen[0] = 1.0f / widen;
         screen[1] = float(rt->gw) / 2;
         screen[2] = masked_ ? 1.0f : 0.0f;
+        // the gameplay HUD's pieces placed by HUD Position and HUD Offset; the default (centre, 0) is the middle
+        if (s.tag != kHudTag) return;
+        bool edge = std::atomic_ref<bool>(Opt().hud_edge).load(std::memory_order_relaxed);
+        uint32_t offset = std::atomic_ref<uint32_t>(Opt().hud_offset).load(std::memory_order_relaxed);
+        float lo, hi;
+        if ((edge || offset) && DrawX(a, p, vsc, lo, hi))
+            screen[1] = HudCenter(lo, hi, float(rt->gw), widen, edge, offset);
     }
 
 private:
@@ -147,5 +207,16 @@ void MovieScale(X86Context& ctx) {
 void MovieEnded() { g_movie = 0; }
 
 void StartWidescreen() { gpu::SetExtension(std::make_unique<Hud>()); }
+
+void DrawHud(X86Context& ctx, uint8_t* base, void (*original)(X86Context&, uint8_t*)) {
+    // the title's thread, which makes the draws: they carry the tag to the render thread with the rest of the state
+    auto tag = [](uint32_t t) {
+        std::lock_guard<d3d::DeviceLock> lock(d3d::Lock());
+        d3d::State().tag = t;
+    };
+    tag(kHudTag);
+    original(ctx, base);
+    tag(0);
+}
 
 }  // namespace game

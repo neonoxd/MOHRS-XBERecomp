@@ -240,6 +240,9 @@ X86_FUNC(sub_000FC170) {
     __imp__sub_000FC170(ctx, base);
     game::MovieEnded();
 }
+// the gameplay HUD's draw (docs/widescreen.md): its draws tagged for HUD Position and HUD Offset
+X86_EXTERN_FUNC(__imp__sub_0011B560);
+X86_FUNC(sub_0011B560) { game::DrawHud(ctx, base, __imp__sub_0011B560); }
 
 // Keep Bodies (src/common/keep_bodies.h) and MOHRS_CORPSE_TRACE (src/common/test_hooks.h). kSoldiers: the first AI
 // soldier record (next +0xC)

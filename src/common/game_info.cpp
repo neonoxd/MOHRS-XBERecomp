@@ -170,6 +170,10 @@ void Load(const void* table) {
     uint32_t requested_fov = o.fov;
     o.fov = ClampFov(o.fov);
     if (requested_fov != o.fov) g_complete = false;
+    if (o.hud_offset > kHudOffsetMax) {
+        o.hud_offset = kHudOffsetMax;
+        g_complete = false;
+    }
     o.mouse_sensitivity = ReadFloat(t, "mouse_sensitivity", o.mouse_sensitivity);
     o.mouse_vertical_sensitivity = ReadFloat(t, "mouse_vertical_sensitivity", o.mouse_vertical_sensitivity);
     if (const toml::table* keys = t["keys"].as_table()) {
@@ -258,6 +262,8 @@ const app::GameInfo app::kGame = {
                 {"fps_counter", &game::Opt().fps_counter, nullptr},
                 {"mission_timer", &game::Opt().mission_timer, nullptr},
                 {"widescreen", &game::Opt().widescreen, nullptr},
+                {"hud_edge", &game::Opt().hud_edge, nullptr},
+                {"hud_offset", nullptr, &game::Opt().hud_offset},
                 {"fps60", &game::Opt().fps60, nullptr},
                 {"unlocked_fps", &game::Opt().unlocked_fps, nullptr},
                 {"fov", nullptr, &game::Opt().fov},

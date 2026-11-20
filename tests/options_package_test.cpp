@@ -259,12 +259,17 @@ static void HudRows(const fs::path& file) {
     float pitch = p->Find("HUD text")->Y() - p->Find("Crosshairs text")->Y();
     size_t last = p->Index("HUD button");
     int down = 2;
-    for (std::string row : {game::menu::kTimerRow, game::menu::kFpsRow}) {
+    for (std::string row : {game::menu::kTimerRow, game::menu::kFpsRow, game::menu::kHudPositionRow,
+                            game::menu::kHudOffsetRow}) {
+        bool value = row == game::menu::kHudPositionRow || row == game::menu::kHudOffsetRow;
         const feng::Object* text = p->Find(row + " text");
         const feng::Object* on = p->Find(row + " On");
         const feng::Object* off = p->Find(row + " Off");
+        const feng::Object* shown = p->Find(row + " value");
         const feng::Object* button = p->Find(row + " button");
-        Check(text && on && off && button, row + " row objects");
+        Check(text && button && (value ? shown && !on && !off : on && off && !shown), row + " row objects");
+        if (value)
+            Check(shown->Y() == p->Find("Crosshairs On")->Y() + float(down) * pitch, row + " value beside its text");
         Check(text->Y() == p->Find("Crosshairs text")->Y() + float(down) * pitch, row + " row under HUD Type");
         Check(button->Y() == p->Find("Crosshairs button")->Y() + float(down) * pitch && button->IsButton(),
               "its button");
@@ -276,7 +281,8 @@ static void HudRows(const fs::path& file) {
         std::printf("%s: %s row at y %.0f\n", file.string().c_str(), row.c_str(), text->Y());
         down++;
     }
-    Check(p->objects.size() == before->objects.size() + 12, "text, On, Off, button and two arrows added a row");
+    Check(p->objects.size() == before->objects.size() + 22,
+          "text, On, Off, button and two arrows added a toggle row; text, value, button and two arrows a value row");
     Check(game::menu::AddHudRows(made.data(), made.size()).empty(), "HUD rows cannot be added twice");
 }
 

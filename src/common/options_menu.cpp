@@ -2,6 +2,7 @@
 
 #include <cstdlib>
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstring>
@@ -27,6 +28,7 @@
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
 #include "common/options_package.h"
+#include "common/widescreen.h"
 #include "core/log.h"
 #include "kernel/kernel.h"
 #include "kernel/memory.h"
@@ -532,6 +534,48 @@ void ShowToggle(X86Context& ctx, uint32_t package, const Toggle& t, const MenuCa
     kernel::CallGuest(ctx, calls.run_script, {package, Text(row + " Off"), Text(on ? "Hide" : "Show")});
 }
 
+// HUD Options' HUD Position and HUD Offset rows (src/common/widescreen.h): the render thread reads both settings
+struct HudPlace {
+    bool edge = false;
+    uint32_t offset = 0;
+};
+HudPlace g_hud_saved;  // game thread: as the screen opened
+
+HudPlace HudPlaceNow() {
+    return {std::atomic_ref<bool>(Opt().hud_edge).load(), std::atomic_ref<uint32_t>(Opt().hud_offset).load()};
+}
+
+void SetHudPlace(const HudPlace& h) {
+    std::atomic_ref<bool>(Opt().hud_edge).store(h.edge);
+    std::atomic_ref<uint32_t>(Opt().hud_offset).store(std::min(h.offset, kHudOffsetMax));
+}
+
+void ShowHudPlace(X86Context& ctx, uint32_t package, const MenuCalls& calls) {
+    HudPlace h = HudPlaceNow();
+    std::string position = std::string(menu::kHudPositionRow) + " value";
+    std::string offset = std::string(menu::kHudOffsetRow) + " value";
+    kernel::CallGuest(ctx, calls.set_text, {package, Text(position), Scratch(h.edge ? "Edge" : "Center")});
+    kernel::CallGuest(ctx, calls.set_text, {package, Text(offset), Scratch(std::to_string(h.offset))});
+    kernel::CallGuest(ctx, calls.run_script, {package, Text(position), Text("Show")});
+    kernel::CallGuest(ctx, calls.run_script, {package, Text(offset), Text("Show")});
+}
+
+// left or right on HUD Position or HUD Offset; false for another row
+bool StepHudPlace(X86Context& ctx, uint32_t package, uint32_t focus, int dir, const MenuCalls& calls) {
+    static const uint32_t kPosition = feng::Hash(std::string(menu::kHudPositionRow) + " button"),
+                          kOffset = feng::Hash(std::string(menu::kHudOffsetRow) + " button");
+    uint32_t hash = focus ? R32(focus + kObjectHash) : 0;
+    if (hash != kPosition && hash != kOffset) return false;
+    HudPlace h = HudPlaceNow(), was = h;
+    if (hash == kPosition) h.edge = !h.edge;
+    if (hash == kOffset) h.offset = dir > 0 ? std::min(h.offset + 1, kHudOffsetMax) : h.offset ? h.offset - 1 : 0;
+    SetHudPlace(h);
+    // the slider sounds: 6 up, 7 down
+    if (h.edge != was.edge || h.offset != was.offset) kernel::CallGuest(ctx, calls.sound, {dir > 0 ? 6u : 7u});
+    ShowHudPlace(ctx, package, calls);
+    return true;
+}
+
 // The game's HUD Options handler runs its rows (Crosshairs, HUD Type); the added rows' left and right are taken here
 // (the handler logs an unknown option for them and changes nothing), the others go on to it.
 void HudEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const MenuCalls& calls) {
@@ -542,6 +586,10 @@ void HudEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const Menu
     uint32_t event = R32(ctx.esp + 4);
     if (event == kLeft || event == kRight) {
         uint32_t focus = R32(package + kFocus);
+        if (StepHudPlace(ctx, package, focus, event == kRight ? 1 : -1, calls)) {
+            kernel::Return(ctx, 0, 3);
+            return;
+        }
         for (Toggle& t : g_toggles) {
             if (!focus || R32(focus + kObjectHash) != feng::Hash(std::string(t.row) + " button")) continue;
             bool& on = Opt().*t.setting;
@@ -566,6 +614,15 @@ void HudEvent(X86Context& ctx, uint8_t* base, GuestFunction original, const Menu
         }
         if (event == kSetup || event == kRevert) ShowToggle(ctx, package, t, calls);
     }
+    HudPlace h = HudPlaceNow();
+    if (event == kSetup) g_hud_saved = h;
+    if (event == kRevert) SetHudPlace(g_hud_saved);
+    if (event == kConfirm && (h.edge != g_hud_saved.edge || h.offset != g_hud_saved.offset)) {
+        changed = true;
+        g_hud_saved = h;
+        LOGI("HUD options: HUD position %s, offset %u", h.edge ? "edge" : "center", h.offset);
+    }
+    if (event == kSetup || event == kRevert) ShowHudPlace(ctx, package, calls);
     if (changed) app::Save();
     ctx.eax = result;
 }

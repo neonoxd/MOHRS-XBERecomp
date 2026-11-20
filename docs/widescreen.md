@@ -25,7 +25,42 @@ setting changes; resizing a window does not change the shape, the picture is fit
 The squeeze leaves a vertex on the frame's left or right edge where it is, so full-width 2D quads (loading screens,
 the cinematic letterbox bars, fades) stay full width.
 
-The player camera's near plane is pulled in while the view is widened, see [fov.md](fov.md). The render scale is one
+The player camera's near plane is pulled in while the view is widened, see [fov.md](fov.md).
+
+## HUD position
+
+HUD Options' **HUD Position** (`hud_edge`) and **HUD Offset** (`hud_offset`, 0 to 10, see [menus.md](menus.md))
+move the gameplay HUD's pieces sideways on the widened frame. The menus and every other 2D draw keep the squeeze
+toward the middle.
+
+The gameplay HUD is drawn by one function, which draws the compass, the ammo counter, the crosshair and the rest:
+
+| | default.xbe | moh3rdc.xbe |
+|---|---|---|
+| HUD draw (thiscall, one argument) | `0x11B560` | `0x115600` |
+
+`game::DrawHud` (`X86_FUNC` override of it) sets `gpu::State::tag` to the HUD's tag for the draws it makes and back
+to 0 after. The tag is part of the state the title thread records with each draw, so the render thread sees it on
+exactly those draws. The extension's `ScreenX` gets the draw's assembled vertices: for a tagged draw it reads the
+console x of each vertex and moves the centre the draw is squeezed toward (`game::HudCenter`,
+`src/common/widescreen.h`). The x is `v0.x` for a program that passes `v0` through (the text), and for one with a
+matrix `dot(v0, c[m])`; the sprite program (the compass, the ammo and grenade icons, the crosshair) then applies the
+viewport, `* c[58].x / w + c[59].x` (320 and 320 on the 640 wide frame), which `Classify` finds after the matrix:
+
+| Draw | Centre |
+|---|---|
+| across the frame's middle (crosshair, centred text, full-width masks) | the middle, as before |
+| left of the middle (the compass) | `in / (1 - 1/widen)` |
+| right of the middle (the ammo counter and weapon name) | `w - in / (1 - 1/widen)` |
+
+A left piece is then drawn at `x / widen + in`: with `in` 0 the HUD's 4:3 layout sits against the frame's left
+edge (its margins squeezed with it), with `in = gap = w/2 * (1 - 1/widen)` it is where the squeeze puts it. Center
+starts at `gap` and each offset step moves it out by `kHudOffsetStep` (2.5% of the frame's width); Edge starts at 0
+and each step moves it in. Neither goes past the other's place. The gap is 8.3% of the width at 16:10, 12.5% at 16:9,
+21.4% at 21:9 and 31.2% at 32:9. Without widescreen (or at 4:3) nothing is squeezed and nothing moves.
+
+A draw whose positions are not plain floats is left in the middle. Pieces the HUD draw does not make (subtitles,
+the pause menu, the PC overlays) are not moved. The render scale is one
 factor for both axes (from the output's height), so the frame's horizontal resolution is stretched by `widen`.
 
 ## Movies
@@ -71,8 +106,11 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -Isrc -Isdk/runtime tests/movie_fit_tes
 & re/movie_fit_test.exe
 cmd /c "tools\dev.bat clang++ -std=c++20 -Isrc tests/menu_pointer_test.cpp -o re/menu_pointer_test.exe"
 & re/menu_pointer_test.exe
+cmd /c "tools\dev.bat clang++ -std=c++20 -Isrc -Isdk/runtime tests/hud_place_test.cpp -o re/hud_place_test.exe"
+& re/hud_place_test.exe
 ```
 
 `movie_fit_test` checks the game's fit at 4:3 and, for each movie shape from 16:10 to 32:9, that the shape is kept,
 the movie stays inside the frame and fills its width or height. `menu_pointer_test` maps pointer positions at 4:3,
-16:9 and 21:9.
+16:9 and 21:9. `hud_place_test` checks `HudCenter` from 16:10 to 32:9: the middle kept for centre 0 and for a draw
+across it, edge 0 against the edges, and each offset step in or out, stopping at the other mode's place.

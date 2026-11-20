@@ -84,7 +84,11 @@ everything changed.
 
 Widescreen fills 16:10, 16:9, ultrawide 21:9 and 32:9 screens: the view is widened to the screen's shape (set
 by the resolution, or the desktop's), the HUD and menus keep their shape in the middle, and the mission movies are
-shown as large as they fit without being stretched.
+shown as large as they fit without being stretched. HUD Options > HUD Position (in the main menu's options and the
+pause screen's preferences) moves the compass and the ammo counter: Center keeps them near the middle, Edge puts them
+in the screen's corners. HUD Offset (0 to 10) moves them from there: outward with Center, inward with Edge. The
+crosshair and the texts across the middle stay where they are. On a 4:3 screen, or with widescreen off, both do
+nothing.
 
 Display > Keep Bodies: dead enemies and allies stay where they fell for the rest of the level instead of fading out
 a few seconds later. Up to 128 bodies a level (64 in co-op); past that the oldest one goes. Bodies stay as they
