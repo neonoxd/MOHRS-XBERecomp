@@ -332,6 +332,13 @@ bool ModernAim(X86Context& ctx, uint8_t*) { return game::ModernAim(ctx, game::kC
 bool ModernAimWalk(X86Context& ctx, uint8_t*) { return game::ModernAimWalk(ctx, game::kCoopAim); }
 bool ModernAimHold(X86Context& ctx, uint8_t*) { return game::ModernAimHold(ctx, game::kCoopAim); }
 void ModernAimWalked(X86Context& ctx, uint8_t*) { game::ModernAimWalked(ctx, game::kCoopAim); }
+// [[hook]] 0xD56C4 in the player update 0xD4BF0, default.xbe's 0xDBF04: the eye raise and lower (src/common/modern_aim.h)
+void EyeHold(X86Context& ctx, uint8_t*) { game::EyeHold(ctx, game::kCoopAim); }
+// [[hook]] 0xD7C4B in the player update 0xD4BF0, default.xbe's 0xDDE60: the move event's ground speed
+void LeanStill(X86Context& ctx, uint8_t*) { game::LeanStill(ctx, game::kCoopAim); }
+// the lean 0xCF1A0 (src/common/modern_aim.h): slower with the lean key, held out when the strafe centres; default.xbe's 0xD9A20
+X86_EXTERN_FUNC(__imp__sub_000CF1A0);
+X86_FUNC(sub_000CF1A0) { game::Lean(ctx, base, __imp__sub_000CF1A0, game::kCoopAim); }
 void FloorRayRetry(X86Context& ctx, uint8_t*) {
     game::FloorRayRetry(ctx, {0x90, 0xE0, 0x50, 0x13DF00, 0x13BBE0, 0x13BD80, 0x6D290});
 }

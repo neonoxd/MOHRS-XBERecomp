@@ -377,6 +377,13 @@ bool ModernAim(X86Context& ctx, uint8_t*) { return game::ModernAim(ctx, game::kD
 bool ModernAimWalk(X86Context& ctx, uint8_t*) { return game::ModernAimWalk(ctx, game::kDefaultAim); }
 bool ModernAimHold(X86Context& ctx, uint8_t*) { return game::ModernAimHold(ctx, game::kDefaultAim); }
 void ModernAimWalked(X86Context& ctx, uint8_t*) { game::ModernAimWalked(ctx, game::kDefaultAim); }
+// [[hook]] 0xDBF04 in the player update 0xDB530, where the eye raise and lower meet (src/common/modern_aim.h)
+void EyeHold(X86Context& ctx, uint8_t*) { game::EyeHold(ctx, game::kDefaultAim); }
+// [[hook]] 0xDDE60 in the player update 0xDB530, the move event's ground speed stored (src/common/modern_aim.h)
+void LeanStill(X86Context& ctx, uint8_t*) { game::LeanStill(ctx, game::kDefaultAim); }
+// the lean 0xD9A20 (src/common/modern_aim.h): slower with the lean key, held out when the strafe centres
+X86_EXTERN_FUNC(__imp__sub_000D9A20);
+X86_FUNC(sub_000D9A20) { game::Lean(ctx, base, __imp__sub_000D9A20, game::kDefaultAim); }
 // [[hook]]s in the multiplayer bot update 0x65A80: its AI update test at 0x65A95, the AI update's time at 0x65ABA
 void BotThink(X86Context& ctx, uint8_t*) { game::BotThink(ctx, 0x270140); }
 void BotThinkTime(X86Context& ctx, uint8_t*) { game::BotThinkTime(ctx); }

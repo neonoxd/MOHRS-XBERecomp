@@ -17,6 +17,10 @@ namespace {
 constexpr uint32_t kLocalVelocity = 0x240, kPosition = 0x80, kState = 0xD45, kMode = 0xD46, kCoopState = 0xD4E;
 constexpr uint8_t kStateLadder = 1, kStateLean = 8, kStateAir = 0x40;
 constexpr uint8_t kModeVehicle = 1, kModeLean = 4, kModeMounting = 0x10, kModeScripted = 0x40;
+// the eye raise and lower: its offset and the update's step for it, the aim bit, crouched, the standing lower allowed
+constexpr uint32_t kEye = 0x270, kEyeStep = 0x28C, kAimState = 0xD44, kPose = 0xD4C;
+constexpr uint8_t kAimOn = 0x10, kStateCrouched = 2, kPoseLower = 0x20;
+constexpr uint32_t kForwardAction = 6;  // forward negative
 // game thread: the player whose aim block passed this update, and the look rates it worked out
 uint32_t g_held = 0;
 float g_yaw = 0, g_pitch = 0;
@@ -33,13 +37,20 @@ bool Allowed(uint32_t p, const AimLayout& l) {
     return true;
 }
 
-// the player KBM's port 0 is assigned to, by input manager entry (0xB7E80: 0x8F8 bytes each, starting with the port)
-bool KeyboardPlayer(uint32_t p, const AimLayout& l) {
+// the input manager entry of the player KBM's port 0 is assigned to (0xB7E80: 0x8F8 bytes each, starting with the
+// port), 0 for another player
+uint32_t KeyboardEntry(uint32_t p, const AimLayout& l) {
     uint32_t count = std::min(uint32_t(G<uint8_t>(l.input_manager + 0x23E0)), 4u);
     for (uint32_t i = 0; i < count; i++)
-        if (G<uint8_t>(l.input_manager + i * 0x8F8) == 0 && R32(l.players + i * 4) == p) return true;
-    return false;
+        if (G<uint8_t>(l.input_manager + i * 0x8F8) == 0 && R32(l.players + i * 4) == p)
+            return l.input_manager + i * 0x8F8;
+    return 0;
 }
+
+bool KeyboardPlayer(uint32_t p, const AimLayout& l) { return KeyboardEntry(p, l) != 0; }
+
+// an action's value from an input manager entry, as 0xB83E0 reads it (-127..127)
+int32_t ActionValue(uint32_t entry, uint32_t action) { return G<int32_t>(entry + 0x7C + 8 + action * 0xC); }
 
 // the lean key gives the player the game's aim rules: on the ground only
 bool Leans(uint32_t p, const AimLayout& l) {
@@ -104,5 +115,55 @@ void ModernAimWalked(X86Context& ctx, const AimLayout& l) {
 }
 
 bool ModernAimLeaning(uint32_t player) { return player && g_leaning == player; }
+
+void Lean(X86Context& ctx, uint8_t* base, GuestFunction original, const AimLayout& l) {
+    uint32_t p = ctx.ecx;
+    if (!Leans(p, l)) {
+        original(ctx, base);
+        return;
+    }
+    // the game's lean, with the strafe centred and a lean out, puts the player back at the anchor (0xC7490 writes
+    // only the position) and clears +0xD45 bit 3; with the lean key the lean stays out, still
+    bool out = G<uint8_t>(p + kState) & kStateLean;
+    float pos[3];
+    for (int i = 0; i < 3; i++) pos[i] = G<float>(p + kPosition + i * 4);
+    original(ctx, base);
+    if (out && !(G<uint8_t>(p + kState) & kStateLean)) {
+        for (int i = 0; i < 3; i++) G<float>(p + kPosition + i * 4) = pos[i];
+        G<uint8_t>(p + kState) |= kStateLean;
+        G<float>(p + kLocalVelocity) = 0;
+        G<float>(p + kLocalVelocity + 4) = 0;
+        return;
+    }
+    G<float>(p + kLocalVelocity) *= kLeanSpeed;
+    G<float>(p + kLocalVelocity + 4) *= kLeanSpeed;
+}
+
+void EyeHold(X86Context& ctx, const AimLayout& l) {
+    uint32_t p = ctx.esi;
+    if (!(G<uint8_t>(p + kAimState) & kAimOn)) return;
+    uint32_t entry = KeyboardEntry(p, l);
+    if (!entry || !input::LeanHeld() || (G<uint8_t>(p + kState) & kStateAir)) return;
+    // the game's own tests: the raise is blocked while bl is set; the standing lower needs the ground byte
+    if (ctx.ebx & 0xFF) return;
+    bool crouched = G<uint8_t>(p + kState) & kStateCrouched;
+    if (!crouched && !((G<uint8_t>(p + kPose) & kPoseLower) && G<uint8_t>(ctx.esp + l.ground))) return;
+    // crouched the eye rests at 0 and forward raises it to the full height; standing it rests at the full height and
+    // back lowers it to 0. Either way forward goes up, back down, neither stays.
+    float stick = float(ActionValue(entry, kForwardAction)) / 127.0f;
+    float height = G<float>(l.eye_height);
+    float eye = G<float>(p + kEye);
+    float dt = G<float>(ctx.ebp + 8) / 60.0f;  // the update's time is in ticks, 60 a second
+    float step = 0;
+    if (stick <= -kEyeDeadzone) step = std::min(kEyeSpeed * dt, std::max(height - eye, 0.0f));
+    else if (stick >= kEyeDeadzone) step = -std::min(kEyeSpeed * dt, std::max(eye, 0.0f));
+    G<float>(p + kEyeStep) = step;
+}
+
+void LeanStill(X86Context& ctx, const AimLayout& l) {
+    uint32_t p = ctx.esi;
+    // aiming on the ground with the lean key: the walk is stopped (or skipped), any speed is the lean's
+    if ((G<uint8_t>(p + kAimState) & kAimOn) && Leans(p, l)) G<float>(ctx.esp + l.move_speed) = 0;
+}
 
 }  // namespace game

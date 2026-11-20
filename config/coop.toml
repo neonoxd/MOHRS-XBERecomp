@@ -421,6 +421,16 @@ on_true = 0xD6A22
 at = 0xD6F60
 call = "ModernAimWalked"
 
+# Lean key: the eye raise and lower in 0xD4BF0, default.xbe's 0xDBF04 (src/common/modern_aim.h)
+[[hook]]
+at = 0xD56C4
+call = "EyeHold"
+
+# Lean key: the move event's ground speed in 0xD4BF0 (fst [esp+0x10]), default.xbe's 0xDDE60
+[[hook]]
+at = 0xD7C4B
+call = "LeanStill"
+
 # The player's end-of-step floor ray, default.xbe's 0xDAC19 / 0xDAC2A in 0xD104A
 [[hook]]
 at = 0xD1581

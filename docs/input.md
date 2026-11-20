@@ -220,6 +220,55 @@ position, so a lean taken mid-aim starts where the player stands. The aim bit st
 way: let go of with the aim still held, the next `ModernAimHold` puts a lean that is out back at the anchor and the
 walk goes on. In the air the key only aims, with Modern Aiming's rules.
 
+With the lean key held, KBM's player on the ground has the lean (`0xD9A20` / `0xCF1A0`) overridden (`game::Lean`,
+Modern Aiming on or off). The game's lean runs, then its walk velocity (`+0x240`, `+0x244`) is scaled by `kLeanSpeed`
+(0.75).
+When a lean is out (`+0xD45` bit 3) and the strafe is centred, the game puts the player back at the anchor and clears
+the bit; the override puts the position (`+0x80`) back where it was, sets the bit again and zeroes the velocity, so the
+lean stays out. It goes back when the lean key is let go of: the aim's end (`0xC7490`), `ModernAimHold`, or the
+game's lean with the strafe centred if the aim is still held. Without the lean key (the aim key or a controller) the
+lean is the game's.
+
+| Lean override | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| Lean | `0xD9A20` | `0xCF1A0` |
+| Strafe deadzone / scale | `0x1E11C8` / `0x1E8EB8` | `0x1DA4B0` / `0x1E1A5C` |
+| Lean speed | `0x1E8EEC` (119.88) | `0x1E1AAC` |
+| Right vector kept | `+0xDF0` | `+0xED0` |
+
+The eye raise and lower works the same way with the lean key. The game keeps the eye offset at `+0x270`: crouched
+(`+0xD45` bit 1) it rests at 0 and forward (action 6, negative) raises it toward the full height (1.1); standing with
+`+0xD4C` bit 5 (and the ground byte) it rests at the full height and back lowers it toward 0. Each update it sets the
+step `+0x28C` to (target - offset) * 0.417, limits it to 0.04 and divides it by the update's ticks (`[ebp+8]`, 60 a second), so the
+eye goes most of the way at once. `EyeHold` runs where the two paths meet, before the limit, for KBM's player on the
+ground with the lean key held, aiming, and the game's own blocks clear (`bl` zero; the ground byte when standing).
+It reads action 6 from the player's input manager entry (`+0x7C + 8 + action * 0xC`, as `0xB83E0`) and sets the
+step to `kEyeSpeed` (0.9 a second, the game's 0.04 at 30 updates a second times 0.75) times the update's ticks / 60,
+up for forward and down for back, not past 0 or the full height, and 0 with neither, so the eye stays. Let go of the
+lean key, the game's rules take the eye back to rest.
+
+| Eye hold | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| `EyeHold` | `0xDBF04` | `0xD56C4` |
+| Crouched raise / standing lower | `0xDBDEE` / `0xDBE75` | `0xD55AD` / `0xD5635` |
+| Full height (1.1) | `0x1E8F04` | `0x1E1AC4` |
+| Step gain (0.417) | `0x1E8F64` | `0x1E1B28` |
+| Step limit (0.04) | `0x201EF0` | `0x1FA010` |
+| Ground byte | `[esp+0x58]` | `[esp+0x5C]` |
+
+The first-person weapon's walk bob follows the move event the player update sends to `+0x220` (event `0x84`, through
+`0x4ADB0` / co-op `0x4DF00`): from the ground speed |(`+0x230`, `+0x234`)| (per tick) it sends 2 above 0.0534, 1
+above 0.00667 and 0 below, when the level (`+0x112C` / `+0x120C`) changes. The lean moves the player by velocity, so it
+sent 1 and the weapon bobbed. `LeanStill`, right after the speed is stored, sets it to 0 for KBM's player aiming on the
+ground with the lean key held (the walk is stopped or skipped then, so any speed is the lean's).
+
+| Lean bob | default.xbe | moh3rdc.xbe |
+|---|---:|---:|
+| `LeanStill` (after `fst`) | `0xDDE60` | `0xD7C4B` |
+| Ground speed | `[esp+0x14]` | `[esp+0x10]` |
+| Run / walk speed | `0x201EF4` / `0x201EF8` | `0x1FA014` / `0x1FA018` |
+| Move level | `+0x112C` | `+0x120C` |
+
 Settings files from before the lean key with `walk = "Alt"` get walk on Shift (if Shift is not bound to another
 action) and lean on Alt; if Alt is still bound to another action, lean is written unbound (`game_info.cpp` Load).
 

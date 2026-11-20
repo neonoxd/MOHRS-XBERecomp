@@ -433,6 +433,16 @@ on_true = 0xDCF49
 at = 0xDD4A2
 call = "ModernAimWalked"
 
+# Lean key: the eye raise and lower in 0xDB530 where its two paths meet, before the step limit (src/common/modern_aim.h)
+[[hook]]
+at = 0xDBF04
+call = "EyeHold"
+
+# Lean key: the move event's ground speed in 0xDB530 (fst [esp+0x14]), read as 0 while leaning: no weapon bob
+[[hook]]
+at = 0xDDE60
+call = "LeanStill"
+
 # The player's end-of-step floor ray in 0xDA7D0 (docs/frame-timing.md): keep the collision world before the call,
 # cast again beside a miss at cmp edi, 1
 [[hook]]
