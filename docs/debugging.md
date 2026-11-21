@@ -147,7 +147,7 @@ caller. The lookup has 20 callers in default.xbe.
 | `XBE_SHADER_SOURCES=<folder>` | each shader's HLSL, once a run, as `<hash>_<entry>_<profile>.hlsl` (for `tests/shader_compile_bench.cpp`) |
 | `XBE_LOG_INFO` | release builds also log info and warnings |
 | `XBE_MUTE` | no sound output |
-| `XBE_CAPTURE_DIR` | folder for F3 frame captures |
+| `XBE_CAPTURE_DIR` | folder for F3 frame captures: `frame.txt` has a line per draw (targets, shaders, blend, depth, cull, alpha test enable / func / ref, depth format, a stage's alpha kill and color key when set, textures), the shaders as translated, each texture and each target as it was left |
 | `XBE_D3D12_DEBUG` | D3D12 debug layer |
 | `XBE_DISC_OVERRIDE=<folder>` | a file under the folder replaces the disc's file at the same path |
 | `XBE_SNAPSHOT_TRACE` | each parked thread's waits at a quick load |

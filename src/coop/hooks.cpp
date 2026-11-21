@@ -16,6 +16,7 @@
 #include "common/menu_mouse.h"
 #include "common/stream_lock.h"
 #include "common/test_hooks.h"
+#include "common/transparent_depth.h"
 #include "common/weapon_select.h"
 #include "common/widescreen.h"
 #include "common/mouse_keyboard.h"
@@ -60,6 +61,11 @@ X86_FUNC(sub_0010A7B0) { game::LockedPool(ctx, base, __imp__sub_0010A7B0); }
 // the EA stream library's packet take, default.xbe's 0x165390, under its stream's lock (src/common/stream_lock.h)
 X86_EXTERN_FUNC(__imp__sub_0015E760);
 X86_FUNC(sub_0015E760) { game::LockedStreamTake(ctx, base, __imp__sub_0015E760, game::kCoopStreams); }
+
+// render state blocks, default.xbe's 0x17D010: clear texels of a blended, depth writing block write no depth
+// (src/common/transparent_depth.h)
+X86_EXTERN_FUNC(__imp__sub_001763E0);
+X86_FUNC(sub_001763E0) { game::ApplyStateBlock(ctx, base, __imp__sub_001763E0); }
 
 // the script's native call opcode, default.xbe's 0x497D0 (src/common/script_guard.h): a native given a destroyed
 // script object does not run

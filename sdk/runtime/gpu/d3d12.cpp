@@ -2625,6 +2625,14 @@ void D3D12Backend::CaptureDraw(const State& s, uint32_t prim, uint32_t count, co
             cap_i_++, s.rt.data, bound_ds_ ? s.zs.data : 0, prim, count, s.vs_handle, s.ps ? s.ps->handle : 0, k.blend,
             k.src, k.dst, k.zen, k.zfunc, k.zwrite, k.zbias, k.zslope, k.cull, k.wmask, c.pc[0][0], c.pc[0][1],
             c.pc[0][2], c.pc[0][3]);
+    fprintf(cap_, " atest %u %X %02X zfmt %X", SimpleState(s, kMAlphaTestEnable), SimpleState(s, kMAlphaFunc),
+            SimpleState(s, kMAlphaRef) & 0xFF, s.zs.header ? (s.zs.format >> 8) & 0xFF : 0);
+    for (int i = 0; i < 4; i++) {
+        const auto& t = s.tss[size_t(i)];
+        if (t[kTssAlphaKill] || t[kTssColorKeyOp]) {
+            fprintf(cap_, " s%d kill %X ckey %X %08X", i, t[kTssAlphaKill], t[kTssColorKeyOp], t[kTssColorKeyColor]);
+        }
+    }
     CaptureTextures(s, stages);
 }
 

@@ -19,6 +19,7 @@
 #include "common/stream_lock.h"
 #include "common/test_hooks.h"
 #include "common/time_events.h"
+#include "common/transparent_depth.h"
 #include "common/weapon_select.h"
 #include "common/widescreen.h"
 #include "common/mouse_keyboard.h"
@@ -81,6 +82,10 @@ X86_FUNC(sub_00111C30) { game::LockedPool(ctx, base, __imp__sub_00111C30); }
 // the EA stream library's packet take, under its stream's lock (src/common/stream_lock.h)
 X86_EXTERN_FUNC(__imp__sub_00165390);
 X86_FUNC(sub_00165390) { game::LockedStreamTake(ctx, base, __imp__sub_00165390, game::kDefaultStreams); }
+
+// render state blocks: clear texels of a blended, depth writing block write no depth (src/common/transparent_depth.h)
+X86_EXTERN_FUNC(__imp__sub_0017D010);
+X86_FUNC(sub_0017D010) { game::ApplyStateBlock(ctx, base, __imp__sub_0017D010); }
 
 // the script's native call opcode (src/common/script_guard.h): a native given a destroyed script object does
 // not run
