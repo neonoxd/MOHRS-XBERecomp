@@ -87,3 +87,16 @@ configure_file(src/cursor.rc.in ${cursor_resource} @ONLY)
 set_source_files_properties(${cursor_resource} PROPERTIES OBJECT_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cursor.png)
 target_sources(MOHRS PRIVATE ${cursor_resource})
 target_sources(MOHRSCoop PRIVATE ${cursor_resource})
+
+# the boot splash beside the executables, where the runtime looks for it (GameInfo::splash); release.bat ships it
+set(splash_png ${CMAKE_CURRENT_SOURCE_DIR}/src/res/splash.png)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/res)
+if(EXISTS ${splash_png})
+    add_custom_command(
+        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/splash.png
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${splash_png} ${CMAKE_CURRENT_BINARY_DIR}/splash.png
+        DEPENDS ${splash_png}
+        COMMENT "Copying the splash beside the executables"
+        VERBATIM)
+    add_custom_target(mohrs_splash ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/splash.png)
+endif()

@@ -68,7 +68,7 @@ are needed.
 
 ### 4. Release zip
 Run `release.bat` (needs 7-Zip on `PATH`). It brings the release build up to date and writes `MOHRS-XBERecomp.zip`:
-both executables, the `compiler` folder that builds the game code on the player's PC from their own disc image on
+both executables, the boot splash (`src/res/splash.png`, which the build also copies beside the executables), the `compiler` folder that builds the game code on the player's PC from their own disc image on
 the first start, the Visual C++ runtime, `d3dcompiler_47.dll`, licenses and the player's
 [README](docs/player-readme.txt). No game code or game data goes into it. The version is `project(... VERSION)` in
 `CMakeLists.txt`; it is in each executable's file properties and on the first line of the log.

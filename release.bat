@@ -28,6 +28,8 @@ rd /s /q "%STAGE%" 2>nul
 mkdir "%STAGE%\assets" || exit /b 1
 copy /y "%OUT%\MOHRS.exe" "%STAGE%\" >nul || exit /b 1
 copy /y "%OUT%\MOHRSCoop.exe" "%STAGE%\" >nul || exit /b 1
+rem the boot splash, copied beside the executables by the build
+if exist "%OUT%\splash.png" copy /y "%OUT%\splash.png" "%STAGE%\" >nul || exit /b 1
 for %%f in (msvcp140 vcruntime140 vcruntime140_1) do copy /y "%VCRUNTIME%\%%f.dll" "%STAGE%\" >nul || exit /b 1
 copy /y "%D3DCOMPILER%" "%STAGE%\" >nul || exit /b 1
 copy /y "%SDK%\THIRD_PARTY.txt" "%STAGE%\" >nul || exit /b 1
