@@ -586,6 +586,9 @@ private:
                                   uint32_t h, const ShrinkOptions& o = {});
     bool ReadBack(ID3D12Resource* res, uint32_t w, uint32_t h, std::vector<uint8_t>& out);
     void CapStep(const Surface& rt);
+    void CapDepth(Target* z, const char* tag);
+    void CapUndoDepth(Target* z, bool save);
+    ComPtr<ID3D12Resource> cap_undo_;
     // a resource CapSave shrinks to w x h and writes, in state *state, colour times mul
     struct CapImage {
         ID3D12Resource* res;
@@ -2897,10 +2900,18 @@ void D3D12Backend::DeliverReports() {
     }
 }
 
+bool CapListed(const char* var, const State& s);
+
 void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t count, const uint8_t* indices) {
     PerfScope perf_draw{g_perf.draw};
     g_perf.draws++;
     if (cap_) CapStep(s.rt);
+    const bool cap_depth = cap_ && CapListed("XBE_CAPTURE_DEPTH_TEX", s);
+    const bool cap_skip = cap_ && CapListed("XBE_CAPTURE_SKIP_TEX", s);
+    const bool cap_undo = cap_ && CapListed("XBE_CAPTURE_UNDO_TEX", s);
+    Target* cap_z = cap_depth || cap_undo ? EnsureTarget(s.zs, true) : nullptr;
+    if (cap_depth) CapDepth(cap_z, "pre");
+    if (cap_undo) CapUndoDepth(cap_z, true);
     if (DepthCopy(s)) return;
     DrawEnd draw_end{ext_};
     if (ext_) ext_->BeginDraw(s);
@@ -2955,8 +2966,10 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
 
     // geometry, counted while the title runs a visibility test
     uint32_t query = BeginCountedDraw(s);
-    DrawGeometry(a);
+    if (!cap_skip) DrawGeometry(a);
     EndCountedDraw(query);
+    if (cap_depth) CapDepth(cap_z, "post");
+    if (cap_undo) CapUndoDepth(cap_z, false);
 }
 
 // a guest rect scaled to the target and clamped to it
@@ -3725,6 +3738,60 @@ void D3D12Backend::CapSave(Target& t, const char* name) {
     DXGI_FORMAT fmt = t.depth ? DXGI_FORMAT_R24_UNORM_X8_TYPELESS : t.fmt;
     float mul = t.depth ? 1 : t.range;
     CapSave({.res = t.res.Get(), .state = &t.state, .fmt = fmt, .w = t.gw, .h = t.gh, .mul = mul}, name);
+}
+
+// F3 capture probes: XBE_CAPTURE_DEPTH_TEX saves the raw depth before and after each draw whose stage 0 texture is
+// listed, XBE_CAPTURE_SKIP_TEX skips those draws (hex texture data addresses, comma separated)
+bool CapListed(const char* var, const State& s) {
+    const char* v = std::getenv(var);
+    TextureDesc d;
+    if (!v || !s.textures[0] || !Describe(s.textures[0], d)) return false;
+    char hex[16];
+    snprintf(hex, sizeof(hex), "%08X", d.data);
+    return std::strstr(v, hex) != nullptr;
+}
+
+// the bound depth target as NNNN_tag_z.bin: width, height, then a uint32 per texel (depth in the low 24 bits)
+void D3D12Backend::CapDepth(Target* z, const char* tag) {
+    if (!z) return;
+    Transition(z->res.Get(), z->state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    std::vector<uint8_t> px;
+    if (!ReadBack(z->res.Get(), z->w, z->h, px)) return;
+    bound_rt_ = bound_ds_ = nullptr;
+    char name[48];
+    snprintf(name, sizeof(name), "%04u_%s_z.bin", cap_i_ - (std::strcmp(tag, "post") ? 0 : 1), tag);
+    if (FILE* f = _wfopen((cap_dir_ / name).c_str(), L"wb")) {
+        fwrite(&z->w, 4, 1, f);
+        fwrite(&z->h, 4, 1, f);
+        fwrite(px.data(), 1, px.size(), f);
+        fclose(f);
+    }
+}
+
+// XBE_CAPTURE_UNDO_TEX: the depth a listed draw wrote is put back as it was before it (save before, restore after)
+void D3D12Backend::CapUndoDepth(Target* z, bool save) {
+    if (!z) return;
+    if (save) {
+        D3D12_RESOURCE_DESC rd = z->res->GetDesc();
+        D3D12_HEAP_PROPERTIES hp{D3D12_HEAP_TYPE_DEFAULT};
+        cap_undo_.Reset();
+        if (FAILED(dev_->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+                                                 IID_PPV_ARGS(&cap_undo_)))) {
+            return;
+        }
+        Transition(z->res.Get(), z->state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        cl_->CopyResource(cap_undo_.Get(), z->res.Get());
+        bound_rt_ = bound_ds_ = nullptr;
+        return;
+    }
+    if (!cap_undo_) return;
+    D3D12_RESOURCE_STATES st = D3D12_RESOURCE_STATE_COPY_DEST;
+    Transition(cap_undo_.Get(), st, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    Transition(z->res.Get(), z->state, D3D12_RESOURCE_STATE_COPY_DEST);
+    cl_->CopyResource(z->res.Get(), cap_undo_.Get());
+    Flush();
+    cap_undo_.Reset();
+    bound_rt_ = bound_ds_ = nullptr;
 }
 
 // the frame moves to another target: save the one it leaves

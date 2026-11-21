@@ -148,6 +148,9 @@ caller. The lookup has 20 callers in default.xbe.
 | `XBE_LOG_INFO` | release builds also log info and warnings |
 | `XBE_MUTE` | no sound output |
 | `XBE_CAPTURE_DIR` | folder for F3 frame captures: `frame.txt` has a line per draw (targets, shaders, blend, depth, cull, alpha test enable / func / ref, depth format, a stage's alpha kill and color key when set, textures), the shaders as translated, each texture and each target as it was left |
+| `XBE_CAPTURE_DEPTH_TEX=<hex>,...` | in an F3 capture, the raw depth buffer before and after each draw whose stage 0 texture is listed (texture data address), as `NNNN_pre_z.bin` / `NNNN_post_z.bin`: width, height, then a uint32 per texel with the depth in the low 24 bits |
+| `XBE_CAPTURE_SKIP_TEX=<hex>,...` | in an F3 capture, draws whose stage 0 texture is listed are not drawn |
+| `XBE_CAPTURE_UNDO_TEX=<hex>,...` | in an F3 capture, the depth buffer is put back after each draw whose stage 0 texture is listed, as it was before it (later draws test against the depth without it) |
 | `XBE_D3D12_DEBUG` | D3D12 debug layer |
 | `XBE_DISC_OVERRIDE=<folder>` | a file under the folder replaces the disc's file at the same path |
 | `XBE_SNAPSHOT_TRACE` | each parked thread's waits at a quick load |
