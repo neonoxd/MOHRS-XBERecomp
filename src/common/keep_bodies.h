@@ -28,7 +28,10 @@
 // - the body keeps its parts (the attached objects, gun and part meshes from the level's object pool, 150 for the
 //   whole level: default.xbe 0x152370, moh3rdc.xbe 0x14B710). A soldier spawned with that pool empty gets none and
 //   stands in the bind pose with no AI, so the pool is made larger for the bodies too, and the parts the bodies hold
-//   never number more than the slots added.
+//   never number more than the slots added. Its weapons' scripts (each attached object +0xB54..+0xB60 has one at
+//   +0x140, its data from the level's fixed script pool, 0x4C6F0) are destroyed as the part's free would: kept, they
+//   filled the pool and a spawn's weapon got no data block (crash at 0x49F4A). A weapon still in the world keeps its
+//   script: its collision handler (0xEF6B0) reads it without a test.
 // The soldier model pool is made larger by a number of spare models when the level's objects start (0xCB5E0 makes it
 // with the level's soldier limit), so live soldiers always find a model. The bodies are kept here, oldest first, never
 // more than the spare models: the oldest is freed before one more is kept. All are freed when the level shuts down.
@@ -60,16 +63,17 @@ struct BodyLayout {
     uint32_t part_pool;     // the level's object pool (factory +0x10) the soldiers' parts come from: same layout as
                             // the model pool, the object at slot +0x10
     uint32_t part_count;    // the game's number of objects in it
+    uint32_t part_script;   // fastcall part: destroys the part's script (+0x140) and clears it, as the part's free
 };
 // the part pool's slots added for each spare model
 inline constexpr uint32_t kPartsPerBody = 4;
 
 inline constexpr BodyLayout kDefaultBodies{0x25E9A0, 0x1E99A0, 0x270630, 0xFA3E0,  0x168,  0x270460, 0xCA7C0,
                                            0x270470, 128,      0x1FC7C0, 0x27D50, 0xD30,   0x4E570, 0x1E21A4,
-                                           0x270600, 150};
+                                           0x270600, 150,      0x1500D0};
 inline constexpr BodyLayout kCoopBodies{0x256BD0, 0x1E25C0, 0x2657B0, 0xF2EB0,  0x160,  0x2655E0, 0xBF070,
                                         0x2655F0, 64,       0x1F56E8, 0x27420, 0xD20,   0x518D0, 0x1DB4C4,
-                                        0x265780, 150};
+                                        0x265780, 150,      0x1494A0};
 
 // after the model's fade starts (default.xbe 0xE57C0, moh3rdc.xbe 0xDD940: thiscall model, seconds): the fader at
 // +0xFB0 off again for a dead soldier's model

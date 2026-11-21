@@ -46,6 +46,12 @@ models (`0x22E0` bytes each).
 | Level's records start | `0x4E690` | `0x519F0` |
 | Part pool (150 objects, factory `+0x10`), its creation, its allocation | `0x270600` (`0x3C0` each), `0x152370`, `0x152480` | `0x265780` (`0x3D0` each), `0x14B710`, |
 | Level's shutdown (`Gameloop_Shutdown`) | `0xA3380` | `0x965B0` |
+| Part start (thiscall part, ...): its script at `+0x140` | `0x150460` | `0x149830` |
+| Part's script destroy (fastcall part: `+0x140` destroyed and cleared), from the part's free | `0x1500D0`, `0x151900` | `0x1494A0`, `0x14AC80` |
+| Script start (no test for a data block), script data take (null when its bucket is full) | `0x4B120`, `0x4C6F0` | `0x4E240`, |
+| Script destroy | `0x4B2B0` | `0x4E3D0` |
+| Script pools start (per level): object pool, data buckets | `0x4C350`: `0x25E890`, `0x25E8F0` | |
+| Model start's use of its weapons' scripts (`+0xB54`..`+0xB60`) | `0xE4070` | `0xDC1D0` |
 
 A soldier model starts with team -1 (the model reset `0xCFE20`); the spawn's script gives it a team, and a soldier
 no script gives one keeps -1 while alive (the first level's opening: the soldiers who run out of the room, whose script
@@ -96,6 +102,17 @@ A soldier's parts are objects (vtable `0x1F2CE0`) from one pool of 150 for the w
 not act. The model's deactivation (`0xE4CB0`: `0xE40D0` for the attached objects and `+0x1040`, `0xEAA20` for the head
 part) and the model's free give them back.
 
+A soldier's weapons (its attached objects `+0xB54`-`+0xB60`) each have a script: the part's start (`0x150460`) makes
+one at `+0x140` from game data table `0x14`, with no entity. Its data block comes from the level's fixed script data
+pool (`0x4C350` at the level's start; buckets at `0x25E8F0`, 0x1C bytes each: words, words + 1, number, taken,
+total words, base, free list): 0x44 bytes × 50, 0x80 × 50, 0x140 × 100 and 0x258 × 28. The take (`0x4C6F0`) tries
+each bucket big enough and returns 0 when none has a block left; the script start (`0x4B120`) writes through it
+without a test and crashes (`0x49F4A`, a write to guest `0x14`). A rifle's script has 0x108 bytes of data, so the
+0x140 bucket holds about 100 of them. The part's free (`0x151900`) destroys the script (`0x1500D0` → `0x4B2B0`), which
+gives the block back (`0x4C170`). Only the model's start (`0xE4070`) uses its weapons' scripts. The world's objects
+handle a part with no script (its release, message posts and the base updates test for it), except the collision
+handler `0xEF6B0`, which reads the script's entity through it.
+
 A model pool (`0xD1E90`) holds its number at `+0`, the number in use at `+4`, the model size rounded to 16 at `+0xC`,
 its slots at `+0x10` and the last allocation's number at `+0x14`. Each slot is a 0x10-byte header and then the model
 (the soldier allocation `0xCB9D0`, co-op `0xC0260`): the header's `+4` is the model's `+0x3C` (its second interface),
@@ -140,6 +157,10 @@ and freed as in the game.
 - On being kept, the body's AI controller leaves the watch list, so the level's soldiers find its nodes as in the game.
   The watch list removal override passes over an entry that is not on the list: the controller's destructor at the
   body's free.
+- The body's weapons' scripts are destroyed with the game's call (`0x1500D0`, co-op `0x1494A0`) for each attached
+  object that is a part in use with a script and is not in the world, so the bodies don't fill the level's script
+  data pool. A weapon still in the world keeps its script. After a quick load the bodies found again have theirs
+  destroyed too (a save from before this held them).
 - A body keeps its parts, so it is still drawn whole. Its parts are the part pool's slots in use that the model's
   words point into, each counted once. The parts all bodies hold never number more than the slots added to the part
   pool (the pool's number less 150), so the level's soldiers find the game's 150. A body with more parts than that is
@@ -164,7 +185,8 @@ cmd /c "tools\dev.bat clang++ -std=c++20 -D_CRT_SECURE_NO_WARNINGS -Isrc -Isdk/r
 
 Covers the pool count, the setting off, a living soldier with no team left to the game, the fade, the model staying in the world until its record goes and then
 outliving it out of the world with the body brain, the body's AI controller off the watch list, its collision objects
-and first shape freed and the shadow's shape kept, the bodies drawn from
+and first shape freed and the shadow's shape kept, its weapons' scripts destroyed (not a weapon in the world, not a
+living soldier's, and again after a quick load), the bodies drawn from
 the world's draw only, the oldest body freed past the spares (registers put back), no spares, the shutdown, turning
 the setting off, finding the bodies in the pool after a quick load, the bodies' parts kept within the part pool's added
 slots, and the bodies of a save whose part pool has the game's count freed after its load. `MOHRS_CORPSE_TRACE=1` ([debugging.md](debugging.md)) logs soldier record destroys and

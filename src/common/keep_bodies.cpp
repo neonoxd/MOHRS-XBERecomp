@@ -133,6 +133,38 @@ void FreeCollision(X86Context& ctx, uint32_t model, const BodyLayout& l) {
     }
 }
 
+// an object of the part pool's that is in use: at +0x10 of a slot whose header's +8 is set
+bool PartInUse(uint32_t object, const BodyLayout& l) {
+    uint32_t number = R32(l.part_pool), step = R32(l.part_pool + 0xC) + 0x10, slots = R32(l.part_pool + 0x10);
+    if (!slots || !number || number > 0x10000 || step <= 0x10) return false;
+    uint32_t offset = object - slots;
+    return offset < number * step && offset % step == 0x10 && R32(slots + offset - 0x10 + 8);
+}
+
+bool InWorld(uint32_t object, const BodyLayout& l) {
+    uint32_t n = 0;
+    for (uint32_t o = R32(l.world); o && n < 0x10000; o = R32(o + 0x1C), n++)
+        if (o == object) return true;
+    return false;
+}
+
+// A body's weapons' scripts destroyed, as the part's free does (default.xbe 0x151900 -> 0x1500D0). The part's start
+// (0x150460) makes one for each weapon at +0x140, its data from the level's fixed script pool (0x4C6F0: 0x140-byte
+// blocks x100, 0x258 x28), and the script's start (0x4B120) does not test for none. Kept, the bodies' weapons filled
+// it, and the next spawn's weapon crashed (0x49F4A). Only the model's start (0xE4070) uses the weapons' scripts, and a
+// body never starts again; the part's free finds none. A weapon still in the world keeps its script: the world's
+// collision handler (0xEF6B0) reads it without a test.
+uint32_t ReleaseWeaponScripts(X86Context& ctx, uint32_t model, const BodyLayout& l) {
+    uint32_t released = 0;
+    for (uint32_t at = 0xB54; at <= 0xB60; at += 4) {
+        uint32_t part = R32(model + at);
+        if (!part || !PartInUse(part, l) || !R32(part + 0x140) || InWorld(part, l)) continue;
+        ThisCall(ctx, l.part_script, part, {});
+        released++;
+    }
+    return released;
+}
+
 // as the record destroy does: out of the world, deactivated, back to the pool
 void FreeBody(X86Context& ctx, uint32_t model, const BodyLayout& l) {
     ThisCall(ctx, l.leave_world, l.world, {model});
@@ -169,9 +201,12 @@ void FindBodies(X86Context& ctx, const BodyLayout& l) {
     }
     size_t found = g_bodies.size();
     Trim(ctx, l, 0, 0);
+    uint32_t scripts = 0;  // a save from before the weapons' scripts were released
+    for (const Kept& kept : g_bodies) scripts += ReleaseWeaponScripts(ctx, kept.model, l);
     if (Opt().keep_bodies || found)
-        LOGR("keep bodies: %zu bodies after the load (%zu freed), holding %u of %u added parts", g_bodies.size(),
-             found - g_bodies.size(), g_parts, SpareParts(l));
+        LOGR("keep bodies: %zu bodies after the load (%zu freed), holding %u of %u added parts, %u weapon scripts "
+             "released",
+             g_bodies.size(), found - g_bodies.size(), g_parts, SpareParts(l), scripts);
 }
 
 }  // namespace
@@ -196,12 +231,14 @@ bool KeepBodyModel(X86Context& ctx, const BodyLayout& l) {
     LeaveWatchList(ctx, model, l);
     ThisCall(ctx, l.leave_world, l.world, {model});  // as the record destroy does; drawn by DrawBodies from now on
     FreeCollision(ctx, model, l);
+    uint32_t scripts = ReleaseWeaponScripts(ctx, model, l);
     g_bodies.push_back({model, parts});
     g_parts += parts;
     static uint32_t logged = 0;
     if (logged++ < 8)
-        LOGR("keep bodies: model %08X kept (%zu of %u bodies, %u parts, %u of %u added parts)", model,
-             g_bodies.size(), spare, parts, g_parts, spare_parts);
+        LOGR("keep bodies: model %08X kept (%zu of %u bodies, %u parts, %u of %u added parts, %u weapon scripts "
+             "released)",
+             model, g_bodies.size(), spare, parts, g_parts, spare_parts, scripts);
     return true;
 }
 

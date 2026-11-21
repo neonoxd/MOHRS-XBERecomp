@@ -15,7 +15,7 @@
 namespace {
 
 std::vector<uint8_t> memory(0x600000);
-std::vector<uint32_t> freed, deactivated, drawn, deleted, shapes;
+std::vector<uint32_t> freed, deactivated, drawn, deleted, shapes, scripts;
 
 void Check(bool ok, const char* message) {
     if (!ok) { std::fprintf(stderr, "FAIL: %s\n", message); std::exit(1); }
@@ -128,6 +128,13 @@ void Level(int32_t limit) {
     drawn.clear();
     deleted.clear();
     shapes.clear();
+    scripts.clear();
+}
+// soldier i's part k with a weapon script at +0x140
+uint32_t Weapon(int i, uint32_t k) {
+    uint32_t part = R32(Model(i) + 0xB54 + k * 4);
+    G<uint32_t>(part + 0x140) = 0x5C0000 + part;
+    return part;
 }
 // the world's draw reaching its objects' end
 void DrawWorld(X86Context& ctx, uint32_t world = L.world) {
@@ -168,6 +175,10 @@ uint32_t CallGuest(X86Context& ctx, uint32_t fn, const uint32_t* args, size_t co
         shapes.push_back(args[0]);
     } else if (fn == kDeactivate) {
         deactivated.push_back(ctx.ecx);
+    } else if (fn == L.part_script) {
+        Check(count == 0 && R32(ctx.ecx + 0x140), "the part's script release takes a part with a script");
+        scripts.push_back(ctx.ecx);
+        G<uint32_t>(ctx.ecx + 0x140) = 0;
     } else if (fn == L.free_model) {
         Check(ctx.ecx == L.factory && count == 1, "free on the factory");
         freed.push_back(args[0]);
@@ -321,6 +332,33 @@ int main() {
     ctx.esi = Record(5);
     Check(!game::KeepBodyModel(ctx, L), "no added part slots: a body with parts is not kept");
 
+    // a body's weapons' scripts go (the level's script pool is fixed); a weapon still in the world keeps its script,
+    // a part with none or a pointer that is no part in use is left alone; a living soldier's weapons keep theirs
+    Level(4);
+    Spawn(0);
+    GiveParts(0, 4);
+    uint32_t gun = Weapon(0, 0), pistol = Weapon(0, 2), dropped = Weapon(0, 3);
+    G<uint32_t>(dropped + 0x1C) = R32(L.world);
+    G<uint32_t>(L.world) = dropped;
+    Spawn(1);
+    GiveParts(1, 1);
+    uint32_t living = Weapon(1, 0);
+    G<uint32_t>(Model(0) + 0xB58) = 0x5B0000;  // no part
+    Die(0);
+    ctx.esi = Record(0);
+    Check(game::KeepBodyModel(ctx, L), "a body with weapons is kept");
+    Check(scripts.size() == 2 && scripts[0] == gun && scripts[1] == pistol && !R32(gun + 0x140) &&
+              !R32(pistol + 0x140),
+          "its weapons' scripts are released");
+    Check(R32(dropped + 0x140) && R32(living + 0x140), "a weapon in the world and a living soldier's keep theirs");
+    // a save from before: the body's weapon still holds its script after the load
+    game::ForgetBodies();
+    scripts.clear();
+    Weapon(0, 0);
+    game::BodiesAfterLoad();
+    game::KeepBodiesPass(ctx, L);
+    Check(scripts.size() == 1 && scripts[0] == gun, "after a load the bodies' weapons' scripts are released");
+
     // no spares (the larger pool could not be had): the game's way
     Level(4);
     G<uint32_t>(L.model_pool) = 4;
@@ -396,5 +434,5 @@ int main() {
     Check(drawn.empty(), "and not drawn");
 
     std::puts("keep bodies: living soldiers with no team left alone, fade off, kept past its record out of the world and drawn, off the watch list, collision "
-              "freed, spares and added part slots never exceeded, shutdown, off and quick load");
+              "freed, weapon scripts released, spares and added part slots never exceeded, shutdown, off and quick load");
 }
